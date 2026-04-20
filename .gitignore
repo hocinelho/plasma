@@ -1,0 +1,41 @@
+@"
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# --- PyCharm ---
+.idea/
+*.iml
+
+# --- Environment & secrets ---
+.env
+.env.local
+*.key
+*.pem
+
+# --- Plasma private memory ---
+# Private working notes stay local, never pushed to GitHub
+.plasma/
+!.plasma/skills/
+.plasma/MEMORY.md
+.plasma/USER.md
+.plasma/memory.sqlite
+.plasma/audit.log
+
+# --- OS junk ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Logs & temp ---
+*.log
+*.tmp
+tmp/
+"@ | Out-File -FilePath .gitignore -Encoding utf8
