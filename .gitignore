@@ -19,7 +19,8 @@ env/
 .env.local
 *.key
 *.pem
-
+tts_test.wav
+*.wav
 # --- Plasma private memory ---
 # Private working notes stay local, never pushed to GitHub
 .plasma/
