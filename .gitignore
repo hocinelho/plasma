@@ -28,6 +28,7 @@ env/
 .plasma/USER.md
 .plasma/memory.sqlite
 .plasma/audit.log
+.plasma/voices/
 
 # --- OS junk ---
 Thumbs.db

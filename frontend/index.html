@@ -2,10 +2,6 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title><!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
     <title>Plasma — Voice Assistant</title>
     <style>
         :root {
@@ -58,6 +54,7 @@
         #status.ok .dot { background: var(--ok); }
         #status.recording .dot { background: var(--accent-hot); animation: pulse 1s infinite; }
         #status.processing .dot { background: var(--accent); animation: pulse 0.5s infinite; }
+        #status.speaking .dot { background: var(--ok); animation: pulse 0.6s infinite; }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
@@ -138,6 +135,7 @@ const log = document.getElementById('log');
 let mediaRecorder = null;
 let chunks = [];
 let isRecording = false;
+let isBusy = false;                       // prevent overlapping recordings
 const SESSION_ID = 'web-' + Math.random().toString(36).slice(2, 10);
 
 function setStatus(mode, text) {
@@ -175,7 +173,32 @@ async function initMic() {
     }
 }
 
+function playBase64Audio(b64) {
+    return new Promise((resolve) => {
+        if (!b64) { resolve(); return; }
+        try {
+            const audio = new Audio('data:audio/wav;base64,' + b64);
+            audio.onended = () => resolve();
+            audio.onerror = (e) => {
+                console.error('Audio playback failed', e);
+                addTurn('error', 'Audio playback failed (browser blocked autoplay?)');
+                resolve();
+            };
+            audio.play().catch(e => {
+                console.error('audio.play() rejected:', e);
+                addTurn('error', 'Audio autoplay blocked. Click the page once, then retry.');
+                resolve();
+            });
+        } catch (e) {
+            console.error(e);
+            resolve();
+        }
+    });
+}
+
 async function sendAudio(blob) {
+    if (isBusy) { console.warn('Still busy; dropping extra recording'); return; }
+    isBusy = true;
     setStatus('processing', 'transcribing + thinking…');
     const form = new FormData();
     form.append('audio', blob, 'speech.webm');
@@ -186,15 +209,24 @@ async function sendAudio(blob) {
         if (data.transcript) addTurn('user', data.transcript);
         if (data.reply) addTurn('assistant', data.reply);
         if (data.error && !data.transcript) addTurn('error', data.error);
+
+        if (data.audio_b64) {
+            setStatus('speaking', 'speaking…');
+            await playBase64Audio(data.audio_b64);
+        }
+
         setStatus('ok', 'ready');
     } catch (err) {
+        console.error(err);
         setStatus('', 'error');
         addTurn('error', 'Request failed: ' + err.message);
+    } finally {
+        isBusy = false;
     }
 }
 
 function startRecording() {
-    if (isRecording || !mediaRecorder) return;
+    if (isRecording || isBusy || !mediaRecorder) return;
     if (mediaRecorder.state === 'recording') return;
     isRecording = true;
     btn.classList.add('recording');
@@ -235,10 +267,5 @@ window.addEventListener('keyup', e => {
 
 initMic();
 </script>
-</body>
-</html></title>
-</head>
-<body>
-
 </body>
 </html>

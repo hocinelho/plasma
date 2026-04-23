@@ -32,8 +32,10 @@ def get_memory() -> MemoryStore:
 def _build_system_prompt(memory: MemoryStore) -> str:
     facts = memory.get_facts(limit=20)
     base = (
-        "You are Plasma, a local-first personal AI assistant running on the user's own machine. "
-        "Be concise, helpful, and direct. Avoid unnecessary preamble."
+         "You are Plasma, a local-first voice assistant. "
+        "Keep replies SHORT — usually 1 to 2 sentences, max 40 words. "
+        "Be direct and friendly. No preamble, no apologies, no emoji. "
+        "If the user asks a simple question, answer in one sentence."
     )
     if not facts:
         return base
