@@ -3,26 +3,29 @@ Plasma voice pipeline — turns raw audio bytes into a transcript.
 
 Accepts:
 - int16 numpy array at 16 kHz (from the Python mic capture / hotkey path)
-- OR raw bytes from a browser upload (WebM, WAV, ogg — decoded via soundfile)
+- OR raw bytes from a browser upload (WebM/Opus, WAV, MP3, ogg — decoded via FFmpeg)
 
-Returns: transcript string.
+Returns: {"text": str, "language": str, "duration": float, "latency": float}
+or      {"text": "", "error": "..."} on failure.
 
-VAD is NOT run here — we trust that the caller already ensured the audio
-contains speech (push-to-talk users press a key, so the full clip is speech).
+Uses imageio-ffmpeg which ships a bundled FFmpeg binary — no system install needed.
 """
 from __future__ import annotations
 import io
 import logging
+import subprocess
 from typing import Optional
 
 import numpy as np
-import soundfile as sf
 
 from backend.modules.voice.asr import WhisperASR
 
 log = logging.getLogger("plasma.pipeline")
 
+TARGET_SR = 16_000  # Whisper requires 16 kHz
+
 _asr: Optional[WhisperASR] = None
+_ffmpeg_path: Optional[str] = None
 
 
 def get_asr() -> WhisperASR:
@@ -33,34 +36,72 @@ def get_asr() -> WhisperASR:
     return _asr
 
 
-def transcribe_audio_bytes(data: bytes) -> dict:
-    """
-    Decode any common audio format (webm, wav, ogg) and transcribe.
+def _get_ffmpeg() -> str:
+    """Return the path to the bundled FFmpeg binary."""
+    global _ffmpeg_path
+    if _ffmpeg_path is None:
+        import imageio_ffmpeg
+        _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        log.info(f"Using FFmpeg at: {_ffmpeg_path}")
+    return _ffmpeg_path
 
-    Uses soundfile, which handles WAV/FLAC natively and WebM via libsndfile's
-    system defaults on Windows (via the underlying libsndfile 1.2+).
+
+def _decode_with_ffmpeg(data: bytes) -> np.ndarray:
     """
+    Decode any audio bytes -> int16 mono 16 kHz numpy array via FFmpeg.
+
+    Pipes the raw bytes on stdin, asks FFmpeg to output raw PCM on stdout.
+    Works for WebM/Opus, WAV, MP3, ogg, m4a, anything FFmpeg supports.
+    """
+    ffmpeg = _get_ffmpeg()
+    cmd = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel", "error",
+        "-i", "pipe:0",          # read from stdin
+        "-f", "s16le",           # output raw 16-bit little-endian PCM
+        "-ac", "1",              # 1 channel (mono)
+        "-ar", str(TARGET_SR),   # 16 kHz sample rate
+        "pipe:1",                # write to stdout
+    ]
     try:
-        audio, sr = sf.read(io.BytesIO(data), dtype="int16")
+        proc = subprocess.run(
+            cmd,
+            input=data,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="ignore")
+        raise RuntimeError(f"FFmpeg decode failed: {stderr}") from e
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("FFmpeg decode timed out")
+
+    audio = np.frombuffer(proc.stdout, dtype=np.int16)
+    return audio
+
+
+def transcribe_audio_bytes(data: bytes) -> dict:
+    """Decode any common audio format and transcribe it with Whisper."""
+    if not data:
+        return {"text": "", "error": "empty_audio"}
+
+    try:
+        audio = _decode_with_ffmpeg(data)
     except Exception as e:
-        log.error(f"Failed to decode audio: {e}")
+        log.error(f"Audio decode failed: {e}")
         return {"text": "", "error": f"decode_failed: {e}"}
 
-    # Downmix to mono if needed
-    if audio.ndim > 1:
-        audio = audio.mean(axis=1).astype(np.int16)
-
-    # Resample to 16 kHz if needed (Whisper requires it)
-    if sr != 16_000:
-        audio = _resample_int16(audio, sr, 16_000)
-        sr = 16_000
+    if len(audio) < 1600:  # < 0.1 s
+        return {"text": "", "error": "audio_too_short"}
 
     return transcribe_array(audio)
 
 
 def transcribe_array(audio: np.ndarray) -> dict:
-    """Transcribe an int16 mono 16kHz numpy array."""
-    if audio is None or len(audio) < 1600:  # less than 0.1s
+    """Transcribe a ready-to-use int16 mono 16 kHz numpy array."""
+    if audio is None or len(audio) < 1600:
         return {"text": "", "error": "audio_too_short"}
 
     asr = get_asr()
@@ -70,15 +111,3 @@ def transcribe_array(audio: np.ndarray) -> dict:
         f"dur={result['duration']:.1f}s lat={result['latency']:.1f}s"
     )
     return result
-
-
-def _resample_int16(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
-    """Simple linear resampler for int16 audio. Good enough for speech."""
-    if src_sr == dst_sr:
-        return audio
-    duration = len(audio) / src_sr
-    new_len = int(duration * dst_sr)
-    x_old = np.linspace(0, 1, num=len(audio), endpoint=False)
-    x_new = np.linspace(0, 1, num=new_len, endpoint=False)
-    resampled = np.interp(x_new, x_old, audio.astype(np.float32))
-    return resampled.astype(np.int16)
