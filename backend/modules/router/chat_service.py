@@ -1,20 +1,21 @@
 """
-Plasma chat service — glues memory + local Ollama.
+Plasma chat service — glues memory, skills, and Ollama.
 
 Flow:
 1. Save incoming user message to memory
-2. Load last N turns of conversation for this session
-3. Build a system prompt from known facts
-4. Call Ollama
-5. Save the assistant reply
-6. Return the reply
+2. Try to match a SKILL via keyword triggers
+   - If matched: run the skill, return its reply fast (no LLM call)
+3. Otherwise, fall back to Ollama (with memory injection)
+4. Save the assistant reply
+5. Return the reply
 
-Later steps (9+) will add cloud escalation + PII redaction.
+Skills > Ollama for speed. Ollama > nothing for flexibility.
 """
 from __future__ import annotations
 import logging
 from backend.modules.memory.store import MemoryStore
 from backend.modules.router.ollama_client import chat as ollama_chat
+from backend.modules.skills.registry import get_registry
 
 log = logging.getLogger("plasma.chat_service")
 
@@ -32,7 +33,7 @@ def get_memory() -> MemoryStore:
 def _build_system_prompt(memory: MemoryStore) -> str:
     facts = memory.get_facts(limit=20)
     base = (
-         "You are Plasma, a local-first voice assistant. "
+        "You are Plasma, a local-first voice assistant. "
         "Keep replies SHORT — usually 1 to 2 sentences, max 40 words. "
         "Be direct and friendly. No preamble, no apologies, no emoji. "
         "If the user asks a simple question, answer in one sentence."
@@ -49,24 +50,34 @@ def handle_chat(session_id: str, user_message: str) -> str:
     # 1. Save the user message
     memory.add_message(session_id, "user", user_message)
 
-    # 2. Load history (includes the just-saved message; drop it for the API call)
+    # 2. Try the skill registry first
+    try:
+        registry = get_registry()
+        skill = registry.find_by_trigger(user_message)
+        if skill:
+            log.info(f"Skill match: {skill.name} for utterance: {user_message!r}")
+            reply = skill.invoke({"utterance": user_message, "session_id": session_id})
+            memory.add_message(session_id, "assistant", reply)
+            memory.mark_skill_used(skill.name, success=True)
+            return reply
+    except Exception as e:
+        log.warning(f"Skill routing failed, falling back to LLM: {e}")
+
+    # 3. No skill matched — fall back to Ollama
     full_history = memory.get_conversation(session_id, limit=20)
     history_for_api = [
         {"role": m["role"], "content": m["content"]} for m in full_history[:-1]
     ]
-
-    # 3. Build system prompt with facts
     system_prompt = _build_system_prompt(memory)
 
-    # 4. Call Ollama
     reply = ollama_chat(
         user_message=user_message,
         history=history_for_api,
         system_prompt=system_prompt,
     )
 
-    # 5. Save the assistant reply
+    # 4. Save the assistant reply
     memory.add_message(session_id, "assistant", reply)
 
-    log.info(f"Chat turn: session={session_id} reply_len={len(reply)}")
+    log.info(f"LLM reply: session={session_id} reply_len={len(reply)}")
     return reply
