@@ -2,11 +2,13 @@
 Plasma - main backend entrypoint.
 
 Endpoints:
-- GET  /          — serve the web UI (frontend/index.html)
-- GET  /health    — health + component status + Ollama/TTS probes
-- POST /chat      — text chat: user message -> Ollama (with memory) -> reply
-- POST /voice/chat — voice chat: WebM/WAV audio -> Whisper -> /chat -> reply + Piper audio
-- WS   /ws        — reserved for future streaming use
+- GET  /              — serve the web UI (frontend/index.html)
+- GET  /health        — health + component status + Ollama/TTS probes
+- POST /chat          — text chat: user message -> Ollama (with memory) -> reply
+- POST /voice/chat    — voice chat: WebM/WAV audio -> Whisper -> /chat -> reply + Piper audio
+- GET  /user/profile  — current USER.md contents
+- POST /user/reflect  — regenerate USER.md from facts
+- WS   /ws            — reserved for future streaming use
 """
 from __future__ import annotations
 
@@ -22,8 +24,9 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.core.config import config as plasma_config
-from backend.modules.router.chat_service import handle_chat
+from backend.modules.router.chat_service import handle_chat, get_memory
 from backend.modules.router.ollama_client import health_check as ollama_health
+from backend.modules.user.user_md import write_user_md, read_user_md
 from backend.modules.voice.pipeline import transcribe_audio_bytes
 from backend.modules.voice.tts import synthesize as tts_synthesize, health_check as tts_health
 
@@ -35,6 +38,9 @@ logging.basicConfig(
 log = logging.getLogger("plasma")
 
 
+# ---------------------------------------------------------------------------
+# Lifespan: warm Ollama + Whisper + Piper on startup
+# ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Plasma backend starting up...")
@@ -57,7 +63,6 @@ async def lifespan(app: FastAPI):
 
     async def _warm_whisper():
         try:
-            # Import inside function to avoid startup cost if model is huge
             from backend.modules.voice.pipeline import get_asr
             await asyncio.to_thread(get_asr)
             log.info("Whisper model warmed")
@@ -95,6 +100,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Helper: refresh USER.md every N turns
+# ---------------------------------------------------------------------------
+def _maybe_refresh_user_md(session_id: str, every_n_turns: int = 10) -> None:
+    try:
+        msgs = get_memory().get_conversation(session_id, limit=1000)
+        if msgs and len(msgs) % every_n_turns == 0:
+            asyncio.create_task(asyncio.to_thread(write_user_md))
+            log.info(
+                f"USER.md refresh scheduled (session={session_id}, turns={len(msgs)})"
+            )
+    except Exception as e:
+        log.warning(f"USER.md auto-refresh failed: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +168,7 @@ class ChatResponse(BaseModel):
 async def chat_endpoint(req: ChatRequest):
     """Text chat: user message -> Ollama (with memory) -> reply."""
     reply = await asyncio.to_thread(handle_chat, req.session_id, req.message)
+    _maybe_refresh_user_md(req.session_id)
     return ChatResponse(session_id=req.session_id, reply=reply)
 
 
@@ -183,8 +204,9 @@ async def voice_chat(
         }
 
     reply = await asyncio.to_thread(handle_chat, session_id, transcript)
+    _maybe_refresh_user_md(session_id)
 
-    # Synthesize reply audio with Piper (may fail gracefully — still return text)
+    # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
     if plasma_config.TTS_ENABLED:
         try:
@@ -202,6 +224,26 @@ async def voice_chat(
         "asr_latency_s": asr_result.get("latency"),
         "audio_b64": audio_b64,
     }
+
+
+# ---------------------------------------------------------------------------
+# USER.md (auto-generated user profile)
+# ---------------------------------------------------------------------------
+@app.post("/user/reflect")
+async def user_reflect():
+    """Regenerate USER.md's auto block from the current facts in memory."""
+    path = await asyncio.to_thread(write_user_md)
+    return {
+        "status": "ok",
+        "path": str(path),
+        "content": read_user_md(),
+    }
+
+
+@app.get("/user/profile")
+async def user_profile():
+    """Return the current USER.md contents."""
+    return {"content": read_user_md() or "(USER.md does not exist yet)"}
 
 
 # ---------------------------------------------------------------------------

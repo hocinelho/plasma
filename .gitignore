@@ -30,7 +30,7 @@ tts_test.wav
 .plasma/memory.sqlite
 .plasma/audit.log
 .plasma/voices/
-
+.plasma/USER.md
 # --- OS junk ---
 Thumbs.db
 Desktop.ini

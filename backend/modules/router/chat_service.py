@@ -31,17 +31,26 @@ def get_memory() -> MemoryStore:
 
 
 def _build_system_prompt(memory: MemoryStore) -> str:
-    facts = memory.get_facts(limit=20)
+    from backend.modules.user.user_md import read_user_md
+
     base = (
         "You are Plasma, a local-first voice assistant. "
         "Keep replies SHORT — usually 1 to 2 sentences, max 40 words. "
         "Be direct and friendly. No preamble, no apologies, no emoji. "
         "If the user asks a simple question, answer in one sentence."
     )
-    if not facts:
-        return base
-    fact_lines = "\n".join(f"- ({f['category']}) {f['content']}" for f in facts)
-    return f"{base}\n\nKnown facts about the user and their context:\n{fact_lines}"
+
+    user_md = read_user_md()
+    if user_md:
+        return f"{base}\n\n--- About the user (from USER.md) ---\n{user_md}"
+
+    # Fallback: list facts directly if USER.md doesn't exist yet
+    facts = memory.get_facts(limit=20)
+    if facts:
+        fact_lines = "\n".join(f"- ({f['category']}) {f['content']}" for f in facts)
+        return f"{base}\n\nKnown facts about the user:\n{fact_lines}"
+
+    return base
 
 
 def handle_chat(session_id: str, user_message: str) -> str:

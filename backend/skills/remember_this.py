@@ -1,4 +1,4 @@
-"""Skill: remember_this — stores a fact in Plasma's memory."""
+"""Skill: remember_this — stores a fact in Plasma's memory (dedup-aware)."""
 from __future__ import annotations
 import re
 from backend.modules.memory.store import MemoryStore
@@ -42,13 +42,19 @@ def run(args: dict | None = None) -> str:
         return "What would you like me to remember?"
     fact = m.group(1).strip().rstrip(".?!").strip()
 
-    # Reject clearly incomplete transcripts
     if not fact or len(fact) < 4:
         return "That sounded cut off. Could you repeat the full sentence?"
     if fact.endswith("...") or "..." in fact:
         return "That sounded cut off. Could you repeat the full sentence?"
 
-    _mem().add_fact(category="user_note", content=fact, source="voice_skill")
+    # Deduplicate: check if an identical fact already exists (case-insensitive)
+    memory = _mem()
+    existing = memory.get_facts(category="user_note", limit=500)
+    for f in existing:
+        if f["content"].strip().lower() == fact.lower():
+            return f"I already remember that: {fact}."
+
+    memory.add_fact(category="user_note", content=fact, source="voice_skill")
     return f"Got it. I'll remember: {fact}."
 
 
