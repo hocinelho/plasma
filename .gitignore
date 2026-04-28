@@ -31,6 +31,9 @@ tts_test.wav
 .plasma/audit.log
 .plasma/voices/
 .plasma/USER.md
+.plasma/skill_proposals.json
+# scratch/one-shot scripts
+_*.py
 # --- OS junk ---
 Thumbs.db
 Desktop.ini

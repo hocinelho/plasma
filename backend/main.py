@@ -29,7 +29,7 @@ from backend.modules.router.ollama_client import health_check as ollama_health
 from backend.modules.user.user_md import write_user_md, read_user_md
 from backend.modules.voice.pipeline import transcribe_audio_bytes
 from backend.modules.voice.tts import synthesize as tts_synthesize, health_check as tts_health
-
+from backend.modules.skills.suggester import get_suggester
 
 logging.basicConfig(
     level=logging.INFO,
@@ -245,7 +245,23 @@ async def user_profile():
     """Return the current USER.md contents."""
     return {"content": read_user_md() or "(USER.md does not exist yet)"}
 
+# ---------------------------------------------------------------------------
+# Skill proposals
+# ---------------------------------------------------------------------------
+@app.get("/skills/proposals")
+async def get_skill_proposals():
+    """List all skill proposals (pending, approved, rejected)."""
+    return {"proposals": get_suggester().list_proposals()}
 
+
+@app.post("/skills/proposals/approve/{name}")
+async def approve_skill_proposal(name: str):
+    return {"result": get_suggester().approve(name)}
+
+
+@app.post("/skills/proposals/reject/{name}")
+async def reject_skill_proposal(name: str):
+    return {"result": get_suggester().reject(name)}
 # ---------------------------------------------------------------------------
 # WebSocket (reserved)
 # ---------------------------------------------------------------------------
