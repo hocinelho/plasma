@@ -12,7 +12,7 @@ Flow:
 from __future__ import annotations
 import logging
 from backend.modules.memory.store import MemoryStore
-from backend.modules.router.ollama_client import chat as ollama_chat
+from backend.modules.router.ollama_client import chat_first_sentence as ollama_chat
 from backend.modules.skills.registry import get_registry
 from backend.modules.skills.suggester import get_suggester
 
