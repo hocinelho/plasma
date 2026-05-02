@@ -30,15 +30,16 @@ class WhisperASR:
 
     def __init__(
         self,
-        model_name: str = DEFAULT_MODEL,
+        model_name: str | None = None,
         device: str = "cpu",
         compute_type: str = "int8",
     ):
-        self.model_name = model_name
-        log.info(f"Loading faster-whisper model '{model_name}' ({compute_type} on {device})...")
+        from backend.core.config import config
+        self.model_name = model_name or config.WHISPER_MODEL or DEFAULT_MODEL
+        log.info(f"Loading faster-whisper model '{self.model_name}' ({compute_type} on {device})...")
         t0 = time.time()
         self.model = WhisperModel(
-            model_name,
+            self.model_name,
             device=device,
             compute_type=compute_type,
         )

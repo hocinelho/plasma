@@ -16,6 +16,10 @@ class Config:
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "orca-mini:latest")
 
+    # --- Local ASR (Whisper) ---
+    # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)
+    WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "small.en")
+
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
