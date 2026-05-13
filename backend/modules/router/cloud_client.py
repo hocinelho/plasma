@@ -1,15 +1,21 @@
 """
-PA-29 — Groq cloud LLM client for Plasma.
+PA-29 — Provider-agnostic cloud LLM client for Plasma.
 
-Uses Groq's OpenAI-compatible /chat/completions endpoint over httpx.
+Uses any OpenAI-compatible /chat/completions endpoint over httpx.
+Default provider: Google Gemini (free, 1500 req/day via AI Studio).
+Swap provider by setting CLOUD_API_KEY / CLOUD_BASE_URL / CLOUD_MODEL in .env.
+
+Compatible providers (all speak OpenAI wire protocol):
+  - Google Gemini   https://generativelanguage.googleapis.com/v1beta/openai/
+  - Cerebras        https://api.cerebras.ai/v1
+  - OpenRouter      https://openrouter.ai/api/v1
+  - Groq            https://api.groq.com/openai/v1
+
 PII is redacted from every outbound message via pii_redactor.redact_messages().
 
 Two modes (mirrors ollama_client interface):
   chat()                — full blocking response, stream=False
   chat_first_sentence() — streaming, returns on first sentence boundary
-
-Falls back gracefully: if the API key is missing or the call fails, the
-caller (chat_service) catches the exception and falls back to Ollama.
 """
 from __future__ import annotations
 import json
@@ -29,7 +35,7 @@ _SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
 
 def _headers() -> dict:
     return {
-        "Authorization": f"Bearer {config.GROQ_API_KEY}",
+        "Authorization": f"Bearer {config.CLOUD_API_KEY}",
         "Content-Type": "application/json",
     }
 
@@ -50,8 +56,8 @@ def _build_messages(
 
 
 def is_available() -> bool:
-    """True if a Groq API key is configured."""
-    return bool(config.GROQ_API_KEY)
+    """True if a cloud API key is configured."""
+    return bool(config.CLOUD_API_KEY)
 
 
 def chat(
@@ -60,15 +66,15 @@ def chat(
     system_prompt: str | None = None,
     model: str | None = None,
 ) -> str:
-    """Full blocking Groq call — waits for the complete reply."""
+    """Full blocking cloud call — waits for the complete reply."""
     if not is_available():
-        raise RuntimeError("GROQ_API_KEY not set")
+        raise RuntimeError("CLOUD_API_KEY not set")
 
-    model = model or config.GROQ_MODEL
-    url = f"{config.GROQ_BASE_URL}/chat/completions"
+    model = model or config.CLOUD_MODEL
+    url = f"{config.CLOUD_BASE_URL.rstrip('/')}/chat/completions"
     messages = _build_messages(system_prompt, history, user_message)
     payload = {"model": model, "messages": messages, "stream": False}
-    log.info(f"Groq call (full): model={model} msgs={len(messages)}")
+    log.info(f"Cloud call (full): model={model} msgs={len(messages)}")
 
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         resp = client.post(url, json=payload, headers=_headers())
@@ -88,20 +94,19 @@ def chat_first_sentence(
     min_words: int = 4,
 ) -> str:
     """
-    Stream tokens from Groq, return at the first sentence boundary.
+    Stream tokens from the cloud provider, return at the first sentence boundary.
 
-    Groq runs at ~750 tok/s so the full round-trip is under 1s even
-    without early termination. Early termination still cuts TTS latency
-    because we don't wait for a 3-sentence reply when 1 sentence is ready.
+    Early termination cuts TTS latency: we don't wait for a 3-sentence reply
+    when 1 sentence is already ready.
     """
     if not is_available():
-        raise RuntimeError("GROQ_API_KEY not set")
+        raise RuntimeError("CLOUD_API_KEY not set")
 
-    model = model or config.GROQ_MODEL
-    url = f"{config.GROQ_BASE_URL}/chat/completions"
+    model = model or config.CLOUD_MODEL
+    url = f"{config.CLOUD_BASE_URL.rstrip('/')}/chat/completions"
     messages = _build_messages(system_prompt, history, user_message)
     payload = {"model": model, "messages": messages, "stream": True}
-    log.info(f"Groq call (stream): model={model} msgs={len(messages)}")
+    log.info(f"Cloud call (stream): model={model} msgs={len(messages)}")
 
     collected = ""
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
@@ -128,17 +133,17 @@ def chat_first_sentence(
                     m = _SENTENCE_END.search(collected)
                     if m:
                         first = collected[: m.end()].strip()
-                        log.info(f"Groq first sentence ready ({len(first)} chars)")
+                        log.info(f"Cloud first sentence ready ({len(first)} chars)")
                         return first
 
     return collected.strip()
 
 
 def health_check() -> dict:
-    """Quick probe: is Groq reachable and is the key valid?"""
+    """Quick probe: is the cloud provider reachable and is the key valid?"""
     if not is_available():
-        return {"reachable": False, "error": "GROQ_API_KEY not configured"}
-    url = f"{config.GROQ_BASE_URL}/models"
+        return {"reachable": False, "error": "CLOUD_API_KEY not configured"}
+    url = f"{config.CLOUD_BASE_URL.rstrip('/')}/models"
     try:
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(url, headers=_headers())
@@ -146,7 +151,7 @@ def health_check() -> dict:
             models = [m["id"] for m in resp.json().get("data", [])]
         return {
             "reachable": True,
-            "model_present": config.GROQ_MODEL in models,
+            "model_present": config.CLOUD_MODEL in models,
             "available_models": models,
         }
     except Exception as e:

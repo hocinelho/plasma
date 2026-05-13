@@ -12,10 +12,15 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 
 class Config:
-    # --- Cloud LLM (Groq — Step 9) ---
-    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+    # --- Cloud LLM (OpenAI-compatible, provider-agnostic) ---
+    # Default: Google Gemini (free tier, 1500 req/day).
+    # Swap to Cerebras, OpenRouter, or Groq by changing these three vars.
+    CLOUD_API_KEY: str = os.getenv("CLOUD_API_KEY", "")
+    CLOUD_MODEL: str = os.getenv("CLOUD_MODEL", "gemini-2.0-flash")
+    CLOUD_BASE_URL: str = os.getenv(
+        "CLOUD_BASE_URL",
+        "https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
 
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

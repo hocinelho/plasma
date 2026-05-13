@@ -1,4 +1,4 @@
-"""Tests for PA-29 — Groq cloud client (all HTTP mocked, no real API call)."""
+"""Tests for PA-29 — provider-agnostic cloud client (all HTTP mocked, no real API call)."""
 from __future__ import annotations
 from unittest.mock import MagicMock, patch
 import json
@@ -33,14 +33,14 @@ def _sse_lines(content: str) -> list[str]:
 def test_is_available_false_when_no_key():
     from backend.modules.router.cloud_client import is_available
     with patch("backend.modules.router.cloud_client.config") as cfg:
-        cfg.GROQ_API_KEY = ""
+        cfg.CLOUD_API_KEY = ""
         assert is_available() is False
 
 
 def test_is_available_true_when_key_set():
     from backend.modules.router.cloud_client import is_available
     with patch("backend.modules.router.cloud_client.config") as cfg:
-        cfg.GROQ_API_KEY = "gsk_test"
+        cfg.CLOUD_API_KEY = "test_key"
         assert is_available() is True
 
 
@@ -49,8 +49,8 @@ def test_is_available_true_when_key_set():
 def test_chat_raises_when_no_key():
     from backend.modules.router.cloud_client import chat
     with patch("backend.modules.router.cloud_client.config") as cfg:
-        cfg.GROQ_API_KEY = ""
-        with pytest.raises(RuntimeError, match="GROQ_API_KEY not set"):
+        cfg.CLOUD_API_KEY = ""
+        with pytest.raises(RuntimeError, match="CLOUD_API_KEY not set"):
             chat("hello")
 
 
@@ -61,9 +61,9 @@ def test_chat_returns_content(tmp_path):
 
     with patch("backend.modules.router.cloud_client.config") as cfg, \
          patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
-        cfg.GROQ_API_KEY = "gsk_test"
-        cfg.GROQ_MODEL = "llama-3.1-8b-instant"
-        cfg.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "gemini-2.0-flash"
+        cfg.CLOUD_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
         mock_client.return_value.__enter__.return_value.post.return_value = fake_resp
 
         result = chat("What is the capital of France?")
@@ -78,9 +78,9 @@ def test_chat_strips_whitespace():
 
     with patch("backend.modules.router.cloud_client.config") as cfg, \
          patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
-        cfg.GROQ_API_KEY = "gsk_test"
-        cfg.GROQ_MODEL = "llama-3.1-8b-instant"
-        cfg.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "gemini-2.0-flash"
+        cfg.CLOUD_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
         mock_client.return_value.__enter__.return_value.post.return_value = fake_resp
 
         assert chat("hi") == "Hello world."
@@ -91,7 +91,7 @@ def test_chat_strips_whitespace():
 def test_chat_first_sentence_raises_when_no_key():
     from backend.modules.router.cloud_client import chat_first_sentence
     with patch("backend.modules.router.cloud_client.config") as cfg:
-        cfg.GROQ_API_KEY = ""
+        cfg.CLOUD_API_KEY = ""
         with pytest.raises(RuntimeError):
             chat_first_sentence("hello")
 
@@ -109,9 +109,9 @@ def test_chat_first_sentence_returns_first_sentence():
 
     with patch("backend.modules.router.cloud_client.config") as cfg, \
          patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
-        cfg.GROQ_API_KEY = "gsk_test"
-        cfg.GROQ_MODEL = "llama-3.1-8b-instant"
-        cfg.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "gemini-2.0-flash"
+        cfg.CLOUD_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
         mock_client.return_value.__enter__.return_value.stream.return_value = mock_stream
 
         result = chat_first_sentence("What's the weather?", min_words=3)
@@ -134,9 +134,9 @@ def test_chat_redacts_pii_before_sending():
 
     with patch("backend.modules.router.cloud_client.config") as cfg, \
          patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
-        cfg.GROQ_API_KEY = "gsk_test"
-        cfg.GROQ_MODEL = "llama-3.1-8b-instant"
-        cfg.GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "gemini-2.0-flash"
+        cfg.CLOUD_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
         mock_client.return_value.__enter__.return_value.post.side_effect = fake_post
 
         chat("my email is test@example.com")
