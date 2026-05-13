@@ -63,10 +63,10 @@
 |---|---|---|---|---|
 | PA-26 | Story | Ollama HTTP client `/api/chat` | Done | Step 3 |
 | PA-27 | Task  | Stream first sentence from Ollama (saves 3–8s) | Done | 648e4e7 |
-| PA-28 | Story | PII redaction before any cloud call | **Done** | 17 tests / commit pending |
-| PA-29 | Story | Cloud LLM via Groq — sub-1s replies | To Do | — |
+| PA-28 | Story | PII redaction before any cloud call | **Done** | a5150a2 |
+| PA-29 | Story | Cloud LLM via Groq — sub-1s replies | **Done** | commit pending |
 | PA-30 | Story | Audit log at `.plasma/audit.log` | To Do | — |
-| PA-31 | Story | Graceful offline fallback to Ollama | To Do | — |
+| PA-31 | Story | Graceful offline fallback to Ollama | **Done** | built into chat_service |
 | PA-32 | Task  | Claude API as second cloud provider | To Do | — |
 
 ### PA-33 — EPIC: Wake Word (children PA-34 → PA-35)
@@ -199,9 +199,9 @@
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
 | PA-28 | Story | PII redaction before cloud call | **Done** |
-| PA-29 | Story | Cloud LLM via Groq — sub-1s replies | **In Progress** |
+| PA-29 | Story | Cloud LLM via Groq — sub-1s replies | **Done** |
 | PA-30 | Story | Audit log at .plasma/audit.log | **To Do** |
-| PA-31 | Story | Graceful offline fallback to Ollama | **To Do** |
+| PA-31 | Story | Graceful offline fallback to Ollama | **Done** |
 
 PA-28 blocks PA-29 → do PA-28 first.
 

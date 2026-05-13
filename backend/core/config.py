@@ -12,6 +12,11 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 
 class Config:
+    # --- Cloud LLM (Groq — Step 9) ---
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    GROQ_BASE_URL: str = "https://api.groq.com/openai/v1"
+
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "orca-mini:latest")
