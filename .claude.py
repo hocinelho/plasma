@@ -7,11 +7,11 @@ You are working on Plasma, a local-first voice assistant. Read these instruction
 ## Required reading order
 
 1. This file
-2. `.plasma/MEMORY.md` — full project state and decisions log
-3. `HANDOFF.md` — current session priorities and unfinished cleanup
+2. `HANDOFF.md` — last session summary + known issues + what's next
+3. `JIRA.md` — Jira backlog mirror (Plasma AI / key `PA`) — keep in sync
 4. `README.md` — public roadmap
 
-After reading those three, ask the user one question: **"What's next — Step 9, polish, or something else?"** Don't start coding without confirmation.
+After reading those three, tell the user what sprint is next and ask: **"Ready to start S3 (wake word), or is there something else first?"** Don't start coding without confirmation.
 
 ---
 
@@ -48,15 +48,23 @@ def self_test() -> bool:   # optional but recommended
 The registry calls `self_test()` on load. Skills that fail their self-test are silently disabled.
 
 ### Testing
-- Run `pytest tests/ -v` before every commit
-- All 26 existing tests must pass
+- Run `pytest tests/ --ignore=tests/test_backend.py -v` before every commit
+- All 56 existing tests must pass (test_backend.py requires fastapi, skip in sandbox)
 - New features must come with tests
 
 ### Git
 - Commit after every logical step
-- One conventional commit message format: `Step N: short description` or `Polish 8b: ...`
-- Push after every commit
-- Branch: `main` only — no feature branches for this project
+- Commit message format: `PA-<n>: short description` (Jira key first)
+- Push after every commit to branch `claude/enhance-plasma-project-cOZli`
+- Before every push: `git remote set-url origin https://YOUR_GITHUB_PAT@github.com/hocinelho/plasma.git`
+  (the proxy remote resets each session — get the PAT from your password manager)
+
+### Jira sync (mandatory)
+- Every code change MUST have a matching Jira ticket in `JIRA.md` and on the board
+- New bug discovered → add a `Bug` row under the right epic in `JIRA.md`, mark `Flagged=Impediment` if it blocks current sprint
+- New feature shipped → move story to `Done` in `JIRA.md`, write the commit hash in the row
+- Sprint changes → update the "Active sprint" section
+- Never close a session without `JIRA.md` reflecting reality
 
 ### Security
 - API keys ONLY in `.env` (which is gitignored)
@@ -68,12 +76,11 @@ The registry calls `self_test()` on load. Skills that fail their self-test are s
 
 ## Don't do these things
 
-- ❌ Don't push to feature branches like `claude/enhance-...` — push directly to `main`
+- ❌ Don't push to `main` — always push to `claude/enhance-plasma-project-cOZli`
 - ❌ Don't use PowerShell `@"..."@` here-strings to create files — they break on Windows
 - ❌ Don't commit `tts_test.wav`, `_clean_facts.py`, `_smoke_*.py`, or any scratch file
 - ❌ Don't fine-tune the LLM weights — Plasma's "learning" happens in the context layer (USER.md, skills/, memory.sqlite), never the model
-- ❌ Don't add cloud LLM dependencies before Step 9 is officially started
-- ❌ Don't generate skill code via LLM until Step 9 lands a sandboxed approach
+- ❌ Don't generate skill code via LLM until a sandboxed approach is designed
 - ❌ Don't add features the user didn't ask for. The roadmap exists for a reason.
 
 ---

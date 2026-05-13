@@ -1,18 +1,20 @@
 """
-Plasma chat service — glues memory, skills, suggester, and Ollama.
+Plasma chat service — glues memory, skills, suggester, and LLM.
 
 Flow:
 1. Save incoming user message to memory
-2. Try a SKILL via keyword triggers — if hit, run it (fast)
-3. Otherwise call Ollama (with USER.md injection)
-4. Pass the user's utterance to the suggester (counts patterns, may propose)
-5. Append a one-line nudge to the reply if a proposal was just created
-6. Save the assistant reply
+2. Try a SKILL via keyword triggers — if hit, run it (fast path)
+3. Otherwise call LLM:
+   a. If GROQ_API_KEY is set → Groq cloud (PA-29, ~1s)
+   b. If Groq fails or key absent → Ollama local (PA-31 fallback)
+4. Pass utterance to suggester (counts patterns, may propose a skill)
+5. Append nudge to reply if a proposal was just created
+6. Save assistant reply
 """
 from __future__ import annotations
 import logging
 from backend.modules.memory.store import MemoryStore
-from backend.modules.router.ollama_client import chat as ollama_chat
+from backend.modules.router.ollama_client import chat_first_sentence as _ollama_chat
 from backend.modules.skills.registry import get_registry
 from backend.modules.skills.suggester import get_suggester
 
@@ -50,6 +52,34 @@ def _build_system_prompt(memory: MemoryStore) -> str:
     return base
 
 
+def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> str:
+    """Try cloud LLM first (PA-29, provider-agnostic), fall back to Ollama (PA-31)."""
+    from backend.modules.router.cloud_client import (
+        chat_first_sentence as _cloud_chat,
+        is_available as cloud_available,
+    )
+
+    if cloud_available():
+        try:
+            reply = _cloud_chat(
+                user_message=user_message,
+                history=history,
+                system_prompt=system_prompt,
+            )
+            log.info("LLM source: cloud")
+            return reply
+        except Exception as e:
+            log.warning(f"Cloud LLM failed, falling back to Ollama: {e}")
+
+    reply = _ollama_chat(
+        user_message=user_message,
+        history=history,
+        system_prompt=system_prompt,
+    )
+    log.info("LLM source: Ollama local")
+    return reply
+
+
 def handle_chat(session_id: str, user_message: str) -> str:
     memory = get_memory()
     memory.add_message(session_id, "user", user_message)
@@ -67,20 +97,15 @@ def handle_chat(session_id: str, user_message: str) -> str:
     except Exception as e:
         log.warning(f"Skill routing failed, falling back to LLM: {e}")
 
-    # 2. LLM fallback path
+    # 2. LLM path (Groq → Ollama)
     full_history = memory.get_conversation(session_id, limit=20)
     history_for_api = [
         {"role": m["role"], "content": m["content"]} for m in full_history[:-1]
     ]
     system_prompt = _build_system_prompt(memory)
+    reply = _llm_reply(user_message, history_for_api, system_prompt)
 
-    reply = ollama_chat(
-        user_message=user_message,
-        history=history_for_api,
-        system_prompt=system_prompt,
-    )
-
-    # 3. Suggester: count patterns, maybe propose
+    # 3. Suggester: count patterns, maybe propose a skill
     try:
         nudge = get_suggester().record_fallback(user_message)
         if nudge:
