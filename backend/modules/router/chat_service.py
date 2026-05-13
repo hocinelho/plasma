@@ -53,23 +53,23 @@ def _build_system_prompt(memory: MemoryStore) -> str:
 
 
 def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> str:
-    """Try Groq cloud first (PA-29), fall back to Ollama (PA-31)."""
+    """Try cloud LLM first (PA-29, provider-agnostic), fall back to Ollama (PA-31)."""
     from backend.modules.router.cloud_client import (
-        chat_first_sentence as _groq_chat,
-        is_available as groq_available,
+        chat_first_sentence as _cloud_chat,
+        is_available as cloud_available,
     )
 
-    if groq_available():
+    if cloud_available():
         try:
-            reply = _groq_chat(
+            reply = _cloud_chat(
                 user_message=user_message,
                 history=history,
                 system_prompt=system_prompt,
             )
-            log.info("LLM source: Groq cloud")
+            log.info("LLM source: cloud")
             return reply
         except Exception as e:
-            log.warning(f"Groq failed, falling back to Ollama: {e}")
+            log.warning(f"Cloud LLM failed, falling back to Ollama: {e}")
 
     reply = _ollama_chat(
         user_message=user_message,
