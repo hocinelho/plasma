@@ -174,38 +174,35 @@
 
 ## Sprint plan (May 13 → Dec 15)
 
-| Sprint | Dates | Goal | Tickets |
-|---|---|---|---|
-| S1 | May 13 – May 27 | Cloud LLM | PA-28, PA-29, PA-30, PA-31 | ✓ Done |
-| **S2 ← TODAY** | May 27 – Jun 10 | UI essentials | PA-37, PA-38, PA-39 | ✓ Done |
-| S3 | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 |
-| S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 |
-| S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 |
-| S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 |
-| S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 |
-| S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 |
-| S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-49, PA-50, PA-51, PA-52 |
-| S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 |
-| S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 |
-| S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 |
-| S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 |
-| S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 |
-| S15 | Nov 26 – Dec 10 | Auto-update & docs | PA-81, PA-83, PA-84, PA-64 |
-| S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 |
+| Sprint | Dates | Goal | Tickets | State |
+|---|---|---|---|---|
+| S1 | May 13 – May 27 | Cloud LLM | PA-28, PA-29, PA-30, PA-31 | Done |
+| S2 | May 27 – Jun 10 | UI essentials | PA-37, PA-38, PA-39 | Done |
+| **S3 ← NEXT** | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 | To Do |
+| S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 | To Do |
+| S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | To Do |
+| S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | To Do |
+| S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | To Do |
+| S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | To Do |
+| S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-49, PA-50, PA-51, PA-52 | To Do |
+| S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | To Do |
+| S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | To Do |
+| S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | To Do |
+| S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | To Do |
+| S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 | To Do |
+| S15 | Nov 26 – Dec 10 | Auto-update & docs | PA-81, PA-83, PA-84, PA-64 | To Do |
+| S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 | To Do |
 
 ---
 
-## Active sprint — S1 (May 13 – May 27)
+## Active sprint — S3 (Jun 10 – Jun 24)
 
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
-| PA-28 | Story | PII redaction before cloud call | **Done** |
-| PA-29 | Story | Cloud LLM — provider-agnostic (Gemini default) | **Done** |
-| PA-29.1 | Task | Refactor GROQ_* → CLOUD_* vars; Gemini free tier default | **Done** |
-| PA-30 | Story | Audit log at .plasma/audit.log | **Done** |
-| PA-31 | Story | Graceful offline fallback to Ollama | **Done** |
+| PA-34 | Story | "Hey Plasma" detection via openWakeWord | **To Do** |
+| PA-35 | Task  | Remove F9 hotkey once wake word is stable | **To Do** |
 
-PA-28 blocks PA-29 → do PA-28 first.
+**Before starting:** confirm `python scripts/smoke_test.py` all green and `get_date` skill loads cleanly.
 
 ---
 
