@@ -63,7 +63,7 @@
 |---|---|---|---|---|
 | PA-26 | Story | Ollama HTTP client `/api/chat` | Done | Step 3 |
 | PA-27 | Task  | Stream first sentence from Ollama (saves 3–8s) | Done | 648e4e7 |
-| PA-28 | Story | PII redaction before any cloud call | To Do | — |
+| PA-28 | Story | PII redaction before any cloud call | **Done** | 17 tests / commit pending |
 | PA-29 | Story | Cloud LLM via Groq — sub-1s replies | To Do | — |
 | PA-30 | Story | Audit log at `.plasma/audit.log` | To Do | — |
 | PA-31 | Story | Graceful offline fallback to Ollama | To Do | — |
@@ -198,8 +198,8 @@
 
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
-| PA-28 | Story | PII redaction before cloud call | **To Do** |
-| PA-29 | Story | Cloud LLM via Groq — sub-1s replies | **To Do** |
+| PA-28 | Story | PII redaction before cloud call | **Done** |
+| PA-29 | Story | Cloud LLM via Groq — sub-1s replies | **In Progress** |
 | PA-30 | Story | Audit log at .plasma/audit.log | **To Do** |
 | PA-31 | Story | Graceful offline fallback to Ollama | **To Do** |
 
