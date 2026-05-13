@@ -79,9 +79,9 @@
 ### PA-36 — EPIC: UI / Frontend (children PA-37 → PA-39)
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-37 | Story | Waveform visualizer while mic is active | To Do |
-| PA-38 | Story | Conversation history panel (scrollable) | To Do |
-| PA-39 | Story | Status indicator: idle / listening / thinking / speaking | To Do |
+| PA-37 | Story | Waveform visualizer while mic is active | **Done** | 926b127 |
+| PA-38 | Story | Conversation history panel (scrollable) | **Done** | 926b127 |
+| PA-39 | Story | Status indicator: idle / listening / thinking / speaking | **Done** | 926b127 |
 
 ### PA-40 — EPIC: Integrations (children PA-41 → PA-43)
 | Key | Type | Summary | Status |
@@ -176,8 +176,8 @@
 
 | Sprint | Dates | Goal | Tickets |
 |---|---|---|---|
-| **S1 ← TODAY** | May 13 – May 27 | Cloud LLM | PA-28, PA-29, PA-30, PA-31 |
-| S2 | May 27 – Jun 10 | UI essentials | PA-37, PA-38, PA-39 |
+| S1 | May 13 – May 27 | Cloud LLM | PA-28, PA-29, PA-30, PA-31 | ✓ Done |
+| **S2 ← TODAY** | May 27 – Jun 10 | UI essentials | PA-37, PA-38, PA-39 | ✓ Done |
 | S3 | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 |
 | S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 |
 | S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 |
