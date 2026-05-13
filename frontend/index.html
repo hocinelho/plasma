@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Plasma — Voice Assistant</title>
     <style>
         :root {
@@ -12,10 +13,10 @@
             --accent: #4a9eff;
             --accent-hot: #ff4a5e;
             --ok: #6fd48a;
+            --warn: #f5a623;
         }
-        * { box-sizing: border-box; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            margin: 0;
             font-family: -apple-system, 'Segoe UI', sans-serif;
             background: var(--bg);
             color: var(--text);
@@ -23,42 +24,71 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 24px;
+            padding: 24px 16px;
         }
         h1 {
             font-weight: 300;
             letter-spacing: 0.2em;
-            margin: 0 0 4px 0;
             font-size: 42px;
+            margin-bottom: 4px;
         }
         .subtitle {
             color: var(--muted);
             font-size: 14px;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
         }
-        #status {
-            font-size: 13px;
-            color: var(--muted);
-            margin-bottom: 20px;
+
+        /* ── PA-39 Status indicator ────────────────────────── */
+        #status-bar {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
+            padding: 8px 20px;
+            border-radius: 24px;
+            background: var(--panel);
+            margin-bottom: 28px;
+            font-size: 13px;
+            transition: background 0.3s;
+            min-width: 200px;
+            justify-content: center;
         }
-        #status .dot {
-            width: 8px;
-            height: 8px;
+        #status-bar .dot {
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
             background: var(--muted);
+            flex-shrink: 0;
             transition: background 0.2s;
         }
-        #status.ok .dot { background: var(--ok); }
-        #status.recording .dot { background: var(--accent-hot); animation: pulse 1s infinite; }
-        #status.processing .dot { background: var(--accent); animation: pulse 0.5s infinite; }
-        #status.speaking .dot { background: var(--ok); animation: pulse 0.6s infinite; }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
+        #status-bar .label {
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            transition: color 0.2s;
         }
+        /* idle */
+        #status-bar.idle .dot   { background: var(--ok); }
+        #status-bar.idle .label { color: var(--ok); }
+        /* listening */
+        #status-bar.listening { background: #1e0e14; }
+        #status-bar.listening .dot   { background: var(--accent-hot); animation: pulse 0.9s infinite; }
+        #status-bar.listening .label { color: var(--accent-hot); }
+        /* thinking */
+        #status-bar.thinking { background: #0d1628; }
+        #status-bar.thinking .dot   { background: var(--accent); animation: pulse 0.5s infinite; }
+        #status-bar.thinking .label { color: var(--accent); }
+        /* speaking */
+        #status-bar.speaking { background: #0d1e14; }
+        #status-bar.speaking .dot   { background: var(--ok); animation: pulse 0.7s infinite; }
+        #status-bar.speaking .label { color: var(--ok); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.35; transform: scale(0.85); }
+        }
+
+        /* ── Talk button ───────────────────────────────────── */
         #talk-btn {
             width: 160px;
             height: 160px;
@@ -70,7 +100,7 @@
             cursor: pointer;
             transition: all 0.15s;
             user-select: none;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
         #talk-btn:hover { border-color: var(--accent-hot); }
         #talk-btn.recording {
@@ -82,92 +112,248 @@
         .hint {
             font-size: 12px;
             color: var(--muted);
-            margin-bottom: 32px;
+            margin-bottom: 20px;
         }
+
+        /* ── PA-37 Waveform canvas ─────────────────────────── */
+        #waveform-wrap {
+            width: 100%;
+            max-width: 700px;
+            height: 56px;
+            margin-bottom: 16px;
+            border-radius: 10px;
+            overflow: hidden;
+            background: var(--panel);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #waveform-wrap.active { opacity: 1; }
+        #waveform {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* ── PA-38 Conversation history ────────────────────── */
+        .log-header {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .log-header .log-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+        }
+        .log-header button {
+            font-size: 11px;
+            color: var(--muted);
+            background: none;
+            border: 1px solid #2a3450;
+            border-radius: 6px;
+            padding: 3px 10px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .log-header button:hover { color: var(--text); border-color: var(--muted); }
         #log {
             width: 100%;
             max-width: 700px;
             background: var(--panel);
             border-radius: 12px;
             padding: 16px;
-            height: 400px;
+            height: 380px;
             overflow-y: auto;
             font-size: 14px;
-            line-height: 1.5;
+            line-height: 1.6;
+            scroll-behavior: smooth;
         }
+        #log::-webkit-scrollbar { width: 6px; }
+        #log::-webkit-scrollbar-track { background: transparent; }
+        #log::-webkit-scrollbar-thumb { background: #2a3450; border-radius: 3px; }
         .turn {
             margin-bottom: 16px;
             padding-bottom: 16px;
-            border-bottom: 1px solid #232b42;
+            border-bottom: 1px solid #1e2840;
         }
-        .turn:last-child { border-bottom: none; }
+        .turn:last-child { border-bottom: none; margin-bottom: 0; }
+        .turn-meta {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
         .turn .role {
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.15em;
             color: var(--muted);
-            margin-bottom: 4px;
         }
-        .turn.user .role { color: var(--accent); }
+        .turn .ts {
+            font-size: 10px;
+            color: #3d4a66;
+        }
+        .turn.user .role   { color: var(--accent); }
         .turn.assistant .role { color: var(--ok); }
-        .turn.error .role { color: var(--accent-hot); }
+        .turn.error .role  { color: var(--accent-hot); }
         .turn.error .content { color: var(--accent-hot); }
         .turn .content { white-space: pre-wrap; }
+        .empty-hint {
+            color: var(--muted);
+            font-size: 13px;
+            text-align: center;
+            margin-top: 140px;
+        }
     </style>
 </head>
 <body>
     <h1>PLASMA</h1>
     <div class="subtitle">local-first voice assistant</div>
 
-    <div id="status"><span class="dot"></span><span class="text">idle</span></div>
+    <!-- PA-39: status indicator -->
+    <div id="status-bar">
+        <span class="dot"></span>
+        <span class="label">idle</span>
+    </div>
 
     <button id="talk-btn">Hold to talk</button>
-    <div class="hint">or press and hold <b>SPACE</b></div>
+    <div class="hint">or hold <b>SPACE</b></div>
 
-    <div id="log"></div>
+    <!-- PA-37: waveform canvas -->
+    <div id="waveform-wrap">
+        <canvas id="waveform"></canvas>
+    </div>
+
+    <!-- PA-38: conversation history -->
+    <div class="log-header">
+        <span class="log-title">Conversation</span>
+        <button id="clear-btn">Clear</button>
+    </div>
+    <div id="log">
+        <div class="empty-hint" id="empty-hint">Say something to start…</div>
+    </div>
 
 <script>
-const btn = document.getElementById('talk-btn');
-const statusEl = document.getElementById('status');
-const statusText = statusEl.querySelector('.text');
-const log = document.getElementById('log');
+const btn       = document.getElementById('talk-btn');
+const statusBar = document.getElementById('status-bar');
+const logEl     = document.getElementById('log');
+const clearBtn  = document.getElementById('clear-btn');
+const wrapEl    = document.getElementById('waveform-wrap');
+const canvas    = document.getElementById('waveform');
+const ctx2d     = canvas.getContext('2d');
 
 let mediaRecorder = null;
-let chunks = [];
-let isRecording = false;
-let isBusy = false;                       // prevent overlapping recordings
-const SESSION_ID = 'web-' + Math.random().toString(36).slice(2, 10);
+let micStream     = null;
+let chunks        = [];
+let isRecording   = false;
+let isBusy        = false;
+const SESSION_ID  = 'web-' + Math.random().toString(36).slice(2, 10);
 
-function setStatus(mode, text) {
-    statusEl.className = mode;
-    statusText.textContent = text;
+// ── PA-39: status ─────────────────────────────────────────
+const STATUS = {
+    idle:      { cls: 'idle',      label: 'idle' },
+    listening: { cls: 'listening', label: 'listening…' },
+    thinking:  { cls: 'thinking',  label: 'thinking…' },
+    speaking:  { cls: 'speaking',  label: 'speaking…' },
+    error:     { cls: '',          label: 'error' },
+};
+
+function setStatus(state) {
+    const s = STATUS[state] || STATUS.idle;
+    statusBar.className = s.cls;
+    statusBar.querySelector('.label').textContent = s.label;
+}
+
+// ── PA-37: waveform ───────────────────────────────────────
+let audioCtx   = null;
+let analyser   = null;
+let rafId      = null;
+
+function initAnalyser(stream) {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+}
+
+function drawWaveform() {
+    const W = canvas.width  = wrapEl.clientWidth;
+    const H = canvas.height = wrapEl.clientHeight;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(data);
+
+    ctx2d.clearRect(0, 0, W, H);
+    ctx2d.lineWidth   = 2;
+    ctx2d.strokeStyle = getComputedStyle(document.documentElement)
+                            .getPropertyValue('--accent-hot').trim();
+    ctx2d.beginPath();
+    const step = W / data.length;
+    let x = 0;
+    for (let i = 0; i < data.length; i++) {
+        const y = (data[i] / 128.0) * (H / 2);
+        i === 0 ? ctx2d.moveTo(x, y) : ctx2d.lineTo(x, y);
+        x += step;
+    }
+    ctx2d.stroke();
+    rafId = requestAnimationFrame(drawWaveform);
+}
+
+function startWaveform() {
+    wrapEl.classList.add('active');
+    if (analyser) rafId = requestAnimationFrame(drawWaveform);
+}
+
+function stopWaveform() {
+    wrapEl.classList.remove('active');
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// ── PA-38: conversation history ───────────────────────────
+function nowStr() {
+    const d = new Date();
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function addTurn(role, content) {
+    document.getElementById('empty-hint')?.remove();
     const div = document.createElement('div');
     div.className = 'turn ' + role;
-    div.innerHTML = `<div class="role">${role}</div><div class="content"></div>`;
+    div.innerHTML =
+        `<div class="turn-meta">` +
+            `<span class="role">${role}</span>` +
+            `<span class="ts">${nowStr()}</span>` +
+        `</div>` +
+        `<div class="content"></div>`;
     div.querySelector('.content').textContent = content;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
 }
 
+clearBtn.addEventListener('click', () => {
+    logEl.innerHTML = '<div class="empty-hint" id="empty-hint">Say something to start…</div>';
+});
+
+// ── mic + recording ───────────────────────────────────────
 async function initMic() {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        mediaRecorder.ondataavailable = e => {
-            if (e.data.size > 0) chunks.push(e.data);
-        };
+        micStream   = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
         mediaRecorder.onstop = async () => {
             const blob = new Blob(chunks, { type: 'audio/webm' });
             chunks = [];
             await sendAudio(blob);
         };
-        setStatus('ok', 'ready');
+        initAnalyser(micStream);
+        setStatus('idle');
         return true;
     } catch (err) {
-        setStatus('', 'mic permission denied');
+        setStatus('error');
         addTurn('error', 'Microphone access denied: ' + err.message);
         return false;
     }
@@ -178,47 +364,42 @@ function playBase64Audio(b64) {
         if (!b64) { resolve(); return; }
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
-            audio.onended = () => resolve();
+            audio.onended = resolve;
             audio.onerror = (e) => {
                 console.error('Audio playback failed', e);
                 addTurn('error', 'Audio playback failed (browser blocked autoplay?)');
                 resolve();
             };
             audio.play().catch(e => {
-                console.error('audio.play() rejected:', e);
-                addTurn('error', 'Audio autoplay blocked. Click the page once, then retry.');
+                addTurn('error', 'Audio autoplay blocked — click the page once, then retry.');
                 resolve();
             });
-        } catch (e) {
-            console.error(e);
-            resolve();
-        }
+        } catch (e) { console.error(e); resolve(); }
     });
 }
 
 async function sendAudio(blob) {
     if (isBusy) { console.warn('Still busy; dropping extra recording'); return; }
     isBusy = true;
-    setStatus('processing', 'transcribing + thinking…');
+    setStatus('thinking');
     const form = new FormData();
     form.append('audio', blob, 'speech.webm');
     form.append('session_id', SESSION_ID);
     try {
-        const r = await fetch('/voice/chat', { method: 'POST', body: form });
+        const r    = await fetch('/voice/chat', { method: 'POST', body: form });
         const data = await r.json();
         if (data.transcript) addTurn('user', data.transcript);
-        if (data.reply) addTurn('assistant', data.reply);
+        if (data.reply)      addTurn('assistant', data.reply);
         if (data.error && !data.transcript) addTurn('error', data.error);
 
         if (data.audio_b64) {
-            setStatus('speaking', 'speaking…');
+            setStatus('speaking');
             await playBase64Audio(data.audio_b64);
         }
-
-        setStatus('ok', 'ready');
+        setStatus('idle');
     } catch (err) {
         console.error(err);
-        setStatus('', 'error');
+        setStatus('error');
         addTurn('error', 'Request failed: ' + err.message);
     } finally {
         isBusy = false;
@@ -231,7 +412,8 @@ function startRecording() {
     isRecording = true;
     btn.classList.add('recording');
     btn.textContent = 'Listening…';
-    setStatus('recording', 'recording');
+    setStatus('listening');
+    startWaveform();
     chunks = [];
     mediaRecorder.start();
 }
@@ -241,17 +423,18 @@ function stopRecording() {
     isRecording = false;
     btn.classList.remove('recording');
     btn.textContent = 'Hold to talk';
+    stopWaveform();
     if (mediaRecorder.state === 'recording') mediaRecorder.stop();
 }
 
-// Button press & hold
+// button events
 btn.addEventListener('mousedown', startRecording);
-btn.addEventListener('mouseup', stopRecording);
+btn.addEventListener('mouseup',   stopRecording);
 btn.addEventListener('mouseleave', stopRecording);
 btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
-btn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
+btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording(); });
 
-// SPACE bar press & hold
+// keyboard SPACE
 window.addEventListener('keydown', e => {
     if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT') {
         e.preventDefault();
@@ -259,10 +442,7 @@ window.addEventListener('keydown', e => {
     }
 });
 window.addEventListener('keyup', e => {
-    if (e.code === 'Space') {
-        e.preventDefault();
-        stopRecording();
-    }
+    if (e.code === 'Space') { e.preventDefault(); stopRecording(); }
 });
 
 initMic();
