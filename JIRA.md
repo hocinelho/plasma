@@ -66,7 +66,7 @@
 | PA-28 | Story | PII redaction before any cloud call | **Done** | a5150a2 |
 | PA-29 | Story | Cloud LLM via Groq — sub-1s replies | **Done** | 45f7346 |
 | PA-29.1 | Task | Refactor cloud client to provider-agnostic CLOUD_* vars (Gemini default) | **Done** | f916ad7 |
-| PA-30 | Story | Audit log at `.plasma/audit.log` | To Do | — |
+| PA-30 | Story | Audit log at `.plasma/audit.log` | **Done** | pending |
 | PA-31 | Story | Graceful offline fallback to Ollama | **Done** | built into chat_service |
 | PA-32 | Task  | Claude API as second cloud provider | To Do | — |
 
@@ -202,7 +202,7 @@
 | PA-28 | Story | PII redaction before cloud call | **Done** |
 | PA-29 | Story | Cloud LLM — provider-agnostic (Gemini default) | **Done** |
 | PA-29.1 | Task | Refactor GROQ_* → CLOUD_* vars; Gemini free tier default | **Done** |
-| PA-30 | Story | Audit log at .plasma/audit.log | **To Do** |
+| PA-30 | Story | Audit log at .plasma/audit.log | **Done** |
 | PA-31 | Story | Graceful offline fallback to Ollama | **Done** |
 
 PA-28 blocks PA-29 → do PA-28 first.

@@ -21,10 +21,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 import httpx
 
 from backend.core.config import config
+from backend.modules.router.audit_log import log_call
 from backend.modules.router.pii_redactor import redact_messages
 
 log = logging.getLogger("plasma.cloud_client")
@@ -76,14 +78,30 @@ def chat(
     payload = {"model": model, "messages": messages, "stream": False}
     log.info(f"Cloud call (full): model={model} msgs={len(messages)}")
 
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-        resp = client.post(url, json=payload, headers=_headers())
-        resp.raise_for_status()
-        data = resp.json()
+    started = time.monotonic()
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            resp = client.post(url, json=payload, headers=_headers())
+            resp.raise_for_status()
+            data = resp.json()
+        text = ((data.get("choices") or [{}])[0]
+                .get("message", {})
+                .get("content", "")).strip()
+    except Exception as e:
+        log_call(
+            base_url=config.CLOUD_BASE_URL, model=model, mode="full",
+            messages=messages, response_text="",
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status="error", error=str(e),
+        )
+        raise
 
-    return ((data.get("choices") or [{}])[0]
-            .get("message", {})
-            .get("content", "")).strip()
+    log_call(
+        base_url=config.CLOUD_BASE_URL, model=model, mode="full",
+        messages=messages, response_text=text,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )
+    return text
 
 
 def chat_first_sentence(
@@ -108,35 +126,56 @@ def chat_first_sentence(
     payload = {"model": model, "messages": messages, "stream": True}
     log.info(f"Cloud call (stream): model={model} msgs={len(messages)}")
 
+    started = time.monotonic()
     collected = ""
-    with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
-        with client.stream("POST", url, json=payload, headers=_headers()) as resp:
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                raw = line[len("data: "):]
-                if raw.strip() == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            with client.stream("POST", url, json=payload, headers=_headers()) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    raw = line[len("data: "):]
+                    if raw.strip() == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
 
-                delta = (chunk.get("choices") or [{}])[0].get("delta", {})
-                token = delta.get("content", "")
-                if not token:
-                    continue
-                collected += token
+                    delta = (chunk.get("choices") or [{}])[0].get("delta", {})
+                    token = delta.get("content", "")
+                    if not token:
+                        continue
+                    collected += token
 
-                if len(collected.split()) >= min_words:
-                    m = _SENTENCE_END.search(collected)
-                    if m:
-                        first = collected[: m.end()].strip()
-                        log.info(f"Cloud first sentence ready ({len(first)} chars)")
-                        return first
+                    if len(collected.split()) >= min_words:
+                        m = _SENTENCE_END.search(collected)
+                        if m:
+                            first = collected[: m.end()].strip()
+                            log.info(f"Cloud first sentence ready ({len(first)} chars)")
+                            log_call(
+                                base_url=config.CLOUD_BASE_URL, model=model, mode="stream",
+                                messages=messages, response_text=first,
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                            )
+                            return first
+    except Exception as e:
+        log_call(
+            base_url=config.CLOUD_BASE_URL, model=model, mode="stream",
+            messages=messages, response_text=collected,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status="error", error=str(e),
+        )
+        raise
 
-    return collected.strip()
+    final = collected.strip()
+    log_call(
+        base_url=config.CLOUD_BASE_URL, model=model, mode="stream",
+        messages=messages, response_text=final,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )
+    return final
 
 
 def health_check() -> dict:
