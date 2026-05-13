@@ -11,126 +11,123 @@
 
 ---
 
-## Issue types we use
+## Issue types
 
 | Type | When to use |
 |---|---|
-| **Epic** | A big feature area (e.g. "Voice Pipeline", "LLM Integration"). Spans many sprints. |
-| **Story** | A user-facing capability that fits in one sprint. "As a user, I want…" |
-| **Task** | Technical work without direct user value (refactor, infra, CI). |
+| **Epic** | A big feature area. Spans many sprints. |
+| **Story** | A user-facing capability that fits one sprint. |
+| **Task** | Technical work without direct user value. |
 | **Bug** | A defect in something that already works. |
-| **Sub-task** | A breakdown of a parent Story/Task. Use sparingly. |
+| **Sub-task** | Breakdown of a parent Story/Task. Use sparingly. |
 
----
-
-## Required Epic fields (we always fill these)
+## Required fields on every Epic
 
 | Field | Why |
 |---|---|
-| **Summary** | Short title — `EPIC: Voice Pipeline` |
-| **Description** | What this epic delivers + done criteria |
-| **Status** | To Do / In Progress / Done |
-| **Labels** | `voice`, `llm`, `skills`, `ui`, `infra`, `integration` |
-| **Start date** | When work begins |
-| **Due date** | Target completion |
-| **Issue color** | Color-coded per area (see legend below) |
-| **Linked work items** | `relates to`, `blocks`, `is blocked by`, `duplicates` |
-| **Flagged** | Set to `Impediment` if blocked (turns card yellow) |
+| Summary | Short title — `EPIC: Voice Pipeline` |
+| Description | What it delivers + done criteria |
+| Status | To Do / In Progress / Done |
+| Labels | `voice`, `llm`, `skills`, `ui`, `infra`, `integration`, `memory` |
+| Start date / Due date | Always set both |
+| Issue color | Per legend below |
+| Linked work items | `relates to`, `blocks`, `is blocked by`, `duplicates` |
+| Flagged | Set to `Impediment` if blocked (card turns yellow) |
 
-### Color legend (set per epic in Jira)
+### Color legend
 
 | Color | Area |
 |---|---|
-| Purple | Voice pipeline (mic / ASR / TTS) |
-| Blue | LLM integration (Ollama / cloud) |
+| Purple | Voice pipeline / wake word |
+| Blue | LLM integration |
 | Green | Skills system |
 | Yellow | Memory / USER.md |
 | Orange | UI / frontend |
-| Red | Bugs hotfix epic |
-| Grey | Infra / DevOps |
+| Red | Hotfix bug epic |
+| Grey | Infra / integrations |
 
 ---
 
-## Epics — current state
+## Full backlog — sequential PA-1 through PA-47
 
-| Key | Summary | Status | Color | Labels |
-|---|---|---|---|---|
-| PA-1 | EPIC: Voice Pipeline | In Progress | Purple | `voice` |
-| PA-2 | EPIC: Skills System | In Progress | Green | `skills` |
-| PA-3 | EPIC: Memory & USER Profile | Done | Yellow | `memory` |
-| PA-4 | EPIC: LLM Integration | To Do | Blue | `llm` |
-| PA-5 | EPIC: Wake Word | To Do | Purple | `voice` |
-| PA-6 | EPIC: UI / Frontend | To Do | Orange | `ui` |
-| PA-7 | EPIC: Integrations (Outlook etc.) | To Do | Grey | `integration` |
-| PA-8 | EPIC: Infra / DevOps | In Progress | Grey | `infra` |
+### PA-1 — EPIC: Voice Pipeline   *(Purple, label: voice, In Progress)*
 
----
-
-## Stories & tasks — current state
-
-### Under PA-1 (Voice Pipeline)
 | Key | Type | Summary | Status | Commit |
 |---|---|---|---|---|
-| PA-10 | Story | Mic capture with sounddevice | Done | Step 5 |
-| PA-11 | Story | Silero V5 VAD | Done | Step 5 |
-| PA-12 | Story | Whisper ASR via faster-whisper | Done | Step 5 |
-| PA-13 | Story | Piper TTS with Ryan voice | Done | Step 6 |
-| PA-14 | Task | Make Whisper model configurable via `.env` | Done | 648e4e7 |
-| PA-15 | Story | F9 push-to-talk hotkey | Done | Step 5 |
+| PA-2 | Story | Mic capture with sounddevice (int16, 16kHz) | Done | Step 5 |
+| PA-3 | Story | Silero V5 VAD — voice activity detection | Done | Step 5 |
+| PA-4 | Story | Whisper ASR via faster-whisper (small.en) | Done | Step 5 |
+| PA-5 | Story | Piper TTS with Ryan voice — WAV output | Done | Step 6 |
+| PA-6 | Story | F9 push-to-talk hotkey in browser UI | Done | Step 5 |
+| PA-7 | Task  | Make Whisper model configurable via `.env` | Done | 648e4e7 |
 
-### Under PA-2 (Skills System)
+### PA-8 — EPIC: Skills System   *(Green, label: skills, In Progress)*
+
 | Key | Type | Summary | Status | Commit |
 |---|---|---|---|---|
-| PA-20 | Story | Skill registry + trigger routing | Done | Step 7 |
-| PA-21 | Story | `get_time` skill | Done | Step 7 |
-| PA-22 | Story | `get_date` skill | Done | Step 7c |
-| PA-23 | Story | `remember_this` / `forget_this` skills | Done | Step 7c |
-| PA-24 | Story | `open_app` skill | Done | Step 7c |
-| PA-25 | Story | Skill suggester (template-based proposals) | Done | Step 8 |
-| PA-26 | Story | `weather` skill (Open-Meteo) | Done | Step 8 |
-| PA-27 | Story | `news_disclaimer` skill | Done | Polish 8 |
-| PA-28 | Bug  | weather skill SSL cert error (urllib) | Done | aed8ba1 |
-| PA-29 | Bug  | calculator template false-positive on "what is" | Done | 251b8c0 |
+| PA-9  | Story | Skill registry + keyword trigger routing | Done | Step 7 |
+| PA-10 | Story | `get_time` skill | Done | Step 7 |
+| PA-11 | Story | `get_date` skill (extended triggers) | Done | Step 7c / 251b8c0 |
+| PA-12 | Story | `remember_this` and `forget_this` skills | Done | Step 7c / Step 8a |
+| PA-13 | Story | `what_do_you_remember` skill | Done | Step 7c |
+| PA-14 | Story | `open_app` skill (Windows) | Done | Step 7c |
+| PA-15 | Story | Skill suggester — proposes skills from templates | Done | Step 8 |
+| PA-16 | Story | `weather` skill via Open-Meteo API | Done | Step 8 |
+| PA-17 | Story | `news_disclaimer` skill — honest "no live news yet" | Done | 251b8c0 |
+| PA-18 | Bug   | Weather skill SSL cert error — urllib missing CA | Done | aed8ba1 |
+| PA-19 | Bug   | Calculator template false-positive on "what is" | Done | 251b8c0 |
 
-### Under PA-3 (Memory)
+### PA-20 — EPIC: Memory & User Profile   *(Yellow, label: memory, Done)*
+
 | Key | Type | Summary | Status | Commit |
 |---|---|---|---|---|
-| PA-30 | Story | SQLite memory store + FTS5 | Done | Step 4 |
-| PA-31 | Story | USER.md auto-writer (2nd-person rewrite) | Done | Step 8a |
+| PA-21 | Story | SQLite memory store with FTS5 (messages + facts) | Done | Step 4 |
+| PA-22 | Story | `remember_this` writes facts via voice | Done | Step 7c |
+| PA-23 | Story | USER.md auto-writer — second-person rewrite of facts | Done | Step 8a |
+| PA-24 | Story | USER.md injected into every LLM system prompt | Done | Step 8a |
 
-### Under PA-4 (LLM Integration) — NEXT SPRINT
-| Key | Type | Summary | Status | Notes |
+### PA-25 — EPIC: LLM Integration   *(Blue, label: llm, In Progress)*
+
+| Key | Type | Summary | Status | Links / Commit |
 |---|---|---|---|---|
-| PA-40 | Story | Ollama HTTP client (`/api/chat`) | Done | Step 3 |
-| PA-41 | Task | Stream first sentence from Ollama | Done | 648e4e7 |
-| PA-42 | Story | **Cloud LLM via Groq (sub-1s replies)** | To Do | Step 9 |
-| PA-43 | Story | **PII redaction before any cloud call** | To Do | blocks PA-42 |
-| PA-44 | Story | **Audit log at `.plasma/audit.log`** | To Do | Step 9 |
-| PA-45 | Story | **Graceful offline fallback to Ollama** | To Do | Step 9 |
-| PA-46 | Task | Claude API client as second cloud provider | To Do | Step 9b |
+| PA-26 | Story | Ollama HTTP client `/api/chat` | Done | Step 3 |
+| PA-27 | Task  | Stream first sentence from Ollama (saves 3–8s) | Done | 648e4e7 |
+| PA-28 | Story | **PII redaction before any cloud call** | To Do | blocks PA-29 |
+| PA-29 | Story | **Cloud LLM via Groq — sub-1s replies** | To Do | is blocked by PA-28 |
+| PA-30 | Story | **Audit log at `.plasma/audit.log`** | To Do | relates to PA-29 |
+| PA-31 | Story | **Graceful offline fallback to Ollama** | To Do | relates to PA-29 |
+| PA-32 | Task  | Claude API client as second cloud provider | To Do | relates to PA-29 |
 
-### Under PA-5 (Wake Word)
+### PA-33 — EPIC: Wake Word   *(Purple, label: voice, To Do)*
+
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-50 | Story | "Hey Plasma" detection (openWakeWord) | To Do |
+| PA-34 | Story | "Hey Plasma" detection via openWakeWord | To Do |
+| PA-35 | Task  | Remove F9 hotkey once wake word is stable | To Do |
 
-### Under PA-6 (UI)
+### PA-36 — EPIC: UI / Frontend   *(Orange, label: ui, To Do)*
+
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-60 | Story | Waveform visualizer while listening | To Do |
-| PA-61 | Story | Conversation history panel | To Do |
+| PA-37 | Story | Waveform visualizer while mic is active | To Do |
+| PA-38 | Story | Conversation history panel (scrollable) | To Do |
+| PA-39 | Story | Status indicator: idle / listening / thinking / speaking | To Do |
 
-### Under PA-7 (Integrations)
+### PA-40 — EPIC: Integrations   *(Grey, label: integration, To Do)*
+
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-70 | Story | Outlook calendar — today's events | To Do |
-| PA-71 | Story | Outlook unread email count | To Do |
+| PA-41 | Story | Read today's Outlook calendar events by voice | To Do |
+| PA-42 | Story | Read unread Outlook email count | To Do |
+| PA-43 | Story | "Add to calendar" by voice | To Do |
 
-### Under PA-8 (Infra)
+### PA-44 — EPIC: Infra / DevOps   *(Grey, label: infra, In Progress)*
+
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-80 | Task | `pytest tests/ -v` in CI on every push | To Do |
-| PA-81 | Task | Windows installer (PyInstaller) | To Do |
+| PA-45 | Task  | `pytest tests/ -v` runs on every push (GitHub Actions) | To Do |
+| PA-46 | Task  | Windows installer via PyInstaller | To Do |
+| PA-47 | Task  | `.env.example` always up to date | Done |
 
 ---
 
@@ -139,31 +136,32 @@
 **Sprint 1 — Cloud LLM (2 weeks)**
 
 In sprint:
-- PA-42 Cloud LLM via Groq
-- PA-43 PII redaction
-- PA-44 Audit log
-- PA-45 Offline fallback
+- PA-28 PII redaction (must finish first — blocks PA-29)
+- PA-29 Cloud LLM via Groq
+- PA-30 Audit log
+- PA-31 Offline fallback
 
-Velocity target: ~13 story points.
+Target velocity: ~13 story points.
 
 ---
 
-## How commits link to Jira
+## Commit ↔ Jira convention
 
-Every commit message must start with the Jira key:
+Commit messages start with the Jira key:
 
 ```
-PA-42: add Groq client with streaming
+PA-29: add Groq client with streaming
+PA-18: fix weather skill SSL cert error
 ```
 
-Once GitHub is connected (Project Settings → Integrations → GitHub),
-commits and PRs auto-update the linked ticket.
+After Project Settings → Integrations → GitHub is connected,
+Jira auto-links commits to tickets.
 
 ---
 
 ## Workflow rules
 
-- **Bug found:** create a `Bug` under the relevant epic, link with `is blocked by` if it stops a story, flag as `Impediment` if it blocks the sprint.
-- **Feature done:** move story to Done, add the commit hash in the description, update this file.
-- **Sprint planning:** every Monday — pull the top 3-5 stories from backlog into the active sprint.
-- **Daily:** mark in-progress story, flag impediments, no work without a ticket.
+- **Bug found** → create a `Bug` under its epic, link `is blocked by` if it stops a story, flag as `Impediment` if it blocks the sprint.
+- **Feature done** → move story to Done, paste commit hash in description, update this file.
+- **Sprint planning** → every Monday pull top 3-5 stories into the active sprint.
+- **Daily** → mark in-progress, flag impediments, no work without a ticket.
