@@ -9,9 +9,10 @@ You are working on Plasma, a local-first voice assistant. Read these instruction
 1. This file
 2. `.plasma/MEMORY.md` — full project state and decisions log
 3. `HANDOFF.md` — current session priorities and unfinished cleanup
-4. `README.md` — public roadmap
+4. `JIRA.md` — Jira backlog mirror (Plasma AI / key `PA`) — keep in sync
+5. `README.md` — public roadmap
 
-After reading those three, ask the user one question: **"What's next — Step 9, polish, or something else?"** Don't start coding without confirmation.
+After reading those four, ask the user one question: **"What's next — Step 9, polish, or something else?"** Don't start coding without confirmation.
 
 ---
 
@@ -54,9 +55,16 @@ The registry calls `self_test()` on load. Skills that fail their self-test are s
 
 ### Git
 - Commit after every logical step
-- One conventional commit message format: `Step N: short description` or `Polish 8b: ...`
+- Commit message format: `PA-<n>: short description` (Jira key first), fallback `Step N: ...`
 - Push after every commit
 - Branch: `main` only — no feature branches for this project
+
+### Jira sync (mandatory)
+- Every code change MUST have a matching Jira ticket in `JIRA.md` and on the board
+- New bug discovered → add a `Bug` row under the right epic in `JIRA.md`, mark `Flagged=Impediment` if it blocks current sprint
+- New feature shipped → move story to `Done` in `JIRA.md`, write the commit hash in the row
+- Sprint changes → update the "Active sprint" section
+- Never close a session without `JIRA.md` reflecting reality
 
 ### Security
 - API keys ONLY in `.env` (which is gitignored)
