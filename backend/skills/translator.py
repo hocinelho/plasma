@@ -1,7 +1,7 @@
 """PA-58 — Translation skill: "say hello in French" / "translate good morning to Spanish"."""
 from __future__ import annotations
 import re
-import httpx
+from backend.core.http_client import get as http_get
 
 META = {
     "name": "translator",
@@ -67,10 +67,9 @@ def run(args: dict | None = None) -> str:
     lang_code = _LANG_CODES[lang_word]
 
     try:
-        resp = httpx.get(
+        resp = http_get(
             "https://api.mymemory.translated.net/get",
             params={"q": phrase, "langpair": f"en|{lang_code}"},
-            timeout=6.0,
             headers={"User-Agent": "Plasma-VoiceAssistant/1.0"},
         )
         resp.raise_for_status()

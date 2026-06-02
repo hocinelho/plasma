@@ -1,7 +1,7 @@
 """PA-57 — Wikipedia lookup: "who is Einstein" / "tell me about black holes"."""
 from __future__ import annotations
 import re
-import httpx
+from backend.core.http_client import get as http_get
 
 META = {
     "name": "wikipedia_lookup",
@@ -45,9 +45,8 @@ def run(args: dict | None = None) -> str:
     topic_title = topic[0].upper() + topic[1:]
 
     try:
-        resp = httpx.get(
-            f"https://en.wikipedia.org/api/rest_v1/page/summary/{httpx.URL(topic_title)}",
-            timeout=6.0,
+        resp = http_get(
+            f"https://en.wikipedia.org/api/rest_v1/page/summary/{topic_title}",
             headers={"User-Agent": "Plasma-VoiceAssistant/1.0"},
             follow_redirects=True,
         )
