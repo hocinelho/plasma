@@ -157,9 +157,9 @@ so longest-trigger-wins router picks weather over calculator.
 
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
-| PA-69 | Story | Mobile-responsive browser UI | S10 | To Do |
-| PA-70 | Story | Keyboard-free mode (pure voice) | S10 | To Do |
-| PA-71 | Story | High-contrast / accessibility theme | S10 | To Do |
+| PA-69 | Story | Mobile-responsive browser UI | S10 | **Done** |
+| PA-70 | Story | Keyboard-free mode (pure voice) | S10 | **Done** |
+| PA-71 | Story | High-contrast / accessibility theme | S10 | **Done** |
 | PA-72 | Story | Skill usage stats panel | S12 | To Do |
 | PA-73 | Story | Response latency graph per session | S12 | To Do |
 
@@ -202,7 +202,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | Done |
 | S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | Done |
 | S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-50, PA-51, PA-52 | **Done** |
-| S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | To Do |
+| S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | **Done** |
 | S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | To Do |
 | S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | To Do |
 | S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | To Do |
