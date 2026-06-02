@@ -71,10 +71,10 @@
 | PA-32 | Task  | Claude API as second cloud provider | To Do | — |
 
 ### PA-33 — EPIC: Wake Word (children PA-34 → PA-35)
-| Key | Type | Summary | Status |
-|---|---|---|---|
-| PA-34 | Story | "Hey Plasma" detection via openWakeWord | To Do |
-| PA-35 | Task  | Remove F9 hotkey once wake word is stable | To Do |
+| Key | Type | Summary | Status | Commit |
+|---|---|---|---|---|
+| PA-34 | Story | "Hey Plasma" detection via openWakeWord | **Done** | 702c905 |
+| PA-35 | Task  | Remove F9 hotkey once wake word is stable | To Do | — |
 
 ### PA-36 — EPIC: UI / Frontend (children PA-37 → PA-39)
 | Key | Type | Summary | Status |
@@ -178,7 +178,7 @@
 |---|---|---|---|---|
 | S1 | May 13 – May 27 | Cloud LLM | PA-28, PA-29, PA-30, PA-31 | Done |
 | S2 | May 27 – Jun 10 | UI essentials | PA-37, PA-38, PA-39 | Done |
-| **S3 ← NEXT** | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 | To Do |
+| **S3** | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 | PA-34 Done |
 | S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 | To Do |
 | S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | To Do |
 | S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | To Do |
@@ -199,10 +199,10 @@
 
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
-| PA-34 | Story | "Hey Plasma" detection via openWakeWord | **To Do** |
+| PA-34 | Story | "Hey Plasma" detection via openWakeWord | **Done** |
 | PA-35 | Task  | Remove F9 hotkey once wake word is stable | **To Do** |
 
-**Before starting:** confirm `python scripts/smoke_test.py` all green and `get_date` skill loads cleanly.
+**Live tested:** "Hey Jarvis" → score=0.65/0.78 → auto-record → "What time is it?" → skill match → TTS reply. Full hands-free loop working.
 
 ---
 
