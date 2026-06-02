@@ -130,10 +130,10 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-57 | Story | Wikipedia lookup — "who is Einstein" | S5 | **Done** |
 | PA-58 | Story | Translation skill — "say hello in French" | S5 | **Done** |
 | PA-59 | Story | Reminder skill — "remind me at 3pm" | S5 | **Done** |
-| PA-60 | Story | Voice notes — "take a note: …" | S7 | To Do |
-| PA-61 | Story | Todo list — add / read / clear by voice | S7 | To Do |
-| PA-62 | Story | News via RSS feeds (no LLM hallucination) | S7 | To Do |
-| PA-63 | Story | Weather forecast — 5-day not just current | S7 | To Do |
+| PA-60 | Story | Voice notes — "take a note: …" | S7 | **Done** |
+| PA-61 | Story | Todo list — add / read / clear by voice | S7 | **Done** |
+| PA-62 | Story | News via RSS feeds (no LLM hallucination) | S7 | **Done** |
+| PA-63 | Story | Weather forecast — 5-day not just current | S7 | **Done** |
 | PA-64 | Story | Settings control — "switch to faster model" | S15 | To Do |
 
 ### Add to PA-20 (Memory) — voice profiles
@@ -190,7 +190,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 | Done |
 | S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | Done |
 | S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | Done |
-| S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | To Do |
+| S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | Done |
 | S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | To Do |
 | S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-49, PA-50, PA-51, PA-52 | To Do |
 | S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | To Do |
@@ -254,14 +254,19 @@ so longest-trigger-wins router picks weather over calculator.
 
 ---
 
-## Active sprint — S7 (Aug 5 – Aug 19)
+## Completed — S7 (Aug 5 – Aug 19)
 
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
-| PA-60 | Story | Voice notes — "take a note: …" | To Do |
-| PA-61 | Story | Todo list — add / read / clear by voice | To Do |
-| PA-62 | Story | News via RSS feeds | To Do |
-| PA-63 | Story | Weather forecast — 5-day | To Do |
+| PA-60 | Story | Voice notes — "take a note: …" | **Done** |
+| PA-61 | Story | Todo list — add / read / clear by voice | **Done** |
+| PA-62 | Story | News via RSS feeds | **Done** |
+| PA-63 | Story | Weather forecast — 5-day | **Done** |
+
+**Storage:** notes → `.plasma/notes.jsonl`, todos → `.plasma/todos.json` (both gitignored).
+**News:** BBC World RSS, falls back to BBC main feed. No API key.
+**Forecast:** Open-Meteo `daily` endpoint, 5 days, reuses weather geocoding.
+**Tests:** 25 new tests; full suite 147 passing.
 
 ---
 

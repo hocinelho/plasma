@@ -18,7 +18,6 @@ META = {
         'how is the weather',
         'weather today',
         'weather outside',
-        'weather forecast',
     ],
     "example_utterances": ["What's the weather in Moers?", "Weather in Paris?"],
 }
