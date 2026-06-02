@@ -80,7 +80,7 @@ def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> st
     return reply
 
 
-def handle_chat(session_id: str, user_message: str) -> str:
+def handle_chat(session_id: str, user_message: str, language: str = "en") -> str:
     memory = get_memory()
     memory.add_message(session_id, "user", user_message)
 
@@ -90,7 +90,7 @@ def handle_chat(session_id: str, user_message: str) -> str:
         skill = registry.find_by_trigger(user_message)
         if skill:
             log.info(f"Skill match: {skill.name} for utterance: {user_message!r}")
-            reply = skill.invoke({"utterance": user_message, "session_id": session_id})
+            reply = skill.invoke({"utterance": user_message, "session_id": session_id, "language": language})
             memory.add_message(session_id, "assistant", reply)
             memory.mark_skill_used(skill.name, success=True)
             return reply

@@ -17,6 +17,10 @@ META = {
         "times",
         "divided by",
         "multiplied by",
+        "rechne ",
+        "berechne ",
+        "was ist ",
+        "wie viel ist ",
     ],
 }
 

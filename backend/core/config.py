@@ -40,7 +40,10 @@ class Config:
 
     # --- Local ASR (Whisper) ---
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)
+    # For German: use 'small' (multilingual, not small.en)
     WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "small.en")
+    # "auto" = detect language per utterance | "en" = English only | "de" = German only
+    WHISPER_LANGUAGE: str = os.getenv("WHISPER_LANGUAGE", "en")
 
     # --- Wake word (PA-34) ---
     # Set WAKE_WORD_ENABLED=true in .env to enable hands-free "hey jarvis" detection.
@@ -51,6 +54,7 @@ class Config:
 
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")
+    TTS_VOICE_DE: str = os.getenv("TTS_VOICE_DE", "")   # German voice model path
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
 
     # --- Logging ---

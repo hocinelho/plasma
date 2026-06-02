@@ -207,14 +207,15 @@ async def voice_chat(
             "audio_b64": None,
         }
 
-    reply = await asyncio.to_thread(handle_chat, session_id, transcript)
+    detected_language = asr_result.get("language", "en")
+    reply = await asyncio.to_thread(handle_chat, session_id, transcript, detected_language)
     _maybe_refresh_user_md(session_id)
 
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
     if plasma_config.TTS_ENABLED:
         try:
-            wav_bytes = await asyncio.to_thread(tts_synthesize, reply)
+            wav_bytes = await asyncio.to_thread(tts_synthesize, reply, detected_language)
             if wav_bytes:
                 audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
                 log.info(f"TTS audio encoded: {len(audio_b64)} b64 chars")

@@ -14,6 +14,9 @@ META = {
         "countdown for",
         "remind me in",
         "alert me in",
+        "stell einen timer",
+        "timer für",
+        "setze einen timer",
     ],
 }
 

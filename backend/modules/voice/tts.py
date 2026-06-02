@@ -21,27 +21,26 @@ from backend.core.config import config
 log = logging.getLogger("plasma.tts")
 
 _voice = None
+_voice_de = None
+
+
+def _resolve_model(model_env: str) -> Path:
+    p = Path(model_env)
+    if not p.is_absolute():
+        p = Path(__file__).resolve().parents[3] / p
+    return p
 
 
 def _load_voice():
-    """Load the Piper voice model once; cache the instance."""
     global _voice
     if _voice is not None:
         return _voice
-
     if not config.TTS_VOICE_MODEL:
         raise RuntimeError("TTS_VOICE_MODEL not set in .env")
-
     from piper import PiperVoice
-
-    model_path = Path(config.TTS_VOICE_MODEL)
-    if not model_path.is_absolute():
-        project_root = Path(__file__).resolve().parents[3]
-        model_path = project_root / model_path
-
+    model_path = _resolve_model(config.TTS_VOICE_MODEL)
     if not model_path.exists():
         raise FileNotFoundError(f"Piper voice model not found: {model_path}")
-
     log.info(f"Loading Piper voice: {model_path.name}")
     t0 = time.time()
     _voice = PiperVoice.load(str(model_path))
@@ -49,13 +48,32 @@ def _load_voice():
     return _voice
 
 
-def synthesize(text: str) -> bytes:
+def _load_voice_de() -> Optional[object]:
+    """Load German Piper voice if TTS_VOICE_DE is configured. Returns None if not set."""
+    global _voice_de
+    if _voice_de is not None:
+        return _voice_de
+    if not config.TTS_VOICE_DE:
+        return None
+    from piper import PiperVoice
+    model_path = _resolve_model(config.TTS_VOICE_DE)
+    if not model_path.exists():
+        log.warning(f"German Piper voice not found: {model_path} — falling back to English")
+        return None
+    log.info(f"Loading German Piper voice: {model_path.name}")
+    t0 = time.time()
+    _voice_de = PiperVoice.load(str(model_path))
+    log.info(f"German Piper voice loaded in {time.time() - t0:.1f}s")
+    return _voice_de
+
+
+def synthesize(text: str, language: str = "en") -> bytes:
     """Synthesize the given text to a mono 16-bit PCM WAV byte string."""
     text = (text or "").strip()
     if not text:
         return b""
 
-    voice = _load_voice()
+    voice = (_load_voice_de() if language == "de" else None) or _load_voice()
 
     t0 = time.time()
 

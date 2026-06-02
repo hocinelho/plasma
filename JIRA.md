@@ -113,11 +113,19 @@ so longest-trigger-wins router picks weather over calculator.
 
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
-| PA-48 | Story | French language support (Whisper + Piper fr) | S9 | To Do |
-| PA-49 | Story | Arabic language support | S9 | To Do |
-| PA-50 | Story | Auto language detection per utterance | S9 | To Do |
-| PA-51 | Task  | WHISPER_LANGUAGE env var | S9 | To Do |
-| PA-52 | Story | Multilingual skill triggers (FR / AR / EN) | S9 | To Do |
+| PA-48 | Story | German language support (Whisper small + Piper de_DE-thorsten) | S9 | **Done** |
+| PA-49 | Story | Arabic language support | Backlog | To Do |
+| PA-50 | Story | Auto language detection per utterance | S9 | **Done** |
+| PA-51 | Task  | WHISPER_LANGUAGE env var | S9 | **Done** |
+| PA-52 | Story | Multilingual skill triggers (DE / EN) | S9 | **Done** |
+
+**S9 notes:**
+- User said "gremany not frensh and english first" → German + English only (not French/Arabic).
+- `WHISPER_LANGUAGE=auto` passes `language=None` to faster-whisper for auto-detect; requires `WHISPER_MODEL=small` (multilingual).
+- English-only `.en` models warn and force `lang="en"` when auto is requested.
+- German voice: run `python scripts/download_de_voice.py` then set `TTS_VOICE_DE=voices/de_DE-thorsten-medium.onnx`.
+- Skills updated with German triggers + bilingual responses: get_time, get_date, joke, timer, calculator, weather.
+- Language flows: ASR → `asr_result["language"]` → `handle_chat(language=)` → `skill.invoke(args["language"])` → `tts_synthesize(language=)`.
 
 ### Add to PA-8 (Skills System) — advanced + productivity skills
 
@@ -193,7 +201,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | Done |
 | S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | Done |
 | S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | Done |
-| S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-49, PA-50, PA-51, PA-52 | To Do |
+| S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-50, PA-51, PA-52 | **Done** |
 | S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | To Do |
 | S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | To Do |
 | S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | To Do |

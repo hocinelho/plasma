@@ -110,10 +110,23 @@ def transcribe_array(audio: np.ndarray) -> dict:
     if audio is None or len(audio) < 1600:
         return {"text": "", "error": "audio_too_short"}
 
+    from backend.core.config import config as _cfg
+    whisper_lang = _cfg.WHISPER_LANGUAGE
+    if whisper_lang == "auto":
+        lang_arg = None  # Whisper auto-detects; requires multilingual model
+        if _cfg.WHISPER_MODEL.endswith(".en"):
+            log.warning(
+                "WHISPER_LANGUAGE=auto but model is English-only (%s). "
+                "Set WHISPER_MODEL=small for German support.", _cfg.WHISPER_MODEL
+            )
+            lang_arg = "en"
+    else:
+        lang_arg = whisper_lang
+
     asr = get_asr()
-    result = asr.transcribe(audio)
+    result = asr.transcribe(audio, language=lang_arg)
     log.info(
-        f"Transcribed: text='{result['text'][:80]}' "
+        f"Transcribed: text='{result['text'][:80]}' lang={result.get('language','?')} "
         f"dur={result['duration']:.1f}s lat={result['latency']:.1f}s"
     )
     return result
