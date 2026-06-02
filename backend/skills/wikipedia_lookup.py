@@ -38,7 +38,7 @@ def run(args: dict | None = None) -> str:
     utterance = (args or {}).get("utterance", "")
     topic = _STRIP.sub("", utterance).strip(" ?.")
 
-    if not topic:
+    if not topic or len(topic) < 3:
         return "What would you like me to look up?"
 
     # Capitalise first letter — Wikipedia titles are case-sensitive for first char
