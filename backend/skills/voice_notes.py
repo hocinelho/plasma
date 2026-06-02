@@ -29,7 +29,7 @@ _NOTES_FILE = config.PLASMA_DIR / "notes.jsonl"
 
 _STRIP = re.compile(
     r"^(?:take\s+a?\s*note|note\s+this|write\s+(?:this\s+)?down|"
-    r"save\s+a?\s*note|note\s+that)[:\s]+",
+    r"save\s+a?\s*note|note\s+that)[,:\s]+",
     re.I,
 )
 _READ_RE = re.compile(r"\b(read|show|what\s+are|list)\b.*\bnotes?\b", re.I)

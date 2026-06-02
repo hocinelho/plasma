@@ -43,6 +43,8 @@ def test_voice_notes_strip_trigger():
     from backend.skills.voice_notes import _STRIP
     assert _STRIP.sub("", "take a note: hello world").strip() == "hello world"
     assert _STRIP.sub("", "write down: meeting at 3").strip() == "meeting at 3"
+    # Comma separator (how speech-to-text delivers it)
+    assert _STRIP.sub("", "take a note, buy milk tomorrow").strip() == "buy milk tomorrow"
 
 def test_voice_notes_meta():
     from backend.skills.voice_notes import META

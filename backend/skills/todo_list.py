@@ -32,7 +32,7 @@ _ADD_RE = re.compile(
     re.I,
 )
 _ADD_COLON_RE = re.compile(
-    r"^(?:add\s+to\s+(?:my\s+)?(?:todo\s+)?list|put\s+on\s+my\s+list)[:\s]+(.+)",
+    r"^(?:add\s+to\s+(?:my\s+)?(?:todo\s+)?list|put\s+on\s+my\s+list)[,:\s]+(.+)",
     re.I,
 )
 _READ_RE = re.compile(r"\b(read|show|what(?:'s|\s+is)\s+on|list)\b.*\blist\b", re.I)
