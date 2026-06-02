@@ -36,7 +36,7 @@ def main() -> None:
             continue
         print(f"Downloading {fname} ...", end=" ", flush=True)
         try:
-            resp = http_get(url, timeout=120.0)
+            resp = http_get(url, timeout=120.0, follow_redirects=True)
             resp.raise_for_status()
             dest.write_bytes(resp.content)
             size_mb = len(resp.content) / 1_048_576
