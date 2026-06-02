@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Plasma — Voice Assistant</title>
     <style>
+        /* ── Design tokens ─────────────────────────────────── */
         :root {
             --bg: #0a0e1a;
             --panel: #141b2e;
@@ -14,47 +15,102 @@
             --accent-hot: #ff4a5e;
             --ok: #6fd48a;
             --warn: #f5a623;
+            --border: #2a3450;
+            --font-base: 14px;
+            --btn-size: clamp(120px, 35vw, 160px);
         }
+
+        /* PA-71: high-contrast accessibility theme */
+        html.hc {
+            --bg: #000000;
+            --panel: #0d0d0d;
+            --text: #ffffff;
+            --muted: #cccccc;
+            --accent: #00aaff;
+            --accent-hot: #ff3333;
+            --ok: #00ee55;
+            --warn: #ffcc00;
+            --border: #666666;
+            --font-base: 16px;
+        }
+        html.hc .turn { border-bottom-color: #333; }
+        html.hc #talk-btn { border-width: 3px; }
+        html.hc #status-bar { border: 1px solid var(--border); }
+        html.hc .log-header button,
+        html.hc #theme-btn { border-color: var(--border); }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { height: 100%; }
+
         body {
             font-family: -apple-system, 'Segoe UI', sans-serif;
+            font-size: var(--font-base);
             background: var(--bg);
             color: var(--text);
-            min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 24px 16px;
+            padding: 20px 16px 12px;
+        }
+
+        /* ── PA-69: responsive header ──────────────────────── */
+        .header {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 4px;
         }
         h1 {
             font-weight: 300;
             letter-spacing: 0.2em;
-            font-size: 42px;
-            margin-bottom: 4px;
+            font-size: clamp(28px, 8vw, 42px);
         }
         .subtitle {
             color: var(--muted);
-            font-size: 14px;
-            margin-bottom: 28px;
+            font-size: clamp(11px, 3vw, 14px);
+            margin-bottom: 20px;
         }
+
+        /* PA-71: theme toggle ──────────────────────────────── */
+        #theme-btn {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 8px;
+            padding: 5px 9px;
+            font-size: 17px;
+            line-height: 1;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #theme-btn:hover,
+        html.hc #theme-btn { border-color: var(--text); color: var(--text); }
 
         /* ── PA-39 Status indicator ────────────────────────── */
         #status-bar {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 8px 20px;
+            padding: 7px 20px;
             border-radius: 24px;
             background: var(--panel);
-            margin-bottom: 28px;
+            margin-bottom: 20px;
             font-size: 13px;
             transition: background 0.3s;
-            min-width: 200px;
+            min-width: 170px;
             justify-content: center;
         }
         #status-bar .dot {
-            width: 10px;
-            height: 10px;
+            width: 10px; height: 10px;
             border-radius: 50%;
             background: var(--muted);
             flex-shrink: 0;
@@ -67,40 +123,37 @@
             color: var(--muted);
             transition: color 0.2s;
         }
-        /* idle */
-        #status-bar.idle .dot   { background: var(--ok); }
-        #status-bar.idle .label { color: var(--ok); }
-        /* listening */
-        #status-bar.listening { background: #1e0e14; }
+        #status-bar.idle      .dot   { background: var(--ok); }
+        #status-bar.idle      .label { color: var(--ok); }
+        #status-bar.listening        { background: #1e0e14; }
         #status-bar.listening .dot   { background: var(--accent-hot); animation: pulse 0.9s infinite; }
         #status-bar.listening .label { color: var(--accent-hot); }
-        /* thinking */
-        #status-bar.thinking { background: #0d1628; }
-        #status-bar.thinking .dot   { background: var(--accent); animation: pulse 0.5s infinite; }
-        #status-bar.thinking .label { color: var(--accent); }
-        /* speaking */
-        #status-bar.speaking { background: #0d1e14; }
-        #status-bar.speaking .dot   { background: var(--ok); animation: pulse 0.7s infinite; }
-        #status-bar.speaking .label { color: var(--ok); }
+        #status-bar.thinking         { background: #0d1628; }
+        #status-bar.thinking  .dot   { background: var(--accent); animation: pulse 0.5s infinite; }
+        #status-bar.thinking  .label { color: var(--accent); }
+        #status-bar.speaking         { background: #0d1e14; }
+        #status-bar.speaking  .dot   { background: var(--ok); animation: pulse 0.7s infinite; }
+        #status-bar.speaking  .label { color: var(--ok); }
 
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.35; transform: scale(0.85); }
+            50%       { opacity: 0.35; transform: scale(0.85); }
         }
 
-        /* ── Talk button ───────────────────────────────────── */
+        /* ── PA-69 + PA-70: talk button ────────────────────── */
         #talk-btn {
-            width: 160px;
-            height: 160px;
+            width: var(--btn-size);
+            height: var(--btn-size);
             border-radius: 50%;
             border: 2px solid var(--accent);
             background: radial-gradient(circle, #1f2b4a, var(--panel));
             color: var(--text);
-            font-size: 18px;
+            font-size: clamp(14px, 4vw, 18px);
             cursor: pointer;
             transition: all 0.15s;
             user-select: none;
-            margin-bottom: 12px;
+            touch-action: none;
+            margin-bottom: 8px;
         }
         #talk-btn:hover { border-color: var(--accent-hot); }
         #talk-btn.recording {
@@ -109,18 +162,21 @@
             box-shadow: 0 0 40px rgba(255, 74, 94, 0.5);
             transform: scale(1.05);
         }
+
+        /* PA-70: hide SPACE hint on pure-touch devices */
         .hint {
             font-size: 12px;
             color: var(--muted);
-            margin-bottom: 20px;
+            margin-bottom: 14px;
         }
+        body.touch-mode .hint { display: none; }
 
-        /* ── PA-37 Waveform canvas ─────────────────────────── */
+        /* ── PA-37 Waveform ────────────────────────────────── */
         #waveform-wrap {
             width: 100%;
             max-width: 700px;
-            height: 56px;
-            margin-bottom: 16px;
+            height: 50px;
+            margin-bottom: 12px;
             border-radius: 10px;
             overflow: hidden;
             background: var(--panel);
@@ -128,13 +184,9 @@
             transition: opacity 0.3s;
         }
         #waveform-wrap.active { opacity: 1; }
-        #waveform {
-            width: 100%;
-            height: 100%;
-            display: block;
-        }
+        #waveform { width: 100%; height: 100%; display: block; }
 
-        /* ── PA-38 Conversation history ────────────────────── */
+        /* ── PA-38 + PA-69: conversation log ───────────────── */
         .log-header {
             width: 100%;
             max-width: 700px;
@@ -153,28 +205,37 @@
             font-size: 11px;
             color: var(--muted);
             background: none;
-            border: 1px solid #2a3450;
+            border: 1px solid var(--border);
             border-radius: 6px;
             padding: 3px 10px;
             cursor: pointer;
             transition: color 0.15s, border-color 0.15s;
         }
         .log-header button:hover { color: var(--text); border-color: var(--muted); }
+
         #log {
             width: 100%;
             max-width: 700px;
             background: var(--panel);
             border-radius: 12px;
             padding: 16px;
-            height: 380px;
+            /* PA-69: flex-grow fills remaining viewport on all screen sizes */
+            flex: 1;
+            min-height: 160px;
             overflow-y: auto;
-            font-size: 14px;
+            font-size: var(--font-base);
             line-height: 1.6;
             scroll-behavior: smooth;
         }
+        /* PA-69: cap height on large desktop screens */
+        @media (min-height: 700px) and (min-width: 600px) {
+            #log { max-height: 420px; }
+        }
+
         #log::-webkit-scrollbar { width: 6px; }
         #log::-webkit-scrollbar-track { background: transparent; }
-        #log::-webkit-scrollbar-thumb { background: #2a3450; border-radius: 3px; }
+        #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
         .turn {
             margin-bottom: 16px;
             padding-bottom: 16px;
@@ -193,34 +254,46 @@
             letter-spacing: 0.15em;
             color: var(--muted);
         }
-        .turn .ts {
-            font-size: 10px;
-            color: #3d4a66;
-        }
-        .turn.user .role   { color: var(--accent); }
+        .turn .ts { font-size: 10px; color: #3d4a66; }
+        .turn.user      .role { color: var(--accent); }
         .turn.assistant .role { color: var(--ok); }
-        .turn.error .role  { color: var(--accent-hot); }
-        .turn.error .content { color: var(--accent-hot); }
+        .turn.error     .role,
+        .turn.error  .content { color: var(--accent-hot); }
         .turn .content { white-space: pre-wrap; }
+
         .empty-hint {
             color: var(--muted);
             font-size: 13px;
             text-align: center;
-            margin-top: 140px;
+            margin-top: 120px;
+        }
+
+        /* PA-69: tighten spacing on small phones */
+        @media (max-width: 400px) {
+            body { padding: 14px 12px 10px; }
+            #status-bar { margin-bottom: 14px; }
+            #waveform-wrap { height: 40px; margin-bottom: 10px; }
+            .log-header { margin-bottom: 6px; }
         }
     </style>
 </head>
 <body>
-    <h1>PLASMA</h1>
+
+    <div class="header">
+        <h1>PLASMA</h1>
+        <!-- PA-71: high-contrast toggle -->
+        <button id="theme-btn" title="Toggle high-contrast mode" aria-label="Toggle high-contrast mode">◐</button>
+    </div>
     <div class="subtitle">local-first voice assistant</div>
 
     <!-- PA-39: status indicator -->
-    <div id="status-bar">
+    <div id="status-bar" class="">
         <span class="dot"></span>
         <span class="label">idle</span>
     </div>
 
     <button id="talk-btn">Hold to talk</button>
+    <!-- PA-70: hint hidden in touch mode -->
     <div class="hint">or hold <b>SPACE</b></div>
 
     <!-- PA-37: waveform canvas -->
@@ -245,6 +318,7 @@ const clearBtn  = document.getElementById('clear-btn');
 const wrapEl    = document.getElementById('waveform-wrap');
 const canvas    = document.getElementById('waveform');
 const ctx2d     = canvas.getContext('2d');
+const themeBtn  = document.getElementById('theme-btn');
 
 let mediaRecorder = null;
 let micStream     = null;
@@ -253,25 +327,42 @@ let isRecording   = false;
 let isBusy        = false;
 const SESSION_ID  = 'web-' + Math.random().toString(36).slice(2, 10);
 
-// ── PA-39: status ─────────────────────────────────────────
-const STATUS = {
-    idle:      { cls: 'idle',      label: 'idle' },
-    listening: { cls: 'listening', label: 'listening…' },
-    thinking:  { cls: 'thinking',  label: 'thinking…' },
-    speaking:  { cls: 'speaking',  label: 'speaking…' },
-    error:     { cls: '',          label: 'error' },
-};
+// ── PA-71: high-contrast theme ────────────────────────────
+(function initTheme() {
+    if (localStorage.getItem('plasma-hc') === '1') document.documentElement.classList.add('hc');
+})();
 
+themeBtn.addEventListener('click', () => {
+    const on = document.documentElement.classList.toggle('hc');
+    localStorage.setItem('plasma-hc', on ? '1' : '0');
+});
+
+// ── PA-70: touch / keyboard-free detection ─────────────────
+// coarse pointer = touchscreen; no hover = no physical mouse
+const isTouchPrimary = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+if (isTouchPrimary) {
+    document.body.classList.add('touch-mode');
+    btn.textContent = 'Tap to talk';
+}
+
+// ── PA-39: status ─────────────────────────────────────────
 function setStatus(state) {
-    const s = STATUS[state] || STATUS.idle;
+    const map = {
+        idle:      { cls: 'idle',      label: 'idle' },
+        listening: { cls: 'listening', label: 'listening…' },
+        thinking:  { cls: 'thinking',  label: 'thinking…' },
+        speaking:  { cls: 'speaking',  label: 'speaking…' },
+        error:     { cls: '',          label: 'error' },
+    };
+    const s = map[state] || map.idle;
     statusBar.className = s.cls;
     statusBar.querySelector('.label').textContent = s.label;
 }
 
 // ── PA-37: waveform ───────────────────────────────────────
-let audioCtx   = null;
-let analyser   = null;
-let rafId      = null;
+let audioCtx = null;
+let analyser = null;
+let rafId    = null;
 
 function initAnalyser(stream) {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -285,7 +376,6 @@ function drawWaveform() {
     const H = canvas.height = wrapEl.clientHeight;
     const data = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteTimeDomainData(data);
-
     ctx2d.clearRect(0, 0, W, H);
     ctx2d.lineWidth   = 2;
     ctx2d.strokeStyle = getComputedStyle(document.documentElement)
@@ -313,10 +403,9 @@ function stopWaveform() {
     ctx2d.clearRect(0, 0, canvas.width, canvas.height);
 }
 
-// ── PA-38: conversation history ───────────────────────────
+// ── PA-38: conversation log ───────────────────────────────
 function nowStr() {
-    const d = new Date();
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function addTurn(role, content) {
@@ -341,7 +430,7 @@ clearBtn.addEventListener('click', () => {
 // ── mic + recording ───────────────────────────────────────
 async function initMic() {
     try {
-        micStream   = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream     = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
         mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
         mediaRecorder.onstop = async () => {
@@ -365,13 +454,12 @@ function playBase64Audio(b64) {
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
             audio.onended = resolve;
-            audio.onerror = (e) => {
-                console.error('Audio playback failed', e);
+            audio.onerror = () => {
                 addTurn('error', 'Audio playback failed (browser blocked autoplay?)');
                 resolve();
             };
-            audio.play().catch(e => {
-                addTurn('error', 'Audio autoplay blocked — click the page once, then retry.');
+            audio.play().catch(() => {
+                addTurn('error', 'Audio autoplay blocked — tap the page once, then retry.');
                 resolve();
             });
         } catch (e) { console.error(e); resolve(); }
@@ -379,7 +467,7 @@ function playBase64Audio(b64) {
 }
 
 async function sendAudio(blob) {
-    if (isBusy) { console.warn('Still busy; dropping extra recording'); return; }
+    if (isBusy) return;
     isBusy = true;
     setStatus('thinking');
     const form = new FormData();
@@ -391,14 +479,12 @@ async function sendAudio(blob) {
         if (data.transcript) addTurn('user', data.transcript);
         if (data.reply)      addTurn('assistant', data.reply);
         if (data.error && !data.transcript) addTurn('error', data.error);
-
         if (data.audio_b64) {
             setStatus('speaking');
             await playBase64Audio(data.audio_b64);
         }
         setStatus('idle');
     } catch (err) {
-        console.error(err);
         setStatus('error');
         addTurn('error', 'Request failed: ' + err.message);
     } finally {
@@ -411,7 +497,7 @@ function startRecording() {
     if (mediaRecorder.state === 'recording') return;
     isRecording = true;
     btn.classList.add('recording');
-    btn.textContent = 'Listening…';
+    btn.textContent = isTouchPrimary ? 'Tap to stop' : 'Listening…';
     setStatus('listening');
     startWaveform();
     chunks = [];
@@ -422,23 +508,31 @@ function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     isRecording = false;
     btn.classList.remove('recording');
-    btn.textContent = 'Hold to talk';
+    btn.textContent = isTouchPrimary ? 'Tap to talk' : 'Hold to talk';
     stopWaveform();
     if (mediaRecorder.state === 'recording') mediaRecorder.stop();
 }
 
-// button events
-btn.addEventListener('mousedown', startRecording);
-btn.addEventListener('mouseup',   stopRecording);
-btn.addEventListener('mouseleave', stopRecording);
-btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
-btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording(); });
+// ── PA-70: input handling — hold on desktop, tap-toggle on touch ───
+if (isTouchPrimary) {
+    // Tap to start, tap again to stop (pure voice, no hold required)
+    btn.addEventListener('click', () => {
+        if (isRecording) stopRecording();
+        else startRecording();
+    });
+} else {
+    // Desktop: hold-to-talk
+    btn.addEventListener('mousedown',  startRecording);
+    btn.addEventListener('mouseup',    stopRecording);
+    btn.addEventListener('mouseleave', stopRecording);
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+    btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording(); });
+}
 
-// keyboard SPACE
+// Keyboard SPACE (desktop)
 window.addEventListener('keydown', e => {
     if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT') {
-        e.preventDefault();
-        startRecording();
+        e.preventDefault(); startRecording();
     }
 });
 window.addEventListener('keyup', e => {
@@ -447,8 +541,8 @@ window.addEventListener('keyup', e => {
 
 initMic();
 
-// ── PA-34: Wake word WebSocket ────────────────────────────
-const WAKE_AUTO_STOP_MS = 6000;  // auto-stop recording after 6s if no button release
+// ── PA-34: wake word WebSocket ────────────────────────────
+const WAKE_AUTO_STOP_MS = 6000;
 let wakeStopTimer = null;
 
 function connectWakeSocket() {
@@ -460,16 +554,11 @@ function connectWakeSocket() {
     ws.onmessage = (ev) => {
         try {
             const msg = JSON.parse(ev.data);
-            if (msg.type === 'wake') {
+            if (msg.type === 'wake' && !isRecording && !isBusy) {
                 console.log(`[wake] detected (score=${msg.score?.toFixed(2)})`);
-                if (!isRecording && !isBusy) {
-                    startRecording();
-                    // Auto-stop after WAKE_AUTO_STOP_MS to avoid endless recording
-                    clearTimeout(wakeStopTimer);
-                    wakeStopTimer = setTimeout(() => {
-                        if (isRecording) stopRecording();
-                    }, WAKE_AUTO_STOP_MS);
-                }
+                startRecording();
+                clearTimeout(wakeStopTimer);
+                wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
             }
         } catch (e) { console.warn('[wake] bad message', ev.data); }
     };
@@ -479,7 +568,7 @@ function connectWakeSocket() {
         setTimeout(connectWakeSocket, 3000);
     };
 
-    ws.onerror = (e) => console.warn('[wake] WebSocket error', e);
+    ws.onerror = e => console.warn('[wake] WebSocket error', e);
 }
 
 connectWakeSocket();
