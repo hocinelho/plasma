@@ -10,7 +10,16 @@ from backend.core.http_client import get as http_get
 META = {
     "name": "weather",
     "description": "Returns current weather for a city.",
-    "triggers": ['weather', "what's the weather", 'weather in'],
+    "triggers": [
+        'weather',
+        "what's the weather",
+        'weather in',
+        'what is the weather',
+        'how is the weather',
+        'weather today',
+        'weather outside',
+        'weather forecast',
+    ],
     "example_utterances": ["What's the weather in Moers?", "Weather in Paris?"],
 }
 
