@@ -30,6 +30,13 @@ class Config:
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)
     WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "small.en")
 
+    # --- Wake word (PA-34) ---
+    # Set WAKE_WORD_ENABLED=true in .env to enable hands-free "hey jarvis" detection.
+    # Requires openwakeword (already in requirements.txt).
+    WAKE_WORD_ENABLED: bool = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
+    WAKE_WORD_MODEL: str = os.getenv("WAKE_WORD_MODEL", "hey_jarvis")
+    WAKE_WORD_THRESHOLD: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.3"))
+
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"

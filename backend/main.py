@@ -8,7 +8,7 @@ Endpoints:
 - POST /voice/chat    — voice chat: WebM/WAV audio -> Whisper -> /chat -> reply + Piper audio
 - GET  /user/profile  — current USER.md contents
 - POST /user/reflect  — regenerate USER.md from facts
-- WS   /ws            — reserved for future streaming use
+- WS   /ws/wake       — wake word events (type: "wake") → browser auto-starts recording
 """
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ from backend.modules.user.user_md import write_user_md, read_user_md
 from backend.modules.voice.pipeline import transcribe_audio_bytes
 from backend.modules.voice.tts import synthesize as tts_synthesize, health_check as tts_health
 from backend.modules.skills.suggester import get_suggester
+from backend.modules.voice.wake_monitor import wake_monitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -81,8 +82,11 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_warm_ollama())
     asyncio.create_task(_warm_whisper())
     asyncio.create_task(_warm_tts())
+    await wake_monitor.start()
 
     yield
+
+    await wake_monitor.stop()
     log.info("Plasma backend shutting down...")
 
 
@@ -263,18 +267,22 @@ async def approve_skill_proposal(name: str):
 async def reject_skill_proposal(name: str):
     return {"result": get_suggester().reject(name)}
 # ---------------------------------------------------------------------------
-# WebSocket (reserved)
+# WebSocket — wake word broadcast (PA-34)
 # ---------------------------------------------------------------------------
-@app.websocket("/ws")
-async def websocket_voice(ws: WebSocket):
-    """Voice WebSocket placeholder (reserved for future streaming use)."""
+@app.websocket("/ws/wake")
+async def websocket_wake(ws: WebSocket):
+    """
+    Browser connects here to receive wake word events.
+    On detection the server sends: {"type": "wake", "score": float}
+    The browser auto-starts the recording flow on receipt.
+    """
     await ws.accept()
-    log.info("Voice WebSocket connected")
+    wake_monitor.add_client(ws)
+    log.info("Wake WS client connected")
     try:
-        await ws.send_json({"type": "hello", "message": "Plasma voice channel ready"})
         while True:
-            msg = await ws.receive_text()
-            log.info(f"Received: {msg}")
-            await ws.send_json({"type": "echo", "text": msg})
+            # Keep the connection open; we don't expect messages from browser
+            await ws.receive_text()
     except WebSocketDisconnect:
-        log.info("Voice WebSocket disconnected")
+        wake_monitor.remove_client(ws)
+        log.info("Wake WS client disconnected")

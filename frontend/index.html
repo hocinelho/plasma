@@ -446,6 +446,43 @@ window.addEventListener('keyup', e => {
 });
 
 initMic();
+
+// ── PA-34: Wake word WebSocket ────────────────────────────
+const WAKE_AUTO_STOP_MS = 6000;  // auto-stop recording after 6s if no button release
+let wakeStopTimer = null;
+
+function connectWakeSocket() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/wake`);
+
+    ws.onopen = () => console.log('[wake] WebSocket connected');
+
+    ws.onmessage = (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'wake') {
+                console.log(`[wake] detected (score=${msg.score?.toFixed(2)})`);
+                if (!isRecording && !isBusy) {
+                    startRecording();
+                    // Auto-stop after WAKE_AUTO_STOP_MS to avoid endless recording
+                    clearTimeout(wakeStopTimer);
+                    wakeStopTimer = setTimeout(() => {
+                        if (isRecording) stopRecording();
+                    }, WAKE_AUTO_STOP_MS);
+                }
+            }
+        } catch (e) { console.warn('[wake] bad message', ev.data); }
+    };
+
+    ws.onclose = () => {
+        console.log('[wake] WebSocket closed — reconnecting in 3s');
+        setTimeout(connectWakeSocket, 3000);
+    };
+
+    ws.onerror = (e) => console.warn('[wake] WebSocket error', e);
+}
+
+connectWakeSocket();
 </script>
 </body>
 </html>
