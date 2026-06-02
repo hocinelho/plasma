@@ -115,13 +115,13 @@
 
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
-| PA-53 | Story | Timer skill — "set a timer for 5 minutes" | S4 | To Do |
-| PA-54 | Story | Calculator skill — math by voice | S4 | To Do |
-| PA-55 | Story | Joke skill — random joke on demand | S4 | To Do |
-| PA-56 | Story | Unit converter — "convert 5 miles to km" | S4 | To Do |
-| PA-57 | Story | Wikipedia lookup — "who is Einstein" | S5 | To Do |
-| PA-58 | Story | Translation skill — "say hello in French" | S5 | To Do |
-| PA-59 | Story | Reminder skill — "remind me at 3pm" | S5 | To Do |
+| PA-53 | Story | Timer skill — "set a timer for 5 minutes" | S4 | **Done** |
+| PA-54 | Story | Calculator skill — math by voice | S4 | **Done** |
+| PA-55 | Story | Joke skill — random joke on demand | S4 | **Done** |
+| PA-56 | Story | Unit converter — "convert 5 miles to km" | S4 | **Done** |
+| PA-57 | Story | Wikipedia lookup — "who is Einstein" | S5 | **Done** |
+| PA-58 | Story | Translation skill — "say hello in French" | S5 | **Done** |
+| PA-59 | Story | Reminder skill — "remind me at 3pm" | S5 | **Done** |
 | PA-60 | Story | Voice notes — "take a note: …" | S7 | To Do |
 | PA-61 | Story | Todo list — add / read / clear by voice | S7 | To Do |
 | PA-62 | Story | News via RSS feeds (no LLM hallucination) | S7 | To Do |
@@ -179,8 +179,8 @@
 | S1 | May 13 – May 27 | Cloud LLM | PA-28, PA-29, PA-30, PA-31 | Done |
 | S2 | May 27 – Jun 10 | UI essentials | PA-37, PA-38, PA-39 | Done |
 | S3 | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 | Done |
-| S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 | To Do |
-| S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | To Do |
+| S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 | Done |
+| S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | Done |
 | S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | To Do |
 | S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | To Do |
 | S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | To Do |
@@ -195,7 +195,7 @@
 
 ---
 
-## Active sprint — S3 (Jun 10 – Jun 24)
+## Completed — S3 (Jun 10 – Jun 24)
 
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
@@ -203,6 +203,42 @@
 | PA-35 | Task  | Remove F9 hotkey once wake word is stable | **Done** |
 
 **Live tested:** "Hey Jarvis" → score=0.65/0.78 → auto-record → "What time is it?" → skill match → TTS reply. Full hands-free loop working.
+
+---
+
+## Completed — S4 (Jun 24 – Jul 8)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-53 | Story | Timer skill — "set a timer for 5 minutes" | **Done** |
+| PA-54 | Story | Calculator skill — math by voice | **Done** |
+| PA-55 | Story | Joke skill — random joke on demand | **Done** |
+| PA-56 | Story | Unit converter — "convert 5 miles to km" | **Done** |
+
+**Live tested:** all four skills triggered by voice. 22 unit tests passing.
+
+---
+
+## Completed — S5 (Jul 8 – Jul 22)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-57 | Story | Wikipedia lookup — "who is Einstein" | **Done** |
+| PA-58 | Story | Translation skill — "say hello in French" | **Done** |
+| PA-59 | Story | Reminder skill — "remind me at 3pm" | **Done** |
+
+**Tests:** 23 unit tests in `tests/test_sprint5_skills.py`. Full suite: 101 passing.
+**Files:** `backend/skills/wikipedia_lookup.py`, `backend/skills/translator.py`, `backend/skills/reminder.py`
+
+---
+
+## Active sprint — S6 (Jul 22 – Aug 5)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-41 | Story | Read today's Outlook calendar events by voice | To Do |
+| PA-42 | Story | Read unread Outlook email count | To Do |
+| PA-43 | Story | "Add to calendar" by voice | To Do |
 
 ---
 
