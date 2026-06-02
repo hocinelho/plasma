@@ -1,32 +1,52 @@
-"""Shared HTTPS helper that trusts both certifi's bundle and the OS cert store.
+"""Shared HTTPS helper that trusts the OS certificate store.
 
 On Windows corporate networks a proxy presents a certificate signed by a
-company CA that lives in the Windows store but is absent from certifi's
-bundle.  httpx loads certifi after ssl.create_default_context(), which
-replaces any OS certs that were injected earlier — so monkey-patching ssl at
-import time (e.g. truststore) has no effect.
+company CA.  certifi's bundle doesn't include it, and Python's
+ssl.load_default_certs() misses it too because it doesn't do the on-demand
+CA fetching that Windows performs natively — so verification fails with
+CERTIFICATE_VERIFY_FAILED on hosts like Wikipedia.
 
-Building the SSL context here — certifi first, Windows store added on top —
-gives every skill one place to get a correctly-trusted httpx call.
+`truststore` fixes this properly: its SSLContext delegates verification to
+the OS (Windows CryptoAPI / macOS Security framework), which trusts the
+corporate CA.  We build that context once and pass it to every skill's
+outbound call.
+
+Escape hatch: set PLASMA_INSECURE_SSL=true in .env to skip verification
+entirely (only for trusted local/dev networks).
 """
 from __future__ import annotations
+import os
 import ssl
-import platform
+import logging
 
 import certifi
 import httpx
 
-def _build_ssl_context() -> ssl.SSLContext:
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    if platform.system() == "Windows":
-        # Adds corporate/proxy CA certs from the Windows Trusted Root store
-        # without replacing the certifi bundle already loaded above.
-        ctx.load_default_certs()
-    return ctx
+log = logging.getLogger("plasma.http")
 
-_SSL: ssl.SSLContext = _build_ssl_context()
+_INSECURE = os.getenv("PLASMA_INSECURE_SSL", "false").lower() == "true"
+
+
+def _build_verify():
+    if _INSECURE:
+        log.warning("PLASMA_INSECURE_SSL=true — TLS verification DISABLED")
+        return False
+    # Preferred: OS trust store (handles corporate MITM proxies).
+    try:
+        import truststore
+
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        log.warning(
+            "truststore unavailable — falling back to certifi. If you see "
+            "CERTIFICATE_VERIFY_FAILED, run: pip install truststore"
+        )
+        return ssl.create_default_context(cafile=certifi.where())
+
+
+_VERIFY = _build_verify()
 
 
 def get(url: str, *, timeout: float = 6.0, **kwargs) -> httpx.Response:
     """Drop-in for httpx.get that trusts the OS cert store on Windows."""
-    return httpx.get(url, timeout=timeout, verify=_SSL, **kwargs)
+    return httpx.get(url, timeout=timeout, verify=_VERIFY, **kwargs)
