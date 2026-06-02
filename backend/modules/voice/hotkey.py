@@ -1,5 +1,11 @@
 """
-Plasma global hotkey daemon — hold F9 to talk to Plasma from anywhere in Windows.
+DEPRECATED (PA-35) — F9 hotkey daemon, superseded by wake word (PA-34).
+
+The browser UI uses SPACE / hold-to-talk + "Hey Jarvis" wake word.
+This file is kept as a debug/fallback terminal tool but is no longer
+part of the main Plasma pipeline.
+
+Original: Plasma global hotkey daemon — hold F9 to talk to Plasma from anywhere in Windows.
 
 Records mic audio while F9 is held. On release, transcribes and sends to /chat.
 Prints the transcript and reply in the terminal.
