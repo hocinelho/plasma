@@ -35,7 +35,7 @@ class Config:
     # Requires openwakeword (already in requirements.txt).
     WAKE_WORD_ENABLED: bool = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
     WAKE_WORD_MODEL: str = os.getenv("WAKE_WORD_MODEL", "hey_jarvis")
-    WAKE_WORD_THRESHOLD: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.3"))
+    WAKE_WORD_THRESHOLD: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
 
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")

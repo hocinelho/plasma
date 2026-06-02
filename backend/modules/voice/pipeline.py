@@ -96,6 +96,12 @@ def transcribe_audio_bytes(data: bytes) -> dict:
     if len(audio) < 1600:  # < 0.1 s
         return {"text": "", "error": "audio_too_short"}
 
+    # Reject near-silent clips — Whisper hallucinates on silence
+    rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+    if rms < 200:
+        log.info(f"Audio rejected (silence): rms={rms:.0f}")
+        return {"text": "", "error": "audio_too_quiet"}
+
     return transcribe_array(audio)
 
 
