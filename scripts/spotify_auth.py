@@ -55,11 +55,15 @@ def main() -> None:
 
     token = auth.get_access_token(as_dict=False)
     if token:
-        sp = spotipy.Spotify(auth=token)
-        me = sp.current_user()
-        print(f"\nAuthenticated as: {me['display_name']} ({me['email']})")
-        print(f"Token saved to: {_CACHE_PATH}")
-        print("\nPlasma can now control Spotify by voice.")
+        config.PLASMA_DIR.mkdir(parents=True, exist_ok=True)
+        print(f"\nToken saved to: {_CACHE_PATH}")
+        try:
+            sp = spotipy.Spotify(auth=token)
+            me = sp.current_user()
+            print(f"Authenticated as: {me['display_name']}")
+        except Exception:
+            print("Authenticated. (Profile info unavailable — Spotify Premium required)")
+        print("\nNote: Spotify playback control and 'what song is playing' require Premium.")
     else:
         print("\nAuthentication failed. Check your Client ID and Secret.")
         sys.exit(1)
