@@ -96,6 +96,14 @@
 | PA-45 | Task  | pytest CI on every push (GitHub Actions) | To Do |
 | PA-46 | Task  | Windows installer via PyInstaller | To Do |
 | PA-47 | Task  | `.env.example` always up to date | Done |
+| PA-87 | Bug   | Corporate-proxy TLS: CERTIFICATE_VERIFY_FAILED on Wikipedia/translator/weather | **Done** | b8b4901 |
+| PA-88 | Bug   | Weather routed to calculator — "what is " trigger outranked "weather" | **Done** | 601d78b |
+
+**PA-87 fix:** `backend/core/http_client.py` builds a `truststore.SSLContext` that
+delegates verification to the Windows cert store (handles corporate MITM CAs).
+`PLASMA_INSECURE_SSL=true` escape hatch for trusted local networks.
+**PA-88 fix:** added longer explicit weather triggers ("what is the weather", etc.)
+so longest-trigger-wins router picks weather over calculator.
 
 ---
 
