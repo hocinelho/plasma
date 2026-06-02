@@ -7,6 +7,18 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Use the OS certificate store for TLS so corporate MITM proxies (whose CA is
+# trusted by Windows but absent from certifi's bundle) don't break outbound
+# HTTPS. This is why some hosts (e.g. Wikipedia) hit
+# "CERTIFICATE_VERIFY_FAILED" while others (Google) work. Safe no-op if the
+# package isn't installed — falls back to certifi.
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
