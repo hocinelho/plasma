@@ -86,9 +86,9 @@
 ### PA-40 — EPIC: Integrations (children PA-41 → PA-43)
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-41 | Story | Read today's Outlook calendar events by voice | To Do |
-| PA-42 | Story | Read unread Outlook email count | To Do |
-| PA-43 | Story | "Add to calendar" by voice | To Do |
+| PA-41 | Story | Read today's Outlook calendar events by voice | **Done** |
+| PA-42 | Story | Read unread Outlook email count | **Done** |
+| PA-43 | Story | "Add to calendar" by voice | **Done** |
 
 ### PA-44 — EPIC: Infra / DevOps (children PA-45 → PA-47)
 | Key | Type | Summary | Status |
@@ -189,7 +189,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S3 | Jun 10 – Jun 24 | Wake word | PA-34, PA-35 | Done |
 | S4 | Jun 24 – Jul 8 | Skills batch 1 | PA-53, PA-54, PA-55, PA-56 | Done |
 | S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | Done |
-| S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | To Do |
+| S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | Done |
 | S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | To Do |
 | S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | To Do |
 | S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-49, PA-50, PA-51, PA-52 | To Do |
@@ -240,13 +240,28 @@ so longest-trigger-wins router picks weather over calculator.
 
 ---
 
-## Active sprint — S6 (Jul 22 – Aug 5)
+## Completed — S6 (Jul 22 – Aug 5)
 
 | Ticket | Type | Summary | Status |
 |---|---|---|---|
-| PA-41 | Story | Read today's Outlook calendar events by voice | To Do |
-| PA-42 | Story | Read unread Outlook email count | To Do |
-| PA-43 | Story | "Add to calendar" by voice | To Do |
+| PA-41 | Story | Read today's Outlook calendar events by voice | **Done** |
+| PA-42 | Story | Read unread Outlook email count | **Done** |
+| PA-43 | Story | "Add to calendar" by voice | **Done** |
+
+**Auth:** MSAL device-code flow, token cached at `.plasma/ms_token.json` (gitignored).
+**Setup:** `python scripts/ms_auth.py` — one-time, then all three skills work by voice.
+**Tests:** 21 unit tests in `tests/test_sprint6_skills.py`. Full suite: 122 passing.
+
+---
+
+## Active sprint — S7 (Aug 5 – Aug 19)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-60 | Story | Voice notes — "take a note: …" | To Do |
+| PA-61 | Story | Todo list — add / read / clear by voice | To Do |
+| PA-62 | Story | News via RSS feeds | To Do |
+| PA-63 | Story | Weather forecast — 5-day | To Do |
 
 ---
 

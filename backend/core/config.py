@@ -56,6 +56,11 @@ class Config:
     # --- Logging ---
     LOG_LEVEL: str = os.getenv("PLASMA_LOG_LEVEL", "INFO")
 
+    # --- Microsoft Graph (Outlook calendar + email) ---
+    # Register an app at portal.azure.com, then run: python scripts/ms_auth.py
+    MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
+    MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "common")  # "common" = personal + work
+
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"
     MEMORY_DB: Path = PLASMA_DIR / "memory.sqlite"
