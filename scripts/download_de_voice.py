@@ -7,7 +7,9 @@ Downloads to: voices/de_DE-thorsten-medium.onnx (and .onnx.json)
 Then add to .env:
     TTS_VOICE_DE=voices/de_DE-thorsten-medium.onnx
 """
+import ssl
 import sys
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -22,11 +24,21 @@ _FILES = [
 ]
 
 
-def main() -> None:
-    from backend.core.http_client import get as http_get
+def _make_opener() -> urllib.request.OpenerDirector:
+    """Build a URL opener that trusts the OS/corporate cert store."""
+    try:
+        import truststore
+        ctx = truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        ctx = ssl.create_default_context()
+    return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
 
+
+def main() -> None:
     out_dir = Path(__file__).resolve().parents[1] / "voices"
     out_dir.mkdir(exist_ok=True)
+
+    opener = _make_opener()
 
     for fname in _FILES:
         url = f"{_BASE}/{fname}"
@@ -36,10 +48,10 @@ def main() -> None:
             continue
         print(f"Downloading {fname} ...", end=" ", flush=True)
         try:
-            resp = http_get(url, timeout=120.0, follow_redirects=True)
-            resp.raise_for_status()
-            dest.write_bytes(resp.content)
-            size_mb = len(resp.content) / 1_048_576
+            with opener.open(url, timeout=120) as resp:
+                data = resp.read()
+            dest.write_bytes(data)
+            size_mb = len(data) / 1_048_576
             print(f"done ({size_mb:.1f} MB)")
         except Exception as e:
             print(f"FAILED: {e}")
@@ -47,7 +59,7 @@ def main() -> None:
 
     print(f"\nVoice saved to: {out_dir}")
     print("Add this to your .env:")
-    print(f"  TTS_VOICE_DE=voices/de_DE-thorsten-medium.onnx")
+    print("  TTS_VOICE_DE=voices/de_DE-thorsten-medium.onnx")
     print("\nAlso set for German recognition:")
     print("  WHISPER_MODEL=small")
     print("  WHISPER_LANGUAGE=auto")
