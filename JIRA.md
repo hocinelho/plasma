@@ -159,10 +159,11 @@ so longest-trigger-wins router picks weather over calculator.
 
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
-| PA-74 | Story | Spotify play / pause / next / previous | S8 | To Do |
-| PA-75 | Story | System volume up / down / mute | S8 | To Do |
-| PA-76 | Story | Screenshot by voice — saved to Desktop | S8 | To Do |
-| PA-77 | Story | "What song is playing?" via Spotify API | S8 | To Do |
+| PA-74 | Story | Spotify play / pause / next / previous | S8 | **Done** |
+| PA-75 | Story | System volume up / down / mute | S8 | **Done** |
+| PA-76 | Story | Screenshot by voice — saved to Desktop | S8 | **Done** |
+| PA-77 | Story | "What song is playing?" via Spotify API | S8 | **Done** |
+| PA-89 | Task  | Train custom "Hey Plasma" wake word model | Backlog | To Do |
 | PA-78 | Story | Slack — read latest message in channel | S13 | To Do |
 | PA-79 | Story | Microsoft Teams — meeting summary by voice | S13 | To Do |
 | PA-80 | Story | Send WhatsApp message by voice | S13 | To Do |
@@ -191,7 +192,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S5 | Jul 8 – Jul 22 | Skills batch 2 | PA-57, PA-58, PA-59 | Done |
 | S6 | Jul 22 – Aug 5 | Outlook | PA-41, PA-42, PA-43 | Done |
 | S7 | Aug 5 – Aug 19 | Productivity skills | PA-60, PA-61, PA-62, PA-63 | Done |
-| S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | To Do |
+| S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | Done |
 | S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-49, PA-50, PA-51, PA-52 | To Do |
 | S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | To Do |
 | S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | To Do |
@@ -251,6 +252,24 @@ so longest-trigger-wins router picks weather over calculator.
 **Auth:** MSAL device-code flow, token cached at `.plasma/ms_token.json` (gitignored).
 **Setup:** `python scripts/ms_auth.py` — one-time, then all three skills work by voice.
 **Tests:** 21 unit tests in `tests/test_sprint6_skills.py`. Full suite: 122 passing.
+
+---
+
+## Completed — S8 (Aug 19 – Sep 2)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-75 | Story | Volume up/down/mute via Windows WScript | **Done** |
+| PA-76 | Story | Screenshot → saved to Desktop as PNG | **Done** |
+| PA-74 | Story | Spotify play/pause/next/previous | **Done** |
+| PA-77 | Story | "What song is playing?" | **Done** |
+
+**Volume:** subprocess + PowerShell WScript.Shell key codes, no extra packages.
+**Screenshot:** Pillow ImageGrab, saved to `~/Desktop/screenshot_YYYYMMDD_HHMMSS.png`.
+**Spotify:** spotipy OAuth, one-time setup via `scripts/spotify_auth.py`.
+  Requires SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET in .env, Spotify Premium for playback control.
+**PA-89 logged:** "Hey Plasma" custom wake word — needs openWakeWord model training, backlog.
+**Tests:** 18 new; full suite 165 passing.
 
 ---
 

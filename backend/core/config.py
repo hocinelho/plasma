@@ -56,6 +56,11 @@ class Config:
     # --- Logging ---
     LOG_LEVEL: str = os.getenv("PLASMA_LOG_LEVEL", "INFO")
 
+    # --- Spotify (PA-74/77) ---
+    SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
+    SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+    SPOTIFY_REDIRECT_URI: str = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:9090")
+
     # --- Microsoft Graph (Outlook calendar + email) ---
     # Register an app at portal.azure.com, then run: python scripts/ms_auth.py
     MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
