@@ -44,6 +44,9 @@ class Config:
     WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "small.en")
     # "auto" = detect language per utterance | "en" = English only | "de" = German only
     WHISPER_LANGUAGE: str = os.getenv("WHISPER_LANGUAGE", "en")
+    # When WHISPER_LANGUAGE=auto, restrict detection to these languages so short,
+    # accented utterances aren't mis-detected (e.g. English heard as Arabic).
+    WHISPER_ALLOWED_LANGS: str = os.getenv("WHISPER_ALLOWED_LANGS", "en,de")
 
     # --- Wake word (PA-34) ---
     # Set WAKE_WORD_ENABLED=true in .env to enable hands-free "hey jarvis" detection.

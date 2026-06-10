@@ -116,6 +116,7 @@ def transcribe_array(audio: np.ndarray) -> dict:
 
     from backend.core.config import config as _cfg
     whisper_lang = _cfg.WHISPER_LANGUAGE
+    allowed_langs = None
     if whisper_lang == "auto":
         lang_arg = None  # Whisper auto-detects; requires multilingual model
         if _cfg.WHISPER_MODEL.endswith(".en"):
@@ -124,11 +125,15 @@ def transcribe_array(audio: np.ndarray) -> dict:
                 "Set WHISPER_MODEL=small for German support.", _cfg.WHISPER_MODEL
             )
             lang_arg = "en"
+        else:
+            allowed_langs = [
+                s.strip() for s in _cfg.WHISPER_ALLOWED_LANGS.split(",") if s.strip()
+            ] or None
     else:
         lang_arg = whisper_lang
 
     asr = get_asr()
-    result = asr.transcribe(audio, language=lang_arg)
+    result = asr.transcribe(audio, language=lang_arg, allowed_languages=allowed_langs)
     log.info(
         f"Transcribed: text='{result['text'][:80]}' lang={result.get('language','?')} "
         f"dur={result['duration']:.1f}s lat={result['latency']:.1f}s"

@@ -51,6 +51,7 @@ class WhisperASR:
         sample_rate: int = DEFAULT_SAMPLE_RATE,
         language: Optional[str] = "en",
         beam_size: int = 5,
+        allowed_languages: Optional[list[str]] = None,
     ) -> dict:
         """Transcribe a numpy audio array and return text + metadata.
 
@@ -59,6 +60,11 @@ class WhisperASR:
             sample_rate: must be 16000 for Whisper; we assert
             language: "en", "de", etc. or None for auto-detect
             beam_size: higher = more accurate but slower
+            allowed_languages: when `language` is None (auto), restrict the
+                detected language to this set. Short, accented utterances are
+                often mis-detected (e.g. English heard as Arabic/Turkish); if
+                the top detection is outside this set we snap to the best
+                allowed language instead. No effect when language is forced.
 
         Returns:
             {"text": str, "language": str, "duration": float, "latency": float}
@@ -69,6 +75,10 @@ class WhisperASR:
 
         # Whisper wants float32 in [-1, 1]
         float_audio = (audio.astype(np.float32) / 32768.0).copy()
+
+        # Clamp auto-detect to the languages we actually support.
+        if language is None and allowed_languages:
+            language = self._detect_clamped(float_audio, allowed_languages)
 
         t0 = time.time()
         segments, info = self.model.transcribe(
@@ -88,6 +98,34 @@ class WhisperASR:
             "duration": float(info.duration),
             "latency": latency,
         }
+
+    def _detect_clamped(
+        self, float_audio: np.ndarray, allowed: list[str]
+    ) -> Optional[str]:
+        """Detect language, snapping to `allowed` set. Returns a forced
+        language code, or None to fall back to unrestricted auto-detect."""
+        try:
+            lang, prob, all_probs = self.model.detect_language(float_audio)
+        except Exception as e:
+            log.warning("detect_language failed (%s); using full auto-detect", e)
+            return None
+
+        if lang in allowed:
+            return lang
+
+        # Top guess is outside the supported set — pick the best allowed one.
+        best = max(
+            (lp for lp in all_probs if lp[0] in allowed),
+            key=lambda lp: lp[1],
+            default=None,
+        )
+        if best is not None:
+            log.info(
+                "Auto-detect '%s' (%.2f) not in %s; clamped to '%s' (%.2f)",
+                lang, prob, allowed, best[0], best[1],
+            )
+            return best[0]
+        return None
 
 
 def _smoke_test() -> None:
