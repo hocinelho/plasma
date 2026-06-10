@@ -96,45 +96,13 @@ def _install_stubs():
     wm_class.stop = _async_noop
     wm_mod.wake_monitor = wm_class
 
-    # ollama stub
-    for name in ["backend.modules.router.ollama_client"]:
-        _stub_module(name)
-    omc = sys.modules["backend.modules.router.ollama_client"]
-    omc.health_check = lambda: {"reachable": False}
+    # Real modules that CAN be imported (no native lib deps) — don't stub them.
+    # ollama_client, suggester, user_md, chat_service all import fine without native libs.
+    # We only need to stub the voice pipeline modules that pull in numpy/resemblyzer.
 
-    # skills suggester stub
-    for name in ["backend.modules.skills.suggester"]:
-        _stub_module(name)
-    sug = sys.modules["backend.modules.skills.suggester"]
-
-    class _FakeSuggester:
-        def list_proposals(self): return []
-        def approve(self, name): return "ok"
-        def reject(self, name): return "ok"
-
-    sug.get_suggester = lambda: _FakeSuggester()
-
-    # user_md stubs
-    for name in ["backend.modules.user.user_md"]:
-        _stub_module(name)
-    umd = sys.modules["backend.modules.user.user_md"]
-    umd.write_user_md = lambda: Path("/tmp/USER.md")
-    umd.read_user_md = lambda: "(stub)"
-
-    # chat_service stubs
-    for name in ["backend.modules.router.chat_service"]:
-        _stub_module(name)
-    cs = sys.modules["backend.modules.router.chat_service"]
-
-    # Will be patched per-test via monkeypatch
-    _default_store = None
-
-    def _get_memory():
-        return _default_store
-
-    cs.handle_chat = lambda sid, msg, lang="en", speaker=None: "stub reply"
-    cs.get_memory = _get_memory
-    cs._set_default_store = lambda s: setattr(cs, "_default_store_ref", s)
+    # chat_service stubs — it's imported in main.py's module body; stub only the
+    # functions that would pull in Ollama or the voice pipeline transitively.
+    # We import the real module (it's pure Python), then monkeypatch per-test.
 
     # httpx is a real package needed by TestClient — do NOT stub it
 
