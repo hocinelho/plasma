@@ -15,12 +15,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from backend.core.config import config as plasma_config
@@ -133,6 +135,15 @@ async def root():
     return {"name": "Plasma", "version": "0.1.0", "status": "online"}
 
 
+@app.get("/analytics")
+async def analytics_page():
+    """Serve the Analytics & Memory dashboard."""
+    html_path = Path(__file__).resolve().parents[1] / "frontend" / "analytics.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    return JSONResponse({"error": "analytics.html not found"}, status_code=404)
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -192,10 +203,13 @@ async def voice_chat(
     4. Synthesize the reply to audio with Piper
     5. Return transcript, text reply, and base64-encoded WAV
     """
+    t_start = time.monotonic()
     data = await audio.read()
     log.info(f"Received audio blob: {len(data)} bytes, session={session_id}")
 
+    asr_t0 = time.monotonic()
     asr_result = await asyncio.to_thread(transcribe_audio_bytes, data)
+    asr_ms = (time.monotonic() - asr_t0) * 1000.0
     transcript = asr_result.get("text", "").strip()
     pcm_audio = asr_result.pop("_audio", None)  # PA-65: decoded PCM for speaker ID
 
@@ -214,6 +228,7 @@ async def voice_chat(
     # Handled BEFORE skill routing because it needs the raw audio.
     from backend.modules.voice import speaker_id
     enroll_name = speaker_id.parse_enroll_command(transcript)
+    llm_t0 = time.monotonic()
     if enroll_name:
         reply = await asyncio.to_thread(speaker_id.enroll, enroll_name, pcm_audio)
         speaker = enroll_name if enroll_name in speaker_id.list_speakers() else None
@@ -224,17 +239,35 @@ async def voice_chat(
             handle_chat, session_id, transcript, detected_language, speaker
         )
         _maybe_refresh_user_md(session_id)
+    llm_ms = (time.monotonic() - llm_t0) * 1000.0
 
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
+    tts_ms = 0.0
     if plasma_config.TTS_ENABLED:
         try:
+            tts_t0 = time.monotonic()
             wav_bytes = await asyncio.to_thread(tts_synthesize, reply, detected_language)
+            tts_ms = (time.monotonic() - tts_t0) * 1000.0
             if wav_bytes:
                 audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
                 log.info(f"TTS audio encoded: {len(audio_b64)} b64 chars")
         except Exception as e:
             log.warning(f"TTS synthesis failed: {e}")
+
+    total_ms = (time.monotonic() - t_start) * 1000.0
+
+    # Log per-turn latency to request_log
+    try:
+        memory = get_memory()
+        turn_num = len(memory.get_conversation(session_id, limit=1000))
+        await asyncio.to_thread(
+            memory.log_request,
+            session_id, turn_num,
+            asr_ms, llm_ms, tts_ms, total_ms, None,
+        )
+    except Exception as e:
+        log.warning(f"Failed to log request latency: {e}")
 
     return {
         "session_id": session_id,
@@ -242,6 +275,10 @@ async def voice_chat(
         "reply": reply,
         "speaker": speaker,
         "asr_latency_s": asr_result.get("latency"),
+        "asr_ms": asr_ms,
+        "llm_ms": llm_ms,
+        "tts_ms": tts_ms,
+        "total_ms": total_ms,
         "audio_b64": audio_b64,
     }
 
@@ -282,6 +319,52 @@ async def approve_skill_proposal(name: str):
 @app.post("/skills/proposals/reject/{name}")
 async def reject_skill_proposal(name: str):
     return {"result": get_suggester().reject(name)}
+
+
+# ---------------------------------------------------------------------------
+# Analytics API (PA-68, PA-72, PA-73)
+# ---------------------------------------------------------------------------
+@app.get("/api/facts")
+async def api_get_facts(
+    category: Optional[str] = Query(default=None),
+    user: Optional[str] = Query(default=None),
+    limit: int = Query(default=500),
+):
+    """Return all stored facts as JSON."""
+    memory = get_memory()
+    if category:
+        facts = await asyncio.to_thread(memory.get_facts, category, limit)
+    else:
+        facts = await asyncio.to_thread(memory.get_facts_all, limit)
+    return {"facts": facts}
+
+
+@app.delete("/api/facts/{fact_id}")
+async def api_delete_fact(fact_id: int):
+    """Delete a fact by ID."""
+    memory = get_memory()
+    deleted = await asyncio.to_thread(memory.delete_fact, fact_id)
+    if deleted:
+        return {"ok": True}
+    return JSONResponse({"ok": False, "error": "Fact not found"}, status_code=404)
+
+
+@app.get("/api/skills/stats")
+async def api_skills_stats():
+    """Return skills list with usage counts, sorted by usage_count descending."""
+    memory = get_memory()
+    skills = await asyncio.to_thread(memory.get_skills_meta)
+    return {"skills": skills}
+
+
+@app.get("/api/latency/{session_id}")
+async def api_latency(session_id: str):
+    """Return per-turn latency history for a session."""
+    memory = get_memory()
+    rows = await asyncio.to_thread(memory.get_request_log, session_id)
+    return {"session_id": session_id, "latency": rows}
+
+
 # ---------------------------------------------------------------------------
 # WebSocket — wake word broadcast (PA-34)
 # ---------------------------------------------------------------------------

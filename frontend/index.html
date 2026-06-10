@@ -325,7 +325,13 @@ let micStream     = null;
 let chunks        = [];
 let isRecording   = false;
 let isBusy        = false;
-const SESSION_ID  = 'web-' + Math.random().toString(36).slice(2, 10);
+
+// Persist session ID so analytics page can read it
+let SESSION_ID = localStorage.getItem('plasma_session_id');
+if (!SESSION_ID) {
+    SESSION_ID = 'web-' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('plasma_session_id', SESSION_ID);
+}
 
 // ── PA-71: high-contrast theme ────────────────────────────
 (function initTheme() {

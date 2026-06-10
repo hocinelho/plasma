@@ -104,4 +104,18 @@ CREATE TRIGGER IF NOT EXISTS skills_au AFTER UPDATE ON skills_meta BEGIN
     INSERT INTO skills_fts(rowid, name, description, triggers)
     VALUES (new.id, new.name, new.description, new.triggers);
 END;
+
+-- Per-turn request latency log
+CREATE TABLE IF NOT EXISTS request_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    turn        INTEGER NOT NULL,
+    asr_ms      REAL,
+    llm_ms      REAL,
+    tts_ms      REAL,
+    total_ms    REAL,
+    skill_used  TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_reqlog_session ON request_log(session_id);
 """
