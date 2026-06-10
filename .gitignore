@@ -43,4 +43,4 @@ Desktop.ini
 *.log
 *.tmp
 tmp/
-"@ | Out-File -FilePath .gitignore -Encoding utf8
+"@ | Out-File -FilePath .gitignore -Encoding utf8.claude/
