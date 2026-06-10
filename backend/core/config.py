@@ -57,6 +57,13 @@ class Config:
     TTS_VOICE_DE: str = os.getenv("TTS_VOICE_DE", "")   # German voice model path
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
 
+    # --- Speaker identification (PA-65, S11) ---
+    # Requires `pip install resemblyzer` (voice embedding model, ~17MB + torch).
+    # Gracefully disabled if the package is missing.
+    SPEAKER_ID_ENABLED: bool = os.getenv("SPEAKER_ID_ENABLED", "true").lower() == "true"
+    # Cosine similarity threshold for a positive match (0.5 loose – 0.9 strict)
+    SPEAKER_THRESHOLD: float = float(os.getenv("SPEAKER_THRESHOLD", "0.70"))
+
     # --- Logging ---
     LOG_LEVEL: str = os.getenv("PLASMA_LOG_LEVEL", "INFO")
 

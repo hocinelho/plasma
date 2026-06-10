@@ -23,12 +23,51 @@ log = logging.getLogger("plasma.tts")
 _voice = None
 _voice_de = None
 
+# PA-67: runtime voice override — set by the voice_select skill.
+# When set, it wins over both the default and the German voice.
+_voice_override = None
+_voice_override_name: str | None = None
+
+VOICES_DIR = Path(__file__).resolve().parents[3] / "voices"
+
 
 def _resolve_model(model_env: str) -> Path:
     p = Path(model_env)
     if not p.is_absolute():
         p = Path(__file__).resolve().parents[3] / p
     return p
+
+
+def list_available_voices() -> list[str]:
+    """All Piper .onnx voice models found in the voices/ directory."""
+    if not VOICES_DIR.exists():
+        return []
+    return sorted(p.name for p in VOICES_DIR.glob("*.onnx"))
+
+
+def set_voice_override(model_path: Path | str | None) -> str | None:
+    """Switch the active TTS voice at runtime (PA-67). None resets to default.
+
+    Returns the active override voice name, or None after a reset.
+    """
+    global _voice_override, _voice_override_name
+    if model_path is None:
+        _voice_override = None
+        _voice_override_name = None
+        log.info("TTS voice override cleared — back to default voice")
+        return None
+    from piper import PiperVoice
+    p = Path(model_path)
+    if not p.exists():
+        raise FileNotFoundError(f"Voice model not found: {p}")
+    log.info(f"Loading override Piper voice: {p.name}")
+    _voice_override = PiperVoice.load(str(p))
+    _voice_override_name = p.stem
+    return _voice_override_name
+
+
+def get_voice_override_name() -> str | None:
+    return _voice_override_name
 
 
 def _load_voice():
@@ -73,7 +112,8 @@ def synthesize(text: str, language: str = "en") -> bytes:
     if not text:
         return b""
 
-    voice = (_load_voice_de() if language == "de" else None) or _load_voice()
+    # Priority: runtime override (PA-67) > language-specific voice > default
+    voice = _voice_override or (_load_voice_de() if language == "de" else None) or _load_voice()
 
     t0 = time.time()
 

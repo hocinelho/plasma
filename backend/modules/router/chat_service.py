@@ -30,7 +30,7 @@ def get_memory() -> MemoryStore:
     return _memory
 
 
-def _build_system_prompt(memory: MemoryStore) -> str:
+def _build_system_prompt(memory: MemoryStore, speaker: str | None = None) -> str:
     from backend.modules.user.user_md import read_user_md
 
     base = (
@@ -39,12 +39,14 @@ def _build_system_prompt(memory: MemoryStore) -> str:
         "Be direct and friendly. No preamble, no apologies, no emoji. "
         "If the user asks a simple question, answer in one sentence."
     )
+    if speaker:
+        base += f" You are currently talking to {speaker}."
 
-    user_md = read_user_md()
+    user_md = read_user_md(user=speaker)
     if user_md:
         return f"{base}\n\n--- About the user (from USER.md) ---\n{user_md}"
 
-    facts = memory.get_facts(limit=20)
+    facts = memory.get_facts(limit=20, user=speaker)
     if facts:
         fact_lines = "\n".join(f"- ({f['category']}) {f['content']}" for f in facts)
         return f"{base}\n\nKnown facts about the user:\n{fact_lines}"
@@ -80,7 +82,12 @@ def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> st
     return reply
 
 
-def handle_chat(session_id: str, user_message: str, language: str = "en") -> str:
+def handle_chat(
+    session_id: str,
+    user_message: str,
+    language: str = "en",
+    speaker: str | None = None,
+) -> str:
     memory = get_memory()
     memory.add_message(session_id, "user", user_message)
 
@@ -90,7 +97,12 @@ def handle_chat(session_id: str, user_message: str, language: str = "en") -> str
         skill = registry.find_by_trigger(user_message)
         if skill:
             log.info(f"Skill match: {skill.name} for utterance: {user_message!r}")
-            reply = skill.invoke({"utterance": user_message, "session_id": session_id, "language": language})
+            reply = skill.invoke({
+                "utterance": user_message,
+                "session_id": session_id,
+                "language": language,
+                "speaker": speaker,
+            })
             memory.add_message(session_id, "assistant", reply)
             memory.mark_skill_used(skill.name, success=True)
             return reply
@@ -102,7 +114,7 @@ def handle_chat(session_id: str, user_message: str, language: str = "en") -> str
     history_for_api = [
         {"role": m["role"], "content": m["content"]} for m in full_history[:-1]
     ]
-    system_prompt = _build_system_prompt(memory)
+    system_prompt = _build_system_prompt(memory, speaker=speaker)
     reply = _llm_reply(user_message, history_for_api, system_prompt)
 
     # 3. Suggester: count patterns, maybe propose a skill

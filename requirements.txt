@@ -25,3 +25,7 @@ python-dateutil>=2.9.0
 # --- Sprint 7/8 ---
 Pillow>=11.0.0
 spotipy>=2.25.0
+# --- Sprint 11 (PA-65 speaker identification) — OPTIONAL, pulls in torch ---
+# Install manually to enable voice profiles:
+#   pip install resemblyzer
+# Plasma works fine without it (speaker ID silently disabled).

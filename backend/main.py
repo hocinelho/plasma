@@ -197,6 +197,7 @@ async def voice_chat(
 
     asr_result = await asyncio.to_thread(transcribe_audio_bytes, data)
     transcript = asr_result.get("text", "").strip()
+    pcm_audio = asr_result.pop("_audio", None)  # PA-65: decoded PCM for speaker ID
 
     if not transcript:
         return {
@@ -208,8 +209,21 @@ async def voice_chat(
         }
 
     detected_language = asr_result.get("language", "en")
-    reply = await asyncio.to_thread(handle_chat, session_id, transcript, detected_language)
-    _maybe_refresh_user_md(session_id)
+
+    # PA-65: voice enrollment — "remember my voice as <name>".
+    # Handled BEFORE skill routing because it needs the raw audio.
+    from backend.modules.voice import speaker_id
+    enroll_name = speaker_id.parse_enroll_command(transcript)
+    if enroll_name:
+        reply = await asyncio.to_thread(speaker_id.enroll, enroll_name, pcm_audio)
+        speaker = enroll_name if enroll_name in speaker_id.list_speakers() else None
+    else:
+        # PA-65: identify who is speaking (no-op when resemblyzer missing)
+        speaker, _score = await asyncio.to_thread(speaker_id.identify, pcm_audio)
+        reply = await asyncio.to_thread(
+            handle_chat, session_id, transcript, detected_language, speaker
+        )
+        _maybe_refresh_user_md(session_id)
 
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
@@ -226,6 +240,7 @@ async def voice_chat(
         "session_id": session_id,
         "transcript": transcript,
         "reply": reply,
+        "speaker": speaker,
         "asr_latency_s": asr_result.get("latency"),
         "audio_b64": audio_b64,
     }

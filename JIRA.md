@@ -148,10 +148,24 @@ so longest-trigger-wins router picks weather over calculator.
 
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
-| PA-65 | Story | Speaker identification (multi-user) | S11 | To Do |
-| PA-66 | Story | Per-user memory + per-user USER.md | S11 | To Do |
-| PA-67 | Story | Voice selection — choose TTS voice | S11 | To Do |
+| PA-65 | Story | Speaker identification (multi-user) | S11 | **Done** |
+| PA-66 | Story | Per-user memory + per-user USER.md | S11 | **Done** |
+| PA-67 | Story | Voice selection — choose TTS voice | S11 | **Done** |
 | PA-68 | Story | Memory / fact browser UI | S12 | To Do |
+
+**S11 notes:**
+- PA-65: `backend/modules/voice/speaker_id.py` — resemblyzer embeddings (OPTIONAL dep,
+  `pip install resemblyzer`), profiles in `.plasma/speakers.json`, cosine match vs
+  `SPEAKER_THRESHOLD` (default 0.70). Enroll by voice: "remember my voice as <name>"
+  (DE: "merke dir meine stimme als <name>") — intercepted in main.py before skill
+  routing because it needs raw audio. Gracefully disabled when lib missing.
+- PA-66: `facts` table gained nullable `user` column (auto-migration); `get_facts(user=X)`
+  returns personal + shared (NULL) facts; per-user `USER_<Name>.md`; system prompt says
+  "You are currently talking to <name>" and loads their profile. remember_this scopes
+  facts to the identified speaker.
+- PA-67: `voice_select` skill — "switch voice to thorsten", "list voices", "reset voice";
+  `tts.set_voice_override()` wins over default + German voice until reset.
+- New `who_am_i` skill: "who am I?" / "wer bin ich" → identified speaker.
 
 ### Add to PA-36 (UI) — mobile + analytics
 
@@ -203,7 +217,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S8 | Aug 19 – Sep 2 | Music & media | PA-74, PA-75, PA-76, PA-77 | Done |
 | S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-50, PA-51, PA-52 | **Done** |
 | S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | **Done** |
-| S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | To Do |
+| S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | **Done** |
 | S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | To Do |
 | S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | To Do |
 | S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 | To Do |

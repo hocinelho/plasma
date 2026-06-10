@@ -102,7 +102,11 @@ def transcribe_audio_bytes(data: bytes) -> dict:
         log.info(f"Audio rejected (silence): rms={rms:.0f}")
         return {"text": "", "error": "audio_too_quiet"}
 
-    return transcribe_array(audio)
+    result = transcribe_array(audio)
+    # PA-65: hand the decoded PCM to the caller for speaker ID / enrollment
+    # (in-process only — main.py pops it before building the JSON response)
+    result["_audio"] = audio
+    return result
 
 
 def transcribe_array(audio: np.ndarray) -> dict:
