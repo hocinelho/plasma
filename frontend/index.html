@@ -429,6 +429,15 @@ clearBtn.addEventListener('click', () => {
 
 // ── mic + recording ───────────────────────────────────────
 async function initMic() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const isLocalhost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+        const msg = isLocalhost
+            ? 'Microphone API unavailable. Try a different browser.'
+            : `Microphone requires a secure context.\nOpen via http://localhost:8000 on this PC,\nor use HTTPS for remote access.`;
+        setStatus('error');
+        addTurn('error', msg);
+        return false;
+    }
     try {
         micStream     = await navigator.mediaDevices.getUserMedia({ audio: true });
         mediaRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
