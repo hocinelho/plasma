@@ -43,4 +43,6 @@ Desktop.ini
 *.log
 *.tmp
 tmp/
-"@ | Out-File -FilePath .gitignore -Encoding utf8.claude/
+
+# --- Claude Code local session state ---
+.claude/
