@@ -202,13 +202,114 @@ def generate_samples(n: int = 200, use_tts: bool = True) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Training
+# Training — uses openWakeWord's bundled embedding model + TF/Keras
 # ---------------------------------------------------------------------------
+
+def _find_oww_models() -> tuple[str, str]:
+    """Find openWakeWord's bundled melspec + embedding ONNX models."""
+    import openwakeword
+    oww_dir = Path(openwakeword.__file__).parent / "resources" / "models"
+    melspec = None
+    embedding = None
+    for f in oww_dir.glob("*.onnx"):
+        name = f.stem.lower()
+        if "melspec" in name:
+            melspec = str(f)
+        elif "embedding" in name:
+            embedding = str(f)
+    if not melspec or not embedding:
+        # Fallback: scan all .onnx and .tflite
+        for f in oww_dir.iterdir():
+            name = f.stem.lower()
+            if "melspec" in name:
+                melspec = str(f)
+            elif "embedding" in name or "embed" in name:
+                embedding = str(f)
+    return melspec, embedding
+
+
+def _load_wav_float(path: Path) -> np.ndarray:
+    """Load a WAV file as float32 mono 16 kHz."""
+    with wave.open(str(path), "rb") as wf:
+        sr = wf.getframerate()
+        n = wf.getnframes()
+        data = wf.readframes(n)
+    audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+    if sr != SAMPLE_RATE:
+        from scipy.signal import resample
+        audio = resample(audio, int(len(audio) * SAMPLE_RATE / sr)).astype(np.float32)
+    return audio
+
+
+def _extract_embeddings_oww(wav_files: list[Path], melspec_path: str,
+                             embedding_path: str, n_frames: int = 16
+                             ) -> np.ndarray:
+    """Extract embeddings from WAV files using openWakeWord's pipeline."""
+    import onnxruntime as ort
+    melspec_session = ort.InferenceSession(melspec_path)
+    embed_session = ort.InferenceSession(embedding_path)
+
+    mel_input_name = melspec_session.get_inputs()[0].name
+    embed_input_name = embed_session.get_inputs()[0].name
+    embed_output_dim = embed_session.get_outputs()[0].shape[-1]  # typically 96
+
+    all_embeddings = []
+    frame_size = 1280  # 80 ms at 16 kHz
+
+    for wav_path in wav_files:
+        audio = _load_wav_float(wav_path)
+        # Pad to at least n_frames * frame_size
+        min_len = n_frames * frame_size
+        if len(audio) < min_len:
+            audio = np.pad(audio, (0, min_len - len(audio)))
+
+        embeddings = []
+        for i in range(0, len(audio) - frame_size + 1, frame_size):
+            chunk = audio[i:i + frame_size].reshape(1, -1)
+            mel = melspec_session.run(None, {mel_input_name: chunk})[0]
+            emb = embed_session.run(None, {embed_input_name: mel})[0]
+            embeddings.append(emb.flatten()[:embed_output_dim])
+            if len(embeddings) >= n_frames:
+                break
+
+        while len(embeddings) < n_frames:
+            embeddings.append(np.zeros(embed_output_dim, dtype=np.float32))
+
+        feature = np.concatenate(embeddings[:n_frames])
+        all_embeddings.append(feature)
+
+    return np.array(all_embeddings, dtype=np.float32)
+
+
+def _extract_mel_features(wav_files: list[Path], n_mels: int = 32,
+                           window_len: int = 24000) -> np.ndarray:
+    """Fallback: direct mel-spectrogram features when openWakeWord models unavailable."""
+    from scipy.signal import spectrogram
+
+    all_features = []
+    for wav_path in wav_files:
+        audio = _load_wav_float(wav_path)
+        if len(audio) < window_len:
+            audio = np.pad(audio, (0, window_len - len(audio)))
+        audio = audio[:window_len]
+
+        _, _, Sxx = spectrogram(audio, fs=SAMPLE_RATE, nperseg=400, noverlap=240,
+                                nfft=512, mode='magnitude')
+        # Crude mel binning
+        n_freq = Sxx.shape[0]
+        bin_size = max(1, n_freq // n_mels)
+        mel = np.array([Sxx[i*bin_size:(i+1)*bin_size].mean(axis=0)
+                        for i in range(n_mels)])
+        mel = np.log1p(mel).flatten().astype(np.float32)
+        all_features.append(mel)
+
+    return np.array(all_features, dtype=np.float32)
+
 
 def train_model() -> bool:
     """
-    Run openWakeWord training on the generated positive samples.
-    Returns True if model saved successfully.
+    Train a 'Hey Plasma' wake word model using openWakeWord's embedding
+    pipeline + TensorFlow/Keras.  Returns True if model saved successfully.
     """
     positive_wavs = sorted(POSITIVE_DIR.glob("*.wav"))
     if not positive_wavs:
@@ -217,35 +318,154 @@ def train_model() -> bool:
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # ── Step 1: Try to import TF ─────────────────────────────────────────
     try:
-        import openwakeword.train as oww_train
+        import tensorflow as tf
+        tf.get_logger().setLevel("ERROR")
     except ImportError:
-        _print_colab_instructions()
+        _print_tf_instructions()
         return False
 
+    # ── Step 2: Extract features from positive samples ───────────────────
+    use_oww = False
+    n_frames = 16
     try:
-        log.info(f"Training on {len(positive_wavs)} positive samples...")
-        oww_train.train(
-            model_type="dnn",
-            positive_training_data_dir=str(POSITIVE_DIR),
-            output_dir=str(MODELS_DIR),
-            model_name="hey_plasma",
-            n_epochs=100,
-        )
-
-        onnx_path = MODELS_DIR / "hey_plasma.onnx"
-        if onnx_path.exists():
-            log.info(f"Model saved: {onnx_path}")
-            _print_env_instructions(onnx_path)
-            return True
-
-        log.error("Training finished but hey_plasma.onnx not found in output dir")
-        return False
-
+        melspec_path, embedding_path = _find_oww_models()
+        if melspec_path and embedding_path:
+            log.info(f"Using openWakeWord embedding pipeline "
+                     f"({Path(embedding_path).name})")
+            features_pos = _extract_embeddings_oww(
+                positive_wavs, melspec_path, embedding_path, n_frames
+            )
+            use_oww = True
+        else:
+            raise FileNotFoundError("openWakeWord models not found")
     except Exception as e:
-        log.error(f"Training failed: {e}")
-        _print_colab_instructions()
-        return False
+        log.warning(f"openWakeWord embedding extraction failed: {e}")
+        log.info("Falling back to direct mel-spectrogram features")
+        features_pos = _extract_mel_features(positive_wavs)
+
+    feature_dim = features_pos.shape[1]
+    log.info(f"Positive features: {features_pos.shape} (dim={feature_dim})")
+
+    # ── Step 3: Generate negative features ───────────────────────────────
+    n_neg = len(features_pos) * 3
+    neg_wavs_dir = TRAIN_DIR / "negative"
+    neg_wavs_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in range(n_neg):
+        dur = random.uniform(0.4, 1.5)
+        noise = np.random.normal(0, 0.05, int(SAMPLE_RATE * dur)).astype(np.float32)
+        noise = np.clip(noise, -1.0, 1.0)
+        _write_wav(neg_wavs_dir / f"neg_{i:04d}.wav", noise)
+
+    neg_wavs = sorted(neg_wavs_dir.glob("*.wav"))
+    if use_oww:
+        features_neg = _extract_embeddings_oww(
+            neg_wavs, melspec_path, embedding_path, n_frames
+        )
+    else:
+        features_neg = _extract_mel_features(neg_wavs)
+
+    log.info(f"Negative features: {features_neg.shape}")
+
+    # ── Step 4: Build dataset ────────────────────────────────────────────
+    X = np.concatenate([features_pos, features_neg])
+    y = np.concatenate([
+        np.ones(len(features_pos), dtype=np.float32),
+        np.zeros(len(features_neg), dtype=np.float32),
+    ])
+    # Shuffle
+    idx = np.random.permutation(len(X))
+    X, y = X[idx], y[idx]
+
+    # ── Step 5: Train Keras model ────────────────────────────────────────
+    log.info(f"Training classifier on {len(X)} samples (dim={feature_dim})...")
+    model = tf.keras.Sequential([
+        tf.keras.layers.Input(shape=(feature_dim,)),
+        tf.keras.layers.Dense(128, activation="relu"),
+        tf.keras.layers.Dropout(0.3),
+        tf.keras.layers.Dense(64, activation="relu"),
+        tf.keras.layers.Dropout(0.2),
+        tf.keras.layers.Dense(1, activation="sigmoid"),
+    ])
+    model.compile(optimizer="adam", loss="binary_crossentropy",
+                  metrics=["accuracy"])
+    model.fit(X, y, epochs=100, batch_size=32, validation_split=0.2, verbose=0)
+
+    loss, acc = model.evaluate(X, y, verbose=0)
+    log.info(f"Training accuracy: {acc:.1%}")
+
+    # ── Step 6: Export to ONNX ───────────────────────────────────────────
+    try:
+        import tf2onnx
+        import onnx
+
+        spec = (tf.TensorSpec((1, feature_dim), tf.float32, name="input"),)
+        model_proto, _ = tf2onnx.convert.from_keras(model, input_signature=spec,
+                                                      output_path=str(OUTPUT_MODEL))
+        log.info(f"Model exported (tf2onnx): {OUTPUT_MODEL}")
+    except ImportError:
+        # Fallback: build ONNX manually from weights
+        log.info("tf2onnx not found — building ONNX from weights directly")
+        _export_onnx_manual(model, feature_dim, OUTPUT_MODEL)
+
+    if OUTPUT_MODEL.exists():
+        _print_env_instructions(OUTPUT_MODEL)
+        return True
+
+    log.error("Training finished but hey_plasma.onnx not found")
+    return False
+
+
+def _export_onnx_manual(keras_model, feature_dim: int, output_path: Path) -> None:
+    """Build ONNX model manually from Keras weights (no tf2onnx needed)."""
+    import onnx
+    from onnx import helper, TensorProto, numpy_helper
+
+    weights = keras_model.get_weights()
+    # Layers: Dense(128), Dense(64), Dense(1) — each has [W, b]
+    # With Dropout layers (no weights)
+
+    nodes = []
+    initializers = []
+    layer_idx = 0
+    input_name = "input"
+    current = input_name
+
+    dense_count = 0
+    for i in range(0, len(weights), 2):
+        W = weights[i]
+        b = weights[i + 1]
+        w_name = f"W{dense_count}"
+        b_name = f"b{dense_count}"
+        mm_name = f"matmul_{dense_count}"
+        add_name = f"add_{dense_count}"
+
+        initializers.append(numpy_helper.from_array(W.astype(np.float32), w_name))
+        initializers.append(numpy_helper.from_array(b.astype(np.float32), b_name))
+
+        nodes.append(helper.make_node("MatMul", [current, w_name], [mm_name]))
+        nodes.append(helper.make_node("Add", [mm_name, b_name], [add_name]))
+
+        if dense_count < len(weights) // 2 - 1:
+            relu_name = f"relu_{dense_count}"
+            nodes.append(helper.make_node("Relu", [add_name], [relu_name]))
+            current = relu_name
+        else:
+            sig_name = "output"
+            nodes.append(helper.make_node("Sigmoid", [add_name], [sig_name]))
+            current = sig_name
+
+        dense_count += 1
+
+    X = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, feature_dim])
+    Y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1])
+
+    graph = helper.make_graph(nodes, "hey_plasma", [X], [Y], initializers)
+    model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    onnx.save(model_proto, str(output_path))
+    log.info(f"Model exported (manual ONNX): {output_path}")
 
 
 def _print_env_instructions(model_path: Path) -> None:
@@ -261,21 +481,13 @@ Then restart Plasma.  Say "Hey Plasma" to trigger hands-free recording.
 """)
 
 
-def _print_colab_instructions() -> None:
+def _print_tf_instructions() -> None:
     print("""
-TensorFlow not found — training requires TF.
+TensorFlow not found — required for training.
 
-Quick options:
-  1. pip install tensorflow  (then re-run this script)
-  2. Use Google Colab:
-       https://colab.research.google.com/
-       Upload: .plasma/training/hey_plasma/positive/*.wav
-       Use openWakeWord's training notebook:
-       https://github.com/dscripka/openWakeWord#training-new-models
-       Download the resulting hey_plasma.onnx to .plasma/models/
+    pip install tensorflow
 
-  Then set in .env:
-    WAKE_WORD_MODEL_PATH=.plasma/models/hey_plasma.onnx
+Then re-run this script.
 """)
 
 

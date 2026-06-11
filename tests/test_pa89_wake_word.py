@@ -270,7 +270,7 @@ class TestTrainingScript:
         (pos / "sample.wav").write_bytes(b"RIFF")
         monkeypatch.setattr(t, "POSITIVE_DIR", pos)
         monkeypatch.setattr(t, "MODELS_DIR", tmp_path / "models")
-        with patch.dict(sys.modules, {"openwakeword.train": None}):
+        with patch.dict(sys.modules, {"tensorflow": None}):
             result = t.train_model()
         assert result is False
 
