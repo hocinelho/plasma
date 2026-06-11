@@ -93,6 +93,23 @@ Visit [http://localhost:8000/setup](http://localhost:8000/setup) to verify all c
 - **Corporate networks**: If you see TLS/certificate errors, Plasma uses `truststore` to handle corporate proxy certificates automatically. If issues persist, set `PLASMA_INSECURE_SSL=true` in `.env` (development only).
 - **App launching**: The `open_app` skill supports Windows applications (Notepad, Calculator, Chrome, Edge, Outlook, etc.)
 
+## Standalone Windows Installer (PA-46)
+
+For distribution without requiring Python, build a self-contained `.exe`:
+
+```bash
+pip install pyinstaller
+python scripts/build_installer.py
+```
+
+This creates `dist/Plasma/` with `Plasma.exe` and all dependencies bundled. Users only need Ollama installed separately.
+
+To run the built version:
+1. Copy `dist/Plasma/` to the target machine
+2. Copy `.env.example` to `.env` inside the folder and configure
+3. Make sure Ollama is running (`ollama serve`)
+4. Double-click `Plasma.exe` — the browser opens automatically
+
 ## Optional Features
 
 ### German language support

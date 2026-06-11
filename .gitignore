@@ -44,5 +44,10 @@ Desktop.ini
 *.tmp
 tmp/
 
+# --- PyInstaller (PA-46) ---
+build/
+dist/
+*.spec.bak
+
 # --- Claude Code local session state ---
 .claude/
