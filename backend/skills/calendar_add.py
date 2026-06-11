@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 META = {
     "name": "calendar_add",
-    "description": "Creates a new Outlook calendar event by voice.",
+    "description": "Creates a new Google Calendar / Outlook calendar event by voice.",
     "triggers": [
         "add to my calendar",
         "add to calendar",
@@ -98,15 +98,44 @@ def _extract_title(utterance: str) -> str:
     return title or "New Event"
 
 
+def _add_google_event(title: str, dt: datetime) -> str:
+    """Create an event via Google Calendar API."""
+    from backend.core.google_client import google_post
+
+    start_iso = dt.strftime("%Y-%m-%dT%H:%M:%S")
+    end_iso = (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    google_post(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        {
+            "summary": title,
+            "start": {"dateTime": start_iso, "timeZone": "Europe/Berlin"},
+            "end": {"dateTime": end_iso, "timeZone": "Europe/Berlin"},
+        },
+    )
+    time_str = dt.strftime("%I:%M %p").lstrip("0")
+    day_str = dt.strftime("%A")
+    return f"Done. '{title}' added to your calendar for {day_str} at {time_str}."
+
+
+def _add_ms_event(title: str, dt: datetime) -> str:
+    """Create an event via Microsoft Graph API."""
+    from backend.core.ms_graph import graph_post
+
+    start_iso = dt.strftime("%Y-%m-%dT%H:%M:%S")
+    end_iso = (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+
+    graph_post("events", {
+        "subject": title,
+        "start": {"dateTime": start_iso, "timeZone": "Europe/Berlin"},
+        "end": {"dateTime": end_iso, "timeZone": "Europe/Berlin"},
+    })
+    time_str = dt.strftime("%I:%M %p").lstrip("0")
+    day_str = dt.strftime("%A")
+    return f"Done. '{title}' added to your calendar for {day_str} at {time_str}."
+
+
 def run(args: dict | None = None) -> str:
-    try:
-        from backend.core.ms_graph import graph_post, is_configured
-    except ImportError:
-        return "Microsoft Graph is not available."
-
-    if not is_configured():
-        return "Outlook isn't linked yet. Run: python scripts/ms_auth.py"
-
     utterance = (args or {}).get("utterance", "")
     title = _extract_title(utterance)
     dt = _parse_datetime(utterance)
@@ -114,22 +143,35 @@ def run(args: dict | None = None) -> str:
     if dt is None:
         return "I couldn't parse the time. Try: 'schedule a meeting with John at 3pm tomorrow'."
 
-    start_iso = dt.strftime("%Y-%m-%dT%H:%M:%S")
-    end_iso = (dt + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
-
+    # Try Google Calendar first
     try:
-        graph_post("events", {
-            "subject": title,
-            "start": {"dateTime": start_iso, "timeZone": "Europe/Berlin"},
-            "end": {"dateTime": end_iso, "timeZone": "Europe/Berlin"},
-        })
-        time_str = dt.strftime("%I:%M %p").lstrip("0")
-        day_str = dt.strftime("%A")
-        return f"Done. '{title}' added to your calendar for {day_str} at {time_str}."
-    except RuntimeError as e:
-        return str(e)
-    except Exception as e:
-        return f"Couldn't create the event: {e}"
+        from backend.core.google_client import is_configured as google_configured
+        if google_configured():
+            try:
+                return _add_google_event(title, dt)
+            except Exception as e:
+                return f"Couldn't create the event: {e}"
+    except ImportError:
+        pass
+
+    # Fall back to Microsoft Graph
+    try:
+        from backend.core.ms_graph import is_configured as ms_configured
+        if ms_configured():
+            try:
+                return _add_ms_event(title, dt)
+            except RuntimeError as e:
+                return str(e)
+            except Exception as e:
+                return f"Couldn't create the event: {e}"
+    except ImportError:
+        pass
+
+    return (
+        "No calendar linked yet. Run:\n"
+        "  python scripts/google_auth.py   (Google Calendar)\n"
+        "  python scripts/ms_auth.py       (Outlook)"
+    )
 
 
 def self_test() -> bool:

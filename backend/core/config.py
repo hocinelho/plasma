@@ -75,6 +75,11 @@ class Config:
     SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     SPOTIFY_REDIRECT_URI: str = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:9090")
 
+    # --- Google Calendar + Gmail (alternative to Microsoft Graph) ---
+    # Create a project at console.cloud.google.com, then run: python scripts/google_auth.py
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+
     # --- Microsoft Graph (Outlook calendar + email) ---
     # Register an app at portal.azure.com, then run: python scripts/ms_auth.py
     MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
