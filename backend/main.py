@@ -95,7 +95,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Plasma",
     description="Local-first, self-learning voice assistant",
-    version="0.1.0",
+    version="1.0.0",
     lifespan=lifespan,
 )
 

@@ -269,7 +269,7 @@ class TestUpdateCheckRun:
     def test_version_query(self):
         with patch.object(update_check, "VERSION_FILE", Path(__file__).parent.parent / "VERSION"):
             result = update_check.run({"utterance": "what version"})
-            assert "0.12.0" in result
+            assert "1.0.0" in result
 
     def test_up_to_date(self):
         with patch.object(update_check, "_read_local_version", return_value="0.12.0"), \

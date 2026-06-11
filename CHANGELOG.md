@@ -2,6 +2,16 @@
 
 All notable changes to Plasma are documented in this file.
 
+## [1.0.0] - 2026-06-11 (v1.0 Release)
+
+### Added
+- **PA-45**: GitHub Actions CI -- automated testing on every push/PR (280+ tests)
+- **PA-46**: Windows installer via PyInstaller -- standalone `Plasma.exe` distribution
+- **S16**: v1.0 release -- polished README, finalized changelog
+
+### Fixed
+- Sprint 9 test mocks updated for `allowed_languages` parameter
+
 ## [0.12.0] - 2026-06-11 (Sprint 15)
 
 ### Added
