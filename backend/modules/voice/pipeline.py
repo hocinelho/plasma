@@ -36,6 +36,18 @@ def get_asr() -> WhisperASR:
     return _asr
 
 
+def reload_model(model_name: str) -> None:
+    """Replace the Whisper ASR singleton with a new model (PA-64).
+
+    Called by the settings_control skill when the user says
+    "switch to faster model" etc.
+    """
+    global _asr
+    log.info(f"Reloading Whisper model: {model_name}")
+    _asr = WhisperASR(model_name=model_name)
+    log.info(f"Whisper model reloaded: {model_name}")
+
+
 def _get_ffmpeg() -> str:
     """Return the path to the bundled FFmpeg binary."""
     global _ffmpeg_path

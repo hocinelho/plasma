@@ -176,6 +176,18 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Version / update check (PA-81)
+# ---------------------------------------------------------------------------
+@app.get("/api/version")
+async def api_version():
+    """Return current version and check for updates on GitHub."""
+    import asyncio
+    from backend.skills.update_check import get_version_info
+    info = await asyncio.to_thread(get_version_info)
+    return info
+
+
+# ---------------------------------------------------------------------------
 # Setup wizard (PA-82) — guided first-run checks + fixes
 # ---------------------------------------------------------------------------
 def _check(fn):
