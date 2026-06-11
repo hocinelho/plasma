@@ -6,15 +6,21 @@ META = {
     "description": "Reads the unread email count from your Gmail / Outlook inbox.",
     "triggers": [
         "how many emails",
+        "how many e-mails",
         "how many unread",
         "unread emails",
+        "unread e-mails",
         "check my email",
         "check my inbox",
         "any new emails",
+        "any new e-mails",
         "any emails",
+        "any e-mails",
         "my inbox",
         "new emails",
+        "new e-mails",
         "do i have email",
+        "do i have e-mail",
     ],
 }
 
