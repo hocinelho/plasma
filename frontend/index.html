@@ -95,6 +95,24 @@
         #theme-btn:hover,
         html.hc #theme-btn { border-color: var(--text); color: var(--text); }
 
+        /* PA-82: setup wizard link ─────────────────────────── */
+        #setup-link {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            text-decoration: none;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 5px 9px;
+            font-size: 13px;
+            line-height: 1;
+            white-space: nowrap;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #setup-link:hover { border-color: var(--text); color: var(--text); }
+
         /* ── PA-39 Status indicator ────────────────────────── */
         #status-bar {
             display: flex;
@@ -280,6 +298,8 @@
 <body>
 
     <div class="header">
+        <!-- PA-82: first-run setup wizard -->
+        <a id="setup-link" href="/setup" title="Setup &amp; diagnostics" aria-label="Setup and diagnostics">⚙ Setup</a>
         <h1>PLASMA</h1>
         <!-- PA-71: high-contrast toggle -->
         <button id="theme-btn" title="Toggle high-contrast mode" aria-label="Toggle high-contrast mode">◐</button>

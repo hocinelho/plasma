@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>Plasma — Setup</title>
+    <style>
+        /* ── Design tokens (matches index.html / analytics.html) ── */
+        :root {
+            --bg: #0a0e1a;
+            --panel: #141b2e;
+            --text: #e6edf7;
+            --muted: #8a94a7;
+            --accent: #4a9eff;
+            --accent-hot: #ff4a5e;
+            --ok: #6fd48a;
+            --warn: #f5a623;
+            --border: #2a3450;
+            --font-base: 14px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { height: 100%; }
+
+        body {
+            font-family: -apple-system, 'Segoe UI', sans-serif;
+            font-size: var(--font-base);
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: clamp(14px, 3vw, 28px) clamp(12px, 4vw, 24px);
+        }
+
+        /* ── Header ─────────────────────────────────────────────── */
+        .page-header {
+            width: 100%;
+            max-width: 760px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .back-link {
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 5px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            transition: color 0.15s, border-color 0.15s;
+            white-space: nowrap;
+        }
+        .back-link:hover { color: var(--text); border-color: var(--muted); }
+
+        h1 {
+            font-weight: 300;
+            letter-spacing: 0.15em;
+            font-size: clamp(22px, 5vw, 34px);
+        }
+
+        .subtitle {
+            color: var(--muted);
+            font-size: clamp(11px, 2.5vw, 13px);
+            margin-left: auto;
+        }
+
+        /* ── Readiness hero ─────────────────────────────────────── */
+        .hero {
+            width: 100%;
+            max-width: 760px;
+            background: var(--panel);
+            border-radius: 12px;
+            padding: clamp(18px, 4vw, 28px);
+            margin-bottom: 18px;
+            display: flex;
+            align-items: center;
+            gap: clamp(16px, 4vw, 28px);
+        }
+
+        .ring {
+            position: relative;
+            flex-shrink: 0;
+            width: 84px;
+            height: 84px;
+        }
+        .ring svg { transform: rotate(-90deg); }
+        .ring .ring-bg { stroke: #1a2038; }
+        .ring .ring-fg { stroke: var(--accent); transition: stroke-dasharray 0.5s, stroke 0.3s; }
+        .ring .ring-label {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        .hero-text h2 {
+            font-weight: 400;
+            font-size: clamp(17px, 4vw, 22px);
+            margin-bottom: 4px;
+        }
+        .hero-text p { color: var(--muted); font-size: 13px; }
+        .hero.ready .ring .ring-fg { stroke: var(--ok); }
+        .hero.ready h2 { color: var(--ok); }
+
+        .recheck-btn {
+            margin-left: auto;
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 8px;
+            padding: 7px 16px;
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .recheck-btn:hover { color: var(--text); border-color: var(--muted); }
+        .recheck-btn:disabled { opacity: 0.5; cursor: default; }
+
+        /* ── Section ────────────────────────────────────────────── */
+        .section {
+            width: 100%;
+            max-width: 760px;
+            margin-bottom: 18px;
+        }
+        .section-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+            margin: 4px 4px 10px;
+        }
+
+        .check-list {
+            background: var(--panel);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .check-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid #1a2038;
+        }
+        .check-row:last-child { border-bottom: none; }
+
+        .check-icon {
+            flex-shrink: 0;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            margin-top: 1px;
+        }
+        .check-icon.ok   { background: rgba(111, 212, 138, 0.15); color: var(--ok); }
+        .check-icon.fail { background: rgba(255, 74, 94, 0.15);  color: var(--accent-hot); }
+        .check-icon.skip { background: #1a2038; color: var(--muted); }
+
+        .check-body { flex: 1; min-width: 0; }
+        .check-label { font-size: 14px; }
+        .check-detail { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-word; }
+        .check-fix {
+            color: var(--warn);
+            font-size: 12px;
+            margin-top: 5px;
+            word-break: break-word;
+        }
+        .check-fix code {
+            font-family: monospace;
+            background: #0e1424;
+            padding: 1px 5px;
+            border-radius: 4px;
+        }
+
+        .dl-btn {
+            flex-shrink: 0;
+            align-self: center;
+            background: none;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .dl-btn:hover { background: rgba(74, 158, 255, 0.12); }
+        .dl-btn:disabled { opacity: 0.6; cursor: default; }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid currentColor;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            vertical-align: -1px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Help box ───────────────────────────────────────────── */
+        .help-box {
+            width: 100%;
+            max-width: 760px;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 24px;
+        }
+        .help-box h3 {
+            font-weight: 400;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--muted);
+            margin-bottom: 12px;
+        }
+        .help-item { margin-bottom: 12px; font-size: 13px; line-height: 1.5; }
+        .help-item:last-child { margin-bottom: 0; }
+        .help-item strong { color: var(--text); font-weight: 500; }
+        .help-item code {
+            font-family: monospace;
+            background: #0e1424;
+            padding: 1px 5px;
+            border-radius: 4px;
+            color: var(--accent);
+        }
+
+        .loading-msg, .error-msg {
+            color: var(--muted);
+            text-align: center;
+            padding: 40px 20px;
+            font-size: 13px;
+        }
+        .error-msg { color: var(--accent-hot); }
+
+        /* ── Responsive ─────────────────────────────────────────── */
+        @media (max-width: 560px) {
+            .hero { flex-wrap: wrap; }
+            .recheck-btn { margin-left: 0; }
+            .check-row { flex-wrap: wrap; }
+            .dl-btn { margin-left: 34px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="page-header">
+    <a class="back-link" href="/">&#8592; Back to Plasma</a>
+    <h1>SETUP</h1>
+    <span class="subtitle">first-run checklist</span>
+</div>
+
+<!-- Readiness hero -->
+<div class="hero" id="hero">
+    <div class="ring">
+        <svg width="84" height="84" viewBox="0 0 84 84">
+            <circle class="ring-bg" cx="42" cy="42" r="36" fill="none" stroke-width="8"></circle>
+            <circle class="ring-fg" id="ring-fg" cx="42" cy="42" r="36" fill="none"
+                    stroke-width="8" stroke-linecap="round"
+                    stroke-dasharray="0 226"></circle>
+        </svg>
+        <div class="ring-label" id="ring-label">—</div>
+    </div>
+    <div class="hero-text">
+        <h2 id="hero-title">Checking your setup…</h2>
+        <p id="hero-sub">Running first-run checks</p>
+    </div>
+    <button class="recheck-btn" id="recheck-btn">&#8635; Re-check</button>
+</div>
+
+<!-- Required checks -->
+<div class="section" id="section-required">
+    <div class="section-title">Required</div>
+    <div class="check-list" id="list-required">
+        <div class="loading-msg">Loading…</div>
+    </div>
+</div>
+
+<!-- Optional checks -->
+<div class="section" id="section-optional">
+    <div class="section-title">Optional</div>
+    <div class="check-list" id="list-optional"></div>
+</div>
+
+<!-- Help box -->
+<div class="help-box">
+    <h3>Common gotchas</h3>
+    <div class="help-item">
+        <strong>Microphone not working?</strong>
+        Open Plasma at <code>http://localhost:8000</code> on this computer.
+        The mic only works on localhost or HTTPS — not when opening by IP address
+        over the network.
+    </div>
+    <div class="help-item">
+        <strong>No replies?</strong>
+        Make sure Ollama is running. Open a terminal and run <code>ollama serve</code>.
+    </div>
+</div>
+
+<script>
+'use strict';
+
+const RING_CIRC = 2 * Math.PI * 36; // r=36
+
+function escHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Turn `pip install x` / `ollama serve` style fix text into inline <code>.
+function renderFix(text) {
+    const safe = escHtml(text);
+    return safe.replace(
+        /((?:pip install|ollama (?:serve|pull)|run:?\s+)[^.]*)/i,
+        '<code>$1</code>'
+    );
+}
+
+function iconFor(check) {
+    if (check.ok) return { cls: 'ok', glyph: '✓' };                   // check
+    if (check.category === 'optional') return { cls: 'skip', glyph: '○' }; // circle
+    return { cls: 'fail', glyph: '✗' };                               // cross
+}
+
+function rowHtml(check) {
+    const { cls, glyph } = iconFor(check);
+    const detail = check.detail ? `<div class="check-detail">${escHtml(check.detail)}</div>` : '';
+    const fix = (!check.ok && check.fix)
+        ? `<div class="check-fix">${renderFix(check.fix)}</div>` : '';
+    const dl = check.downloadable
+        ? `<button class="dl-btn" data-dl="${escHtml(check.downloadable)}">Download</button>` : '';
+    return `
+        <div class="check-row" data-id="${escHtml(check.id)}">
+            <div class="check-icon ${cls}">${glyph}</div>
+            <div class="check-body">
+                <div class="check-label">${escHtml(check.label)}</div>
+                ${detail}${fix}
+            </div>
+            ${dl}
+        </div>`;
+}
+
+function updateHero(summary) {
+    const hero = document.getElementById('hero');
+    const ringFg = document.getElementById('ring-fg');
+    const ringLabel = document.getElementById('ring-label');
+    const title = document.getElementById('hero-title');
+    const sub = document.getElementById('hero-sub');
+
+    const done = summary.required_ok;
+    const total = summary.required_total || 1;
+    const frac = done / total;
+    ringFg.setAttribute('stroke-dasharray', `${(frac * RING_CIRC).toFixed(1)} ${RING_CIRC}`);
+    ringLabel.textContent = `${done}/${total}`;
+
+    if (summary.ready) {
+        hero.classList.add('ready');
+        ringLabel.textContent = '✓';
+        title.textContent = '✓ Ready';
+        sub.textContent = 'All required checks passed. Plasma is good to go.';
+    } else {
+        hero.classList.remove('ready');
+        const left = total - done;
+        title.textContent = `⚠ ${left} step${left !== 1 ? 's' : ''} left`;
+        sub.textContent = 'Finish the required checks below to get Plasma working.';
+    }
+}
+
+async function loadStatus() {
+    const reqList = document.getElementById('list-required');
+    const optList = document.getElementById('list-optional');
+    const btn = document.getElementById('recheck-btn');
+    btn.disabled = true;
+    reqList.innerHTML = '<div class="loading-msg">Loading…</div>';
+
+    try {
+        const res = await fetch('/api/setup/status');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const checks = data.checks || [];
+
+        const required = checks.filter(c => c.category === 'required');
+        const optional = checks.filter(c => c.category === 'optional');
+
+        reqList.innerHTML = required.map(rowHtml).join('') ||
+            '<div class="loading-msg">No required checks.</div>';
+        optList.innerHTML = optional.map(rowHtml).join('') ||
+            '<div class="loading-msg">No optional checks.</div>';
+
+        updateHero(data.summary || { required_ok: 0, required_total: required.length, ready: false });
+
+        wireDownloads();
+    } catch (e) {
+        reqList.innerHTML = `<div class="error-msg">Could not load setup status: ${escHtml(e.message)}</div>`;
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function wireDownloads() {
+    document.querySelectorAll('.dl-btn').forEach(btn => {
+        btn.addEventListener('click', () => runDownload(btn));
+    });
+}
+
+async function runDownload(btn) {
+    const kind = btn.dataset.dl; // currently only "de_voice"
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.innerHTML = '<span class="spinner"></span> Downloading…';
+    try {
+        const res = await fetch('/api/setup/download/' + encodeURIComponent(kind), { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+            throw new Error(data.error || ('HTTP ' + res.status));
+        }
+        // Success — re-run checks to reflect the new state.
+        await loadStatus();
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = original;
+        alert('Download failed: ' + e.message);
+    }
+}
+
+document.getElementById('recheck-btn').addEventListener('click', loadStatus);
+
+// Initial load
+loadStatus();
+</script>
+</body>
+</html>

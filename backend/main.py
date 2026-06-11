@@ -144,6 +144,15 @@ async def analytics_page():
     return JSONResponse({"error": "analytics.html not found"}, status_code=404)
 
 
+@app.get("/setup")
+async def setup_page():
+    """Serve the first-run setup wizard (PA-82)."""
+    html_path = Path(__file__).resolve().parents[1] / "frontend" / "setup.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    return JSONResponse({"error": "setup.html not found"}, status_code=404)
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -164,6 +173,195 @@ async def health():
         "ollama": ollama,
         "tts": tts,
     }
+
+
+# ---------------------------------------------------------------------------
+# Setup wizard (PA-82) — guided first-run checks + fixes
+# ---------------------------------------------------------------------------
+def _check(fn):
+    """Run a single setup check, never letting an exception escape.
+
+    Each check function returns a dict (without ``id``/``label``/``category``,
+    which are filled in by the caller). On any exception the check is marked
+    failed with the error in ``detail`` so one broken probe never 500s the
+    whole status endpoint.
+    """
+    try:
+        return fn()
+    except Exception as e:
+        return {"ok": False, "detail": f"check failed: {e}", "fix": None}
+
+
+def _gather_setup_checks() -> list[dict]:
+    """Build the ordered list of setup checks with pass/fail + fix hints."""
+
+    def whisper_model():
+        model = (plasma_config.WHISPER_MODEL or "").strip()
+        if not model:
+            return {
+                "ok": False,
+                "detail": "WHISPER_MODEL not set",
+                "fix": "Set WHISPER_MODEL in your .env (e.g. small.en or small).",
+            }
+        multilingual = ".en" not in model
+        kind = "multilingual" if multilingual else "English-only"
+        return {
+            "ok": True,
+            "detail": f"{model} ({kind}) — downloads automatically on first use",
+            "fix": None,
+        }
+
+    def vad_model():
+        # Plasma's VAD uses the `silero-vad` pip package (weights bundled in the
+        # package), not a standalone .onnx file. Report based on importability.
+        try:
+            import silero_vad  # noqa: F401
+            return {"ok": True, "detail": "silero-vad package installed", "fix": None}
+        except Exception:
+            return {
+                "ok": False,
+                "detail": "silero-vad package not importable",
+                "fix": "Install voice deps: pip install -r requirements.txt",
+            }
+
+    def tts_voice():
+        from backend.modules.voice.tts import health_check as _tts_health
+        h = _tts_health()
+        if not h.get("enabled", True):
+            return {"ok": False, "detail": "TTS disabled (TTS_ENABLED=false)", "fix": "Set TTS_ENABLED=true in .env."}
+        if h.get("loaded"):
+            return {"ok": True, "detail": h.get("model") or "loaded", "fix": None}
+        return {
+            "ok": False,
+            "detail": h.get("error") or "voice model not loaded",
+            "fix": "Set TTS_VOICE_MODEL in .env to a Piper .onnx voice in voices/.",
+        }
+
+    def ollama_running():
+        h = ollama_health()
+        if h.get("reachable"):
+            return {"ok": True, "detail": plasma_config.OLLAMA_BASE_URL, "fix": None}
+        return {
+            "ok": False,
+            "detail": h.get("error") or "not reachable",
+            "fix": "Start Ollama: open a terminal and run 'ollama serve'.",
+        }
+
+    def ollama_model():
+        h = ollama_health()
+        model = plasma_config.OLLAMA_MODEL
+        if not h.get("reachable"):
+            return {
+                "ok": False,
+                "detail": "can't check — Ollama not reachable",
+                "fix": f"Start Ollama, then run: ollama pull {model.split(':')[0]}",
+            }
+        if "model_present" in h:
+            if h.get("model_present"):
+                return {"ok": True, "detail": model, "fix": None}
+            return {
+                "ok": False,
+                "detail": f"{model} not pulled",
+                "fix": f"Run: ollama pull {model.split(':')[0]}",
+            }
+        # Best effort: reachable but model list unavailable
+        return {"ok": True, "detail": f"{model} (assumed — model list unavailable)", "fix": None}
+
+    def german_voice():
+        from backend.modules.voice.tts import VOICES_DIR, _resolve_model
+        # Configured German voice present?
+        if plasma_config.TTS_VOICE_DE:
+            p = _resolve_model(plasma_config.TTS_VOICE_DE)
+            if p.exists():
+                return {"ok": True, "detail": p.name, "fix": None, "downloadable": "de_voice"}
+        # Any de_*.onnx already in voices/?
+        if VOICES_DIR.exists():
+            de_files = sorted(VOICES_DIR.glob("de_*.onnx"))
+            if de_files:
+                return {"ok": True, "detail": de_files[0].name, "fix": None, "downloadable": "de_voice"}
+        return {
+            "ok": False,
+            "detail": "not installed",
+            "fix": "Click Download below to fetch the German Thorsten voice.",
+            "downloadable": "de_voice",
+        }
+
+    def speaker_id():
+        from backend.modules.voice import speaker_id as _sid
+        if _sid.is_available():
+            return {"ok": True, "detail": "resemblyzer installed", "fix": None}
+        return {
+            "ok": False,
+            "detail": "resemblyzer not installed (single-user mode)",
+            "fix": "pip install resemblyzer",
+        }
+
+    def cloud_llm():
+        configured = bool((plasma_config.CLOUD_API_KEY or "").strip())
+        return {
+            "ok": True,
+            "detail": "configured" if configured else "not configured — using local Ollama only",
+            "fix": None,
+        }
+
+    specs = [
+        ("whisper_model", "Whisper speech model", "required", whisper_model),
+        ("vad_model", "Voice activity detection model", "required", vad_model),
+        ("tts_voice", "English TTS voice", "required", tts_voice),
+        ("ollama_running", "Ollama server", "required", ollama_running),
+        ("ollama_model", "Ollama model available", "required", ollama_model),
+        ("german_voice", "German TTS voice (optional)", "optional", german_voice),
+        ("speaker_id", "Voice profiles / speaker ID (optional)", "optional", speaker_id),
+        ("cloud_llm", "Cloud LLM (optional)", "optional", cloud_llm),
+    ]
+
+    checks = []
+    for cid, label, category, fn in specs:
+        result = _check(fn)
+        checks.append({
+            "id": cid,
+            "label": label,
+            "category": category,
+            "ok": bool(result.get("ok")),
+            "detail": result.get("detail"),
+            "fix": result.get("fix"),
+            "downloadable": result.get("downloadable"),
+        })
+    return checks
+
+
+@app.get("/api/setup/status")
+async def setup_status():
+    """Run every setup check and report pass/fail + fix instructions (PA-82)."""
+    checks = await asyncio.to_thread(_gather_setup_checks)
+
+    required = [c for c in checks if c["category"] == "required"]
+    optional = [c for c in checks if c["category"] == "optional"]
+    required_ok = sum(1 for c in required if c["ok"])
+    optional_ok = sum(1 for c in optional if c["ok"])
+
+    return {
+        "checks": checks,
+        "summary": {
+            "required_ok": required_ok,
+            "required_total": len(required),
+            "optional_ok": optional_ok,
+            "optional_total": len(optional),
+            "ready": required_ok == len(required),
+        },
+    }
+
+
+@app.post("/api/setup/download/de_voice")
+async def setup_download_de_voice():
+    """Download the German Piper voice (PA-82). May take 30-120s."""
+    try:
+        from scripts.download_de_voice import download_de_voice
+        path = await asyncio.to_thread(download_de_voice, False)
+        return {"ok": True, "path": str(path)}
+    except Exception as e:
+        log.warning(f"German voice download failed: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
