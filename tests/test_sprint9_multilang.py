@@ -27,7 +27,7 @@ def test_pipeline_lang_en(monkeypatch):
     captured = {}
 
     class _FakeASR:
-        def transcribe(self, audio, language=None):
+        def transcribe(self, audio, language=None, allowed_languages=None):
             captured["language"] = language
             return {"text": "hello", "language": "en", "duration": 0.5, "latency": 0.1}
 
@@ -49,7 +49,7 @@ def test_pipeline_lang_auto_multilingual(monkeypatch):
     captured = {}
 
     class _FakeASR:
-        def transcribe(self, audio, language=None):
+        def transcribe(self, audio, language=None, allowed_languages=None):
             captured["language"] = language
             return {"text": "hallo", "language": "de", "duration": 0.5, "latency": 0.1}
 
@@ -72,7 +72,7 @@ def test_pipeline_lang_auto_english_only_model_warns(monkeypatch, caplog):
     captured = {}
 
     class _FakeASR:
-        def transcribe(self, audio, language=None):
+        def transcribe(self, audio, language=None, allowed_languages=None):
             captured["language"] = language
             return {"text": "hello", "language": "en", "duration": 0.5, "latency": 0.1}
 
