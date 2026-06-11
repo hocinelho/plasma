@@ -48,12 +48,16 @@ class Config:
     # accented utterances aren't mis-detected (e.g. English heard as Arabic).
     WHISPER_ALLOWED_LANGS: str = os.getenv("WHISPER_ALLOWED_LANGS", "en,de")
 
-    # --- Wake word (PA-34) ---
-    # Set WAKE_WORD_ENABLED=true in .env to enable hands-free "hey jarvis" detection.
+    # --- Wake word (PA-34 / PA-89) ---
+    # Set WAKE_WORD_ENABLED=true in .env to enable hands-free detection.
     # Requires openwakeword (already in requirements.txt).
     WAKE_WORD_ENABLED: bool = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
+    # Pre-trained model name (fallback when WAKE_WORD_MODEL_PATH not set)
     WAKE_WORD_MODEL: str = os.getenv("WAKE_WORD_MODEL", "hey_jarvis")
     WAKE_WORD_THRESHOLD: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
+    # Path to a custom .onnx wake word model trained via scripts/train_hey_plasma.py
+    # When set and file exists, used instead of WAKE_WORD_MODEL.
+    WAKE_WORD_MODEL_PATH: str = os.getenv("WAKE_WORD_MODEL_PATH", "")
 
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")

@@ -86,6 +86,7 @@ class WakeMonitor:
             detector = WakeWordDetector(
                 wake_word=config.WAKE_WORD_MODEL,
                 threshold=config.WAKE_WORD_THRESHOLD,
+                model_path=config.WAKE_WORD_MODEL_PATH or None,
             )
             cap = AudioCapture()
             cap.start()

@@ -1,26 +1,29 @@
 """
 Plasma wake-word detection — openWakeWord wrapper.
 
-Default wake word: "hey_jarvis" (pre-trained model ships with openWakeWord).
-Later we'll train a "hey_plasma" model via Colab and swap the model_name.
+Supports two modes:
+  1. Pre-trained model by name (e.g. "hey_jarvis") — works out of the box
+  2. Custom .onnx model by file path (e.g. ".plasma/models/hey_plasma.onnx")
+     — trained via scripts/train_hey_plasma.py
 
-Input: same int16 chunks as AudioCapture (1280 samples / 80 ms).
-Output: dict with "detected" (bool) and "score" (0..1).
-
-Note on tuning: openWakeWord's pre-trained models are *conservative* by design.
-For "hey_jarvis" a threshold of 0.3 is the documented sweet spot; 0.5 will miss
-most natural speech. We keep an internal cooldown to avoid repeat triggers.
+Input: int16 chunks at 16 kHz, 1280 samples (80 ms) per chunk.
+Output: {"detected": bool, "score": float}
 """
 from __future__ import annotations
 import logging
 import sys
 from collections import deque
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from openwakeword.model import Model
 
 log = logging.getLogger("plasma.wake")
+
+try:
+    from openwakeword.model import Model
+except ImportError:
+    Model = None  # type: ignore  — gracefully absent; WakeWordDetector raises on use
 
 OWW_SAMPLE_RATE = 16_000
 OWW_FRAME = 1_280  # 80 ms at 16 kHz — expected frame size
@@ -29,8 +32,12 @@ OWW_FRAME = 1_280  # 80 ms at 16 kHz — expected frame size
 class WakeWordDetector:
     """Always-on detector that returns True when the wake word is spoken.
 
+    Pass model_path to use a custom .onnx file (e.g. "hey_plasma.onnx"
+    trained via scripts/train_hey_plasma.py).  If model_path is given but
+    the file doesn't exist yet, falls back to the named wake_word model.
+
     Usage:
-        wake = WakeWordDetector(wake_word="hey_jarvis")
+        wake = WakeWordDetector(model_path=".plasma/models/hey_plasma.onnx")
         for chunk in mic_chunks:
             result = wake.process(chunk)
             if result["detected"]:
@@ -42,18 +49,52 @@ class WakeWordDetector:
         wake_word: str = "hey_jarvis",
         threshold: float = 0.3,
         cooldown_ms: int = 1500,
+        model_path: Optional[str] = None,
     ):
-        self.wake_word = wake_word
         self.threshold = threshold
         self.cooldown_samples = cooldown_ms * OWW_SAMPLE_RATE // 1000
         self._cooldown_remaining = 0
         self._buffer: deque[int] = deque()
 
-        log.info(f"Loading openWakeWord model '{wake_word}' (threshold={threshold})...")
-        self.model = Model(
-            wakeword_models=[wake_word],
-            inference_framework="onnx",
-        )
+        if Model is None:
+            raise ImportError(
+                "openwakeword is not installed. "
+                "Run: pip install openwakeword"
+            )
+
+        if model_path and Path(model_path).exists():
+            # Custom model loaded from file — score dict key is the stem name
+            self.wake_word = Path(model_path).stem
+            log.info(
+                f"Loading custom wake word model '{model_path}' "
+                f"(key='{self.wake_word}', threshold={threshold})"
+            )
+            self.model = Model(
+                wakeword_models=[model_path],
+                inference_framework="onnx",
+            )
+        elif model_path and not Path(model_path).exists():
+            log.warning(
+                f"Custom model '{model_path}' not found — "
+                f"falling back to pre-trained '{wake_word}'. "
+                f"Run: python scripts/train_hey_plasma.py"
+            )
+            self.wake_word = wake_word
+            self.model = Model(
+                wakeword_models=[wake_word],
+                inference_framework="onnx",
+            )
+        else:
+            self.wake_word = wake_word
+            log.info(
+                f"Loading pre-trained openWakeWord model '{wake_word}' "
+                f"(threshold={threshold})"
+            )
+            self.model = Model(
+                wakeword_models=[wake_word],
+                inference_framework="onnx",
+            )
+
         log.info("openWakeWord model loaded")
 
     def process(self, chunk: np.ndarray) -> dict:
@@ -95,6 +136,7 @@ def _smoke_test() -> None:
     """Listen to the mic for 30 seconds, print every wake-word detection."""
     import time
     from backend.modules.voice.audio_capture import AudioCapture
+    from backend.core.config import config
 
     logging.basicConfig(
         level=logging.INFO,
@@ -102,15 +144,22 @@ def _smoke_test() -> None:
         stream=sys.stdout,
     )
 
-    print("Loading wake-word detector...", flush=True)
-    wake = WakeWordDetector(wake_word="hey_jarvis", threshold=0.3)
+    model_path = config.WAKE_WORD_MODEL_PATH or None
+    model_name = config.WAKE_WORD_MODEL
 
-    print("Starting mic...", flush=True)
+    print("Loading wake-word detector...", flush=True)
+    wake = WakeWordDetector(
+        wake_word=model_name,
+        threshold=config.WAKE_WORD_THRESHOLD,
+        model_path=model_path,
+    )
+
+    label = wake.wake_word.replace("_", " ").title()
+    print(f"Starting mic... wake word: '{label}'", flush=True)
     cap = AudioCapture()
     cap.start()
 
-    print("\n*** Say 'Hey Jarvis' several times over the next 30 seconds ***", flush=True)
-    print("Try with pauses between, and also in normal speech to test false positives.\n", flush=True)
+    print(f"\n*** Say '{label}' several times over the next 30 seconds ***\n", flush=True)
 
     start = time.time()
     max_score = 0.0
@@ -131,7 +180,6 @@ def _smoke_test() -> None:
                 flush=True,
             )
 
-        # Periodic score tick so we see what scores speech is generating
         if elapsed - last_score_log > 2.0:
             print(
                 f"[{elapsed:5.2f}s]  tick  last_score={result['score']:.2f}  max_so_far={max_score:.2f}",
@@ -141,18 +189,6 @@ def _smoke_test() -> None:
 
     cap.stop()
     print(f"\nDone. Total detections: {detections}. Max score: {max_score:.2f}", flush=True)
-    if detections == 0:
-        print(
-            "\nZero detections. Try lowering threshold to 0.2, or check "
-            "you said 'HEY Jarvis' (both words, with the 'hey').",
-            flush=True,
-        )
-    elif max_score < 0.4:
-        print(
-            "\nAll scores stayed below 0.4. Speak the wake word more clearly "
-            "or lower the threshold in wake_word.py.",
-            flush=True,
-        )
 
 
 if __name__ == "__main__":
