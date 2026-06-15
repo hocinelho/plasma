@@ -228,82 +228,136 @@ def _find_oww_models() -> tuple[str, str]:
     return melspec, embedding
 
 
-def _load_wav_float(path: Path) -> np.ndarray:
-    """Load a WAV file as float32 mono 16 kHz."""
+# openWakeWord feature pipeline constants.  The wake word classifier that
+# openWakeWord loads at runtime expects an input of shape [N, 16, 96]:
+# 16 embedding frames, 96 dims each.  Each embedding is produced from a
+# 76-frame mel-spectrogram window, sliding with a stride of 8 mel frames.
+N_EMB = 16            # embedding frames per classifier input
+EMB_DIM = 96          # embedding model output dim
+MEL_WINDOW = 76       # mel frames per embedding
+MEL_STRIDE = 8        # mel-frame stride between consecutive embeddings
+MEL_FRAMES_NEEDED = (N_EMB - 1) * MEL_STRIDE + MEL_WINDOW  # = 196
+TRAIN_AUDIO_LEN = 32_000  # 2 s @ 16 kHz — enough to yield 196 mel frames
+
+
+def _load_wav_raw(path: Path) -> np.ndarray:
+    """Load a WAV as float32 mono 16 kHz in the raw int16 value range.
+
+    openWakeWord's melspectrogram model expects the int16 sample values cast
+    to float32 (NOT normalised to [-1, 1]), so we deliberately do not divide.
+    """
     with wave.open(str(path), "rb") as wf:
         sr = wf.getframerate()
         n = wf.getnframes()
         data = wf.readframes(n)
-    audio = np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+    audio = np.frombuffer(data, dtype=np.int16).astype(np.float32)
     if sr != SAMPLE_RATE:
         from scipy.signal import resample
         audio = resample(audio, int(len(audio) * SAMPLE_RATE / sr)).astype(np.float32)
     return audio
 
 
-def _extract_embeddings_oww(wav_files: list[Path], melspec_path: str,
-                             embedding_path: str, n_frames: int = 16
-                             ) -> np.ndarray:
-    """Extract embeddings from WAV files using openWakeWord's pipeline."""
+def _place_in_window(audio: np.ndarray, target: int = TRAIN_AUDIO_LEN) -> np.ndarray:
+    """Randomly place a clip inside a fixed-length window (zeros around it)."""
+    if len(audio) >= target:
+        return audio[:target]
+    pad_total = target - len(audio)
+    pre = random.randint(0, pad_total)
+    post = pad_total - pre
+    return np.concatenate([
+        np.zeros(pre, dtype=np.float32),
+        audio,
+        np.zeros(post, dtype=np.float32),
+    ])
+
+
+def _extract_features_oww(wav_files: list[Path], melspec_path: str,
+                          embedding_path: str) -> np.ndarray:
+    """Extract openWakeWord [N, 16, 96] features from WAV files.
+
+    Chains the bundled melspectrogram model -> embedding model exactly the
+    way openWakeWord does internally, so the resulting classifier is loadable
+    by openwakeword.model.Model at runtime.
+    """
     import onnxruntime as ort
-    melspec_session = ort.InferenceSession(melspec_path)
-    embed_session = ort.InferenceSession(embedding_path)
+    mel_sess = ort.InferenceSession(melspec_path)
+    emb_sess = ort.InferenceSession(embedding_path)
+    mel_in = mel_sess.get_inputs()[0].name
+    emb_in = emb_sess.get_inputs()[0].name
 
-    mel_input_name = melspec_session.get_inputs()[0].name
-    embed_input_name = embed_session.get_inputs()[0].name
-    embed_output_dim = embed_session.get_outputs()[0].shape[-1]  # typically 96
-
-    all_embeddings = []
-    frame_size = 1280  # 80 ms at 16 kHz
-
+    out = []
     for wav_path in wav_files:
-        audio = _load_wav_float(wav_path)
-        # Pad to at least n_frames * frame_size
-        min_len = n_frames * frame_size
-        if len(audio) < min_len:
-            audio = np.pad(audio, (0, min_len - len(audio)))
+        audio = _place_in_window(_load_wav_raw(wav_path))
 
-        embeddings = []
-        for i in range(0, len(audio) - frame_size + 1, frame_size):
-            chunk = audio[i:i + frame_size].reshape(1, -1)
-            mel = melspec_session.run(None, {mel_input_name: chunk})[0]
-            emb = embed_session.run(None, {embed_input_name: mel})[0]
-            embeddings.append(emb.flatten()[:embed_output_dim])
-            if len(embeddings) >= n_frames:
-                break
+        # melspectrogram: [1, L] -> squeeze -> [n_frames, 32]
+        mel = mel_sess.run(None, {mel_in: audio[None, :].astype(np.float32)})[0]
+        mel = np.squeeze(mel)
+        if mel.ndim != 2:           # some exports return [1,1,frames,32]
+            mel = mel.reshape(-1, 32)
+        mel = mel / 10.0 + 2.0       # openWakeWord normalisation
+        if mel.shape[0] < MEL_FRAMES_NEEDED:
+            mel = np.pad(mel, ((0, MEL_FRAMES_NEEDED - mel.shape[0]), (0, 0)))
 
-        while len(embeddings) < n_frames:
-            embeddings.append(np.zeros(embed_output_dim, dtype=np.float32))
+        # 16 embeddings from sliding 76-frame windows
+        embs = []
+        for i in range(N_EMB):
+            start = i * MEL_STRIDE
+            window = mel[start:start + MEL_WINDOW]            # [76, 32]
+            window = window[None, :, :, None].astype(np.float32)  # [1,76,32,1]
+            e = emb_sess.run(None, {emb_in: window})[0].squeeze()  # [96]
+            embs.append(e[:EMB_DIM])
+        out.append(np.stack(embs))   # [16, 96]
 
-        feature = np.concatenate(embeddings[:n_frames])
-        all_embeddings.append(feature)
-
-    return np.array(all_embeddings, dtype=np.float32)
+    return np.array(out, dtype=np.float32)  # [N, 16, 96]
 
 
-def _extract_mel_features(wav_files: list[Path], n_mels: int = 32,
-                           window_len: int = 24000) -> np.ndarray:
-    """Fallback: direct mel-spectrogram features when openWakeWord models unavailable."""
-    from scipy.signal import spectrogram
+# Phrases used to synthesise speech-like negatives so the model learns to
+# fire on "hey plasma" specifically, not on any speech.
+_NEGATIVE_PHRASES = [
+    "hello there", "what time is it", "play some music", "the weather today",
+    "open the door", "how are you", "good morning", "turn it off",
+    "set a timer", "thank you very much", "see you later", "what is this",
+    "hey google", "hey siri", "okay computer", "hey jarvis",
+    "tell me a joke", "stop the music", "volume up", "next song",
+    "hey there plasma is great", "plasma physics", "hey you", "playing now",
+    "let me think", "i don't know", "maybe tomorrow", "call my friend",
+]
 
-    all_features = []
-    for wav_path in wav_files:
-        audio = _load_wav_float(wav_path)
-        if len(audio) < window_len:
-            audio = np.pad(audio, (0, window_len - len(audio)))
-        audio = audio[:window_len]
 
-        _, _, Sxx = spectrogram(audio, fs=SAMPLE_RATE, nperseg=400, noverlap=240,
-                                nfft=512, mode='magnitude')
-        # Crude mel binning
-        n_freq = Sxx.shape[0]
-        bin_size = max(1, n_freq // n_mels)
-        mel = np.array([Sxx[i*bin_size:(i+1)*bin_size].mean(axis=0)
-                        for i in range(n_mels)])
-        mel = np.log1p(mel).flatten().astype(np.float32)
-        all_features.append(mel)
+def _generate_negative_wavs(neg_dir: Path, n_speech: int, n_noise: int) -> None:
+    """Create speech-like and noise negatives into neg_dir."""
+    neg_dir.mkdir(parents=True, exist_ok=True)
+    from scipy.signal import resample
 
-    return np.array(all_features, dtype=np.float32)
+    # Speech-like negatives via TTS (skipped if no TTS engine)
+    written = 0
+    base_clips = []
+    for phrase in _NEGATIVE_PHRASES:
+        clip = _try_tts_clip(phrase)
+        if clip is not None:
+            base_clips.append(clip)
+
+    if base_clips:
+        i = 0
+        while written < n_speech:
+            base = random.choice(base_clips)
+            speed = random.uniform(0.85, 1.15)
+            clip = resample(base, max(1, int(len(base) / speed))).astype(np.float32)
+            clip = np.clip(clip + np.random.normal(0, 0.01, len(clip)), -1.0, 1.0)
+            _write_wav(neg_dir / f"neg_speech_{i:04d}.wav", clip)
+            written += 1
+            i += 1
+    else:
+        log.info("No TTS engine for speech negatives — using noise only")
+        n_noise += n_speech
+
+    # Noise negatives
+    for i in range(n_noise):
+        dur = random.uniform(0.4, 1.6)
+        noise = np.random.normal(0, random.uniform(0.02, 0.08),
+                                 int(SAMPLE_RATE * dur)).astype(np.float32)
+        noise = np.clip(noise, -1.0, 1.0)
+        _write_wav(neg_dir / f"neg_noise_{i:04d}.wav", noise)
 
 
 def train_model() -> bool:
@@ -318,7 +372,7 @@ def train_model() -> bool:
 
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # ── Step 1: Try to import TF ─────────────────────────────────────────
+    # ── Step 1: TF + openWakeWord models ─────────────────────────────────
     try:
         import tensorflow as tf
         tf.get_logger().setLevel("ERROR")
@@ -326,63 +380,41 @@ def train_model() -> bool:
         _print_tf_instructions()
         return False
 
-    # ── Step 2: Extract features from positive samples ───────────────────
-    use_oww = False
-    n_frames = 16
-    try:
-        melspec_path, embedding_path = _find_oww_models()
-        if melspec_path and embedding_path:
-            log.info(f"Using openWakeWord embedding pipeline "
-                     f"({Path(embedding_path).name})")
-            features_pos = _extract_embeddings_oww(
-                positive_wavs, melspec_path, embedding_path, n_frames
-            )
-            use_oww = True
-        else:
-            raise FileNotFoundError("openWakeWord models not found")
-    except Exception as e:
-        log.warning(f"openWakeWord embedding extraction failed: {e}")
-        log.info("Falling back to direct mel-spectrogram features")
-        features_pos = _extract_mel_features(positive_wavs)
-
-    feature_dim = features_pos.shape[1]
-    log.info(f"Positive features: {features_pos.shape} (dim={feature_dim})")
-
-    # ── Step 3: Generate negative features ───────────────────────────────
-    n_neg = len(features_pos) * 3
-    neg_wavs_dir = TRAIN_DIR / "negative"
-    neg_wavs_dir.mkdir(parents=True, exist_ok=True)
-
-    for i in range(n_neg):
-        dur = random.uniform(0.4, 1.5)
-        noise = np.random.normal(0, 0.05, int(SAMPLE_RATE * dur)).astype(np.float32)
-        noise = np.clip(noise, -1.0, 1.0)
-        _write_wav(neg_wavs_dir / f"neg_{i:04d}.wav", noise)
-
-    neg_wavs = sorted(neg_wavs_dir.glob("*.wav"))
-    if use_oww:
-        features_neg = _extract_embeddings_oww(
-            neg_wavs, melspec_path, embedding_path, n_frames
+    melspec_path, embedding_path = _find_oww_models()
+    if not (melspec_path and embedding_path):
+        log.error(
+            "openWakeWord's bundled melspec/embedding models were not found. "
+            "Run: python -c \"import openwakeword; openwakeword.utils.download_models()\""
         )
-    else:
-        features_neg = _extract_mel_features(neg_wavs)
+        return False
+    log.info(f"Using openWakeWord embedding pipeline ({Path(embedding_path).name})")
 
+    # ── Step 2: Positive features ────────────────────────────────────────
+    features_pos = _extract_features_oww(positive_wavs, melspec_path, embedding_path)
+    log.info(f"Positive features: {features_pos.shape}")  # [N, 16, 96]
+
+    # ── Step 3: Negative features (speech + noise) ───────────────────────
+    neg_dir = TRAIN_DIR / "negative"
+    n_pos = len(features_pos)
+    _generate_negative_wavs(neg_dir, n_speech=n_pos * 2, n_noise=n_pos)
+    neg_wavs = sorted(neg_dir.glob("*.wav"))
+    features_neg = _extract_features_oww(neg_wavs, melspec_path, embedding_path)
     log.info(f"Negative features: {features_neg.shape}")
 
-    # ── Step 4: Build dataset ────────────────────────────────────────────
-    X = np.concatenate([features_pos, features_neg])
+    # ── Step 4: Dataset ──────────────────────────────────────────────────
+    X = np.concatenate([features_pos, features_neg])           # [M, 16, 96]
     y = np.concatenate([
         np.ones(len(features_pos), dtype=np.float32),
         np.zeros(len(features_neg), dtype=np.float32),
     ])
-    # Shuffle
     idx = np.random.permutation(len(X))
     X, y = X[idx], y[idx]
 
-    # ── Step 5: Train Keras model ────────────────────────────────────────
-    log.info(f"Training classifier on {len(X)} samples (dim={feature_dim})...")
+    # ── Step 5: Train classifier (input [16, 96]) ────────────────────────
+    log.info(f"Training classifier on {len(X)} samples...")
     model = tf.keras.Sequential([
-        tf.keras.layers.Input(shape=(feature_dim,)),
+        tf.keras.layers.Input(shape=(N_EMB, EMB_DIM)),
+        tf.keras.layers.Flatten(),
         tf.keras.layers.Dense(128, activation="relu"),
         tf.keras.layers.Dropout(0.3),
         tf.keras.layers.Dense(64, activation="relu"),
@@ -392,23 +424,11 @@ def train_model() -> bool:
     model.compile(optimizer="adam", loss="binary_crossentropy",
                   metrics=["accuracy"])
     model.fit(X, y, epochs=100, batch_size=32, validation_split=0.2, verbose=0)
-
     loss, acc = model.evaluate(X, y, verbose=0)
     log.info(f"Training accuracy: {acc:.1%}")
 
-    # ── Step 6: Export to ONNX ───────────────────────────────────────────
-    try:
-        import tf2onnx
-        import onnx
-
-        spec = (tf.TensorSpec((1, feature_dim), tf.float32, name="input"),)
-        model_proto, _ = tf2onnx.convert.from_keras(model, input_signature=spec,
-                                                      output_path=str(OUTPUT_MODEL))
-        log.info(f"Model exported (tf2onnx): {OUTPUT_MODEL}")
-    except ImportError:
-        # Fallback: build ONNX manually from weights
-        log.info("tf2onnx not found — building ONNX from weights directly")
-        _export_onnx_manual(model, feature_dim, OUTPUT_MODEL)
+    # ── Step 6: Export to ONNX (manual — robust across TF/Keras versions) ─
+    _export_onnx_manual(model, OUTPUT_MODEL)
 
     if OUTPUT_MODEL.exists():
         _print_env_instructions(OUTPUT_MODEL)
@@ -418,50 +438,50 @@ def train_model() -> bool:
     return False
 
 
-def _export_onnx_manual(keras_model, feature_dim: int, output_path: Path) -> None:
-    """Build ONNX model manually from Keras weights (no tf2onnx needed)."""
+def _export_onnx_manual(keras_model, output_path: Path) -> None:
+    """Build an openWakeWord-compatible ONNX model from the Keras weights.
+
+    Input:  [batch, 16, 96]   (matches openWakeWord's classifier contract)
+    Output: [batch, 1]        (wake word probability)
+
+    Built by hand so it doesn't depend on tf2onnx, which breaks with Keras 3.
+    """
     import onnx
     from onnx import helper, TensorProto, numpy_helper
 
-    weights = keras_model.get_weights()
-    # Layers: Dense(128), Dense(64), Dense(1) — each has [W, b]
-    # With Dropout layers (no weights)
+    # Dense weights only (Flatten/Dropout carry none)
+    dense_weights = [w for w in keras_model.get_weights()]
+    n_dense = len(dense_weights) // 2
 
     nodes = []
     initializers = []
-    layer_idx = 0
-    input_name = "input"
-    current = input_name
 
-    dense_count = 0
-    for i in range(0, len(weights), 2):
-        W = weights[i]
-        b = weights[i + 1]
-        w_name = f"W{dense_count}"
-        b_name = f"b{dense_count}"
-        mm_name = f"matmul_{dense_count}"
-        add_name = f"add_{dense_count}"
+    # Reshape [batch,16,96] -> [batch, 1536]
+    flat_dim = N_EMB * EMB_DIM
+    shape_name = "reshape_shape"
+    initializers.append(numpy_helper.from_array(
+        np.array([-1, flat_dim], dtype=np.int64), shape_name))
+    nodes.append(helper.make_node("Reshape", ["input", shape_name], ["flat"]))
+    current = "flat"
 
-        initializers.append(numpy_helper.from_array(W.astype(np.float32), w_name))
-        initializers.append(numpy_helper.from_array(b.astype(np.float32), b_name))
-
+    for d in range(n_dense):
+        W = dense_weights[2 * d].astype(np.float32)      # [in, out]
+        b = dense_weights[2 * d + 1].astype(np.float32)  # [out]
+        w_name, b_name = f"W{d}", f"b{d}"
+        mm_name, add_name = f"matmul_{d}", f"add_{d}"
+        initializers.append(numpy_helper.from_array(W, w_name))
+        initializers.append(numpy_helper.from_array(b, b_name))
         nodes.append(helper.make_node("MatMul", [current, w_name], [mm_name]))
         nodes.append(helper.make_node("Add", [mm_name, b_name], [add_name]))
-
-        if dense_count < len(weights) // 2 - 1:
-            relu_name = f"relu_{dense_count}"
+        if d < n_dense - 1:
+            relu_name = f"relu_{d}"
             nodes.append(helper.make_node("Relu", [add_name], [relu_name]))
             current = relu_name
         else:
-            sig_name = "output"
-            nodes.append(helper.make_node("Sigmoid", [add_name], [sig_name]))
-            current = sig_name
+            nodes.append(helper.make_node("Sigmoid", [add_name], ["output"]))
 
-        dense_count += 1
-
-    X = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1, feature_dim])
-    Y = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1, 1])
-
+    X = helper.make_tensor_value_info("input", TensorProto.FLOAT, ["batch", N_EMB, EMB_DIM])
+    Y = helper.make_tensor_value_info("output", TensorProto.FLOAT, ["batch", 1])
     graph = helper.make_graph(nodes, "hey_plasma", [X], [Y], initializers)
     model_proto = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
     onnx.save(model_proto, str(output_path))
