@@ -93,8 +93,8 @@
 ### PA-44 — EPIC: Infra / DevOps (children PA-45 → PA-47)
 | Key | Type | Summary | Status |
 |---|---|---|---|
-| PA-45 | Task  | pytest CI on every push (GitHub Actions) | To Do |
-| PA-46 | Task  | Windows installer via PyInstaller | To Do |
+| PA-45 | Task  | pytest CI on every push (GitHub Actions) | **Done** |
+| PA-46 | Task  | Windows installer via PyInstaller | **Done** |
 | PA-47 | Task  | `.env.example` always up to date | Done |
 | PA-87 | Bug   | Corporate-proxy TLS: CERTIFICATE_VERIFY_FAILED on Wikipedia/translator/weather | **Done** | b8b4901 |
 | PA-88 | Bug   | Weather routed to calculator — "what is " trigger outranked "weather" | **Done** | 601d78b |
@@ -142,7 +142,7 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-61 | Story | Todo list — add / read / clear by voice | S7 | **Done** |
 | PA-62 | Story | News via RSS feeds (no LLM hallucination) | S7 | **Done** |
 | PA-63 | Story | Weather forecast — 5-day not just current | S7 | **Done** |
-| PA-64 | Story | Settings control — "switch to faster model" | S15 | To Do |
+| PA-64 | Story | Settings control — "switch to faster model" | S15 | **Done** |
 
 ### Add to PA-20 (Memory) — voice profiles
 
@@ -151,7 +151,7 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-65 | Story | Speaker identification (multi-user) | S11 | **Done** |
 | PA-66 | Story | Per-user memory + per-user USER.md | S11 | **Done** |
 | PA-67 | Story | Voice selection — choose TTS voice | S11 | **Done** |
-| PA-68 | Story | Memory / fact browser UI | S12 | To Do |
+| PA-68 | Story | Memory / fact browser UI | S12 | **Done** |
 
 **S11 notes:**
 - PA-65: `backend/modules/voice/speaker_id.py` — resemblyzer embeddings (OPTIONAL dep,
@@ -174,8 +174,8 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-69 | Story | Mobile-responsive browser UI | S10 | **Done** |
 | PA-70 | Story | Keyboard-free mode (pure voice) | S10 | **Done** |
 | PA-71 | Story | High-contrast / accessibility theme | S10 | **Done** |
-| PA-72 | Story | Skill usage stats panel | S12 | To Do |
-| PA-73 | Story | Response latency graph per session | S12 | To Do |
+| PA-72 | Story | Skill usage stats panel | S12 | **Done** |
+| PA-73 | Story | Response latency graph per session | S12 | **Done** |
 
 ### Add to PA-40 (Integrations) — music + communication
 
@@ -185,20 +185,20 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-75 | Story | System volume up / down / mute | S8 | **Done** |
 | PA-76 | Story | Screenshot by voice — saved to Desktop | S8 | **Done** |
 | PA-77 | Story | "What song is playing?" via Spotify API | S8 | **Done** |
-| PA-89 | Task  | Train custom "Hey Plasma" wake word model | Backlog | To Do |
-| PA-78 | Story | Slack — read latest message in channel | S13 | To Do |
-| PA-79 | Story | Microsoft Teams — meeting summary by voice | S13 | To Do |
-| PA-80 | Story | Send WhatsApp message by voice | S13 | To Do |
+| PA-89 | Task  | Train custom "Hey Plasma" wake word model | Backlog | **Done** |
+| PA-78 | Story | Slack — read latest message in channel | S13 | **Done** |
+| PA-79 | Story | Microsoft Teams — meeting summary by voice | S13 | **Done** |
+| PA-80 | Story | Send WhatsApp message by voice | S13 | **Done** |
 
 ### Add to PA-44 (Infra) — packaging + release
 
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
-| PA-81 | Task  | Auto-update mechanism (check GitHub releases) | S15 | To Do |
-| PA-82 | Story | First-run setup wizard (mic test, model download) | S14 | To Do |
-| PA-83 | Task  | Public documentation site (GitHub Pages) | S15 | To Do |
-| PA-84 | Task  | Changelog generation (conventional commits) | S15 | To Do |
-| PA-85 | Task  | v1.0.0 release tag + changelog | S16 | To Do |
+| PA-81 | Task  | Auto-update mechanism (check GitHub releases) | S15 | **Done** |
+| PA-82 | Story | First-run setup wizard (mic test, model download) | S14 | **Done** |
+| PA-83 | Task  | Public documentation site (GitHub Pages) | S15 | **Done** |
+| PA-84 | Task  | Changelog generation (conventional commits) | S15 | **Done** |
+| PA-85 | Task  | v1.0.0 release tag + changelog | S16 | **Done** |
 | PA-86 | Task  | Demo video for README | S16 | To Do |
 
 ---
@@ -218,11 +218,11 @@ so longest-trigger-wins router picks weather over calculator.
 | S9 | Sep 2 – Sep 16 | Multi-language | PA-48, PA-50, PA-51, PA-52 | **Done** |
 | S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | **Done** |
 | S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | **Done** |
-| S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | To Do |
-| S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | To Do |
-| S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 | To Do |
-| S15 | Nov 26 – Dec 10 | Auto-update & docs | PA-81, PA-83, PA-84, PA-64 | To Do |
-| S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 | To Do |
+| S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | **Done** |
+| S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | **Done** |
+| S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 | **Done** |
+| S15 | Nov 26 – Dec 10 | Auto-update & docs | PA-81, PA-83, PA-84, PA-64 | **Done** |
+| S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 | Partial (PA-32, PA-86 outstanding) |
 
 ---
 
