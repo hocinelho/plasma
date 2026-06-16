@@ -145,3 +145,143 @@ def test_chat_redacts_pii_before_sending():
     user_content = next(m["content"] for m in messages if m["role"] == "user")
     assert "@" not in user_content
     assert "[EMAIL]" in user_content
+
+
+# ── PA-32: Anthropic (Claude) native Messages API path ───────────────────────
+
+def _make_anthropic_response(text: str) -> MagicMock:
+    """Fake httpx response shaped like Anthropic's non-streaming Messages API."""
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {"content": [{"type": "text", "text": text}]}
+    return resp
+
+
+def _anthropic_sse_lines(content: str) -> list[str]:
+    """Fake SSE lines shaped like Anthropic's content_block_delta stream."""
+    words = content.split()
+    lines = []
+    for w in words:
+        event = {
+            "type": "content_block_delta",
+            "delta": {"type": "text_delta", "text": w + " "},
+        }
+        lines.append(f"data: {json.dumps(event)}")
+    lines.append('data: {"type": "message_stop"}')
+    return lines
+
+
+def test_anthropic_chat_uses_messages_api():
+    from backend.modules.router.cloud_client import chat, ANTHROPIC_API_URL
+
+    fake_resp = _make_anthropic_response("Paris is the capital of France.")
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, **kw):
+        captured["url"] = url
+        captured["payload"] = json
+        captured["headers"] = headers
+        return fake_resp
+
+    with patch("backend.modules.router.cloud_client.config") as cfg, \
+         patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "claude-haiku-4-5"
+        cfg.CLOUD_PROVIDER = "anthropic"
+        mock_client.return_value.__enter__.return_value.post.side_effect = fake_post
+
+        result = chat("What is the capital of France?", system_prompt="Be brief.")
+
+    assert result == "Paris is the capital of France."
+    assert captured["url"] == ANTHROPIC_API_URL
+    # system is a top-level field, never folded into the messages array
+    assert captured["payload"]["system"] == "Be brief."
+    assert all(m["role"] != "system" for m in captured["payload"]["messages"])
+    # auth uses x-api-key, not an OpenAI-style Bearer token
+    assert captured["headers"]["x-api-key"] == "test_key"
+    assert "Authorization" not in captured["headers"]
+    assert captured["headers"]["anthropic-version"]
+
+
+def test_anthropic_chat_raises_when_no_key():
+    from backend.modules.router.cloud_client import chat
+    with patch("backend.modules.router.cloud_client.config") as cfg:
+        cfg.CLOUD_API_KEY = ""
+        cfg.CLOUD_PROVIDER = "anthropic"
+        with pytest.raises(RuntimeError, match="CLOUD_API_KEY not set"):
+            chat("hello")
+
+
+def test_anthropic_chat_first_sentence_returns_first_sentence():
+    from backend.modules.router.cloud_client import chat_first_sentence
+
+    lines = _anthropic_sse_lines("It is sunny today. Tomorrow will be rainy and cold.")
+
+    mock_stream = MagicMock()
+    mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+    mock_stream.__exit__ = MagicMock(return_value=False)
+    mock_stream.raise_for_status = MagicMock()
+    mock_stream.iter_lines = MagicMock(return_value=iter(lines))
+
+    with patch("backend.modules.router.cloud_client.config") as cfg, \
+         patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "claude-haiku-4-5"
+        cfg.CLOUD_PROVIDER = "anthropic"
+        mock_client.return_value.__enter__.return_value.stream.return_value = mock_stream
+
+        result = chat_first_sentence("What's the weather?", min_words=3)
+
+    assert result.endswith(".")
+    assert "rainy" not in result  # only first sentence
+
+
+def test_anthropic_chat_redacts_pii_before_sending():
+    from backend.modules.router.cloud_client import chat
+
+    fake_resp = _make_anthropic_response("Got it.")
+    captured = {}
+
+    def fake_post(url, json=None, headers=None, **kw):
+        captured["payload"] = json
+        return fake_resp
+
+    with patch("backend.modules.router.cloud_client.config") as cfg, \
+         patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "claude-haiku-4-5"
+        cfg.CLOUD_PROVIDER = "anthropic"
+        mock_client.return_value.__enter__.return_value.post.side_effect = fake_post
+
+        chat("my email is test@example.com")
+
+    messages = captured["payload"]["messages"]
+    user_content = next(m["content"] for m in messages if m["role"] == "user")
+    assert "@" not in user_content
+    assert "[EMAIL]" in user_content
+
+
+def test_anthropic_health_check_uses_models_endpoint():
+    from backend.modules.router.cloud_client import health_check, ANTHROPIC_MODELS_URL
+
+    fake_resp = MagicMock()
+    fake_resp.raise_for_status = MagicMock()
+    fake_resp.json.return_value = {"data": [{"id": "claude-haiku-4-5"}, {"id": "claude-opus-4-8"}]}
+    captured = {}
+
+    def fake_get(url, headers=None, **kw):
+        captured["url"] = url
+        return fake_resp
+
+    with patch("backend.modules.router.cloud_client.config") as cfg, \
+         patch("backend.modules.router.cloud_client.httpx.Client") as mock_client:
+        cfg.CLOUD_API_KEY = "test_key"
+        cfg.CLOUD_MODEL = "claude-haiku-4-5"
+        cfg.CLOUD_PROVIDER = "anthropic"
+        mock_client.return_value.__enter__.return_value.get.side_effect = fake_get
+
+        result = health_check()
+
+    assert captured["url"] == ANTHROPIC_MODELS_URL
+    assert result["reachable"] is True
+    assert result["model_present"] is True
