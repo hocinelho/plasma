@@ -22,6 +22,16 @@ import pytest
 # Stub native-dependency modules before importing backend.main
 # (same approach as tests/test_sprint12_analytics.py)
 # ---------------------------------------------------------------------------
+_STUBBED_VOICE_MODULES = [
+    "backend.modules.voice",
+    "backend.modules.voice.pipeline",
+    "backend.modules.voice.asr",
+    "backend.modules.voice.tts",
+    "backend.modules.voice.speaker_id",
+    "backend.modules.voice.wake_monitor",
+]
+
+
 def _install_stubs():
     np_mod = types.ModuleType("numpy")
     sys.modules.setdefault("numpy", np_mod)
@@ -35,16 +45,12 @@ def _install_stubs():
     import backend.modules.user  # noqa: F401
     import backend.core  # noqa: F401
 
-    for name in [
-        "backend.modules.voice",
-        "backend.modules.voice.pipeline",
-        "backend.modules.voice.asr",
-        "backend.modules.voice.tts",
-        "backend.modules.voice.speaker_id",
-        "backend.modules.voice.wake_monitor",
-    ]:
-        if name not in sys.modules:
-            sys.modules[name] = types.ModuleType(name)
+    # Always swap in a disposable module object, even if a real one is already
+    # cached (e.g. another test file imported it first) — mutating a real
+    # module's functions in place would leak past this test since restoring
+    # the sys.modules entry wouldn't undo the mutation.
+    for name in _STUBBED_VOICE_MODULES:
+        sys.modules[name] = types.ModuleType(name)
 
     pipeline_mod = sys.modules["backend.modules.voice.pipeline"]
     pipeline_mod.transcribe_audio_bytes = lambda data: {"text": "", "error": "stub"}
@@ -82,20 +88,22 @@ def _install_stubs():
     wm_mod.wake_monitor = wm_class
 
 
-_install_stubs()
-
-
-# ---------------------------------------------------------------------------
-# Now safe to import the app
-# ---------------------------------------------------------------------------
 from fastapi.testclient import TestClient  # noqa: E402
-import backend.main as main_mod  # noqa: E402
 
 
 @pytest.fixture
 def client():
-    with TestClient(main_mod.app, raise_server_exceptions=True) as c:
-        yield c
+    """Stub the voice pipeline only for the duration of this test, then
+    restore sys.modules in `finally` so it never leaks into other test files."""
+    from tests.stub_cleanup import snapshot as _snapshot_modules, restore as _restore_modules
+    voice_snapshot = _snapshot_modules(_STUBBED_VOICE_MODULES)
+    _install_stubs()
+    try:
+        import backend.main as main_mod
+        with TestClient(main_mod.app, raise_server_exceptions=True) as c:
+            yield c
+    finally:
+        _restore_modules(voice_snapshot)
 
 
 REQUIRED_KEYS = {"id", "label", "ok", "category"}
@@ -176,6 +184,7 @@ class TestStatusNeverCrashes:
         def _boom():
             raise RuntimeError("simulated ollama explosion")
 
+        import backend.main as main_mod
         monkeypatch.setattr(main_mod, "ollama_health", _boom)
 
         r = client.get("/api/setup/status")

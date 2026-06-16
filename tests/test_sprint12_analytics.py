@@ -20,6 +20,16 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Minimal stubs for modules that require native libs (numpy, whisper, etc.)
 # ---------------------------------------------------------------------------
+_STUBBED_VOICE_MODULES = [
+    "backend.modules.voice",
+    "backend.modules.voice.pipeline",
+    "backend.modules.voice.asr",
+    "backend.modules.voice.tts",
+    "backend.modules.voice.speaker_id",
+    "backend.modules.voice.wake_monitor",
+]
+
+
 def _stub_module(name: str):
     """Insert an empty module stub into sys.modules under *name*.
 
@@ -49,17 +59,12 @@ def _install_stubs():
     import backend.modules.user  # noqa: F401
     import backend.core  # noqa: F401
 
-    # voice pipeline stubs — only the leaf modules that need native libs
-    for name in [
-        "backend.modules.voice",
-        "backend.modules.voice.pipeline",
-        "backend.modules.voice.asr",
-        "backend.modules.voice.tts",
-        "backend.modules.voice.speaker_id",
-        "backend.modules.voice.wake_monitor",
-    ]:
-        if name not in sys.modules:
-            sys.modules[name] = types.ModuleType(name)
+    # voice pipeline stubs — always swap in a disposable module object, even if
+    # a real one is already cached (e.g. another test file imported it first).
+    # Mutating a real module's functions in place would leak past this test
+    # since restoring the sys.modules entry wouldn't undo the mutation.
+    for name in _STUBBED_VOICE_MODULES:
+        sys.modules[name] = types.ModuleType(name)
 
     # pipeline stub with the functions main.py uses
     pipeline_mod = sys.modules["backend.modules.voice.pipeline"]
@@ -107,12 +112,8 @@ def _install_stubs():
     # httpx is a real package needed by TestClient — do NOT stub it
 
 
-_install_stubs()
-
-
-# ---------------------------------------------------------------------------
-# Now we can safely import the app and the store
-# ---------------------------------------------------------------------------
+# Neither of these needs the voice stubs — only backend.main (imported lazily
+# in the `client` fixture below) pulls in the pipeline/asr chain.
 from backend.modules.memory.store import MemoryStore  # noqa: E402
 from backend.modules.router import chat_service as _cs  # noqa: E402
 
@@ -132,14 +133,22 @@ def client(store, monkeypatch):
     # Patch chat_service.get_memory to return our test store
     monkeypatch.setattr(_cs, "get_memory", lambda: store)
 
-    # Patch backend.main.get_memory as well (imported at module level)
-    import backend.main as main_mod
-    monkeypatch.setattr(main_mod, "get_memory", lambda: store)
+    # Stub the voice pipeline only for the duration of this test, then restore
+    # sys.modules in `finally` so it never leaks into other test files.
+    from tests.stub_cleanup import snapshot as _snapshot_modules, restore as _restore_modules
+    voice_snapshot = _snapshot_modules(_STUBBED_VOICE_MODULES)
+    _install_stubs()
+    try:
+        # Patch backend.main.get_memory as well (imported lazily here)
+        import backend.main as main_mod
+        monkeypatch.setattr(main_mod, "get_memory", lambda: store)
 
-    from fastapi.testclient import TestClient
-    from backend.main import app
-    with TestClient(app, raise_server_exceptions=True) as c:
-        yield c
+        from fastapi.testclient import TestClient
+        from backend.main import app
+        with TestClient(app, raise_server_exceptions=True) as c:
+            yield c
+    finally:
+        _restore_modules(voice_snapshot)
 
 
 # ---------------------------------------------------------------------------
