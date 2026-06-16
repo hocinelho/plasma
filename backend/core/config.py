@@ -84,10 +84,18 @@ class Config:
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
-    # --- Microsoft Graph (Outlook calendar + email) ---
+    # --- Microsoft Graph (Outlook calendar + email + Teams meetings) ---
     # Register an app at portal.azure.com, then run: python scripts/ms_auth.py
     MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
     MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "common")  # "common" = personal + work
+
+    # --- Slack (PA-78, S13) ---
+    SLACK_USER_TOKEN: str = os.getenv("SLACK_USER_TOKEN", "")
+
+    # --- WhatsApp via Twilio (PA-80, S13) ---
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_WHATSAPP_FROM: str = os.getenv("TWILIO_WHATSAPP_FROM", "")
 
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"

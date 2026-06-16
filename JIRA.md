@@ -186,9 +186,9 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-76 | Story | Screenshot by voice — saved to Desktop | S8 | **Done** |
 | PA-77 | Story | "What song is playing?" via Spotify API | S8 | **Done** |
 | PA-89 | Task  | Train custom "Hey Plasma" wake word model | Backlog | **Done** |
-| PA-78 | Story | Slack — read latest message in channel | S13 | To Do |
-| PA-79 | Story | Microsoft Teams — meeting summary by voice | S13 | To Do |
-| PA-80 | Story | Send WhatsApp message by voice | S13 | To Do |
+| PA-78 | Story | Slack — read latest message in channel | S13 | **Done** |
+| PA-79 | Story | Microsoft Teams — meeting summary by voice | S13 | **Done** |
+| PA-80 | Story | Send WhatsApp message by voice | S13 | **Done** |
 
 ### Add to PA-44 (Infra) — packaging + release
 
@@ -219,7 +219,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S10 | Sep 16 – Sep 30 | Mobile UI | PA-69, PA-70, PA-71 | **Done** |
 | S11 | Oct 1 – Oct 15 | Voice profiles | PA-65, PA-66, PA-67 | **Done** |
 | S12 | Oct 15 – Oct 29 | Analytics + memory UI | PA-68, PA-72, PA-73 | **Done** |
-| S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | To Do |
+| S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | **Done** |
 | S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 | **Done** |
 | S15 | Nov 26 – Dec 10 | Auto-update & docs | PA-81, PA-83, PA-84, PA-64 | **Done** |
 | S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 | Partial (PA-32, PA-86 outstanding) |
