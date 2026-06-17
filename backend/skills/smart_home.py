@@ -43,6 +43,19 @@ META = {
         "turn off the",
         "switch on",
         "switch off",
+        # Scenes — English
+        "activate movie mode",
+        "activate night mode",
+        "activate reading mode",
+        "movie mode",
+        "night mode",
+        "reading mode",
+        "party mode",
+        "morning mode",
+        # Scenes — German
+        "film modus aktivieren",
+        "nacht modus aktivieren",
+        "lese modus aktivieren",
         # Lights — German
         "schalte das licht ein",
         "schalte das licht aus",
@@ -101,6 +114,22 @@ _DIM_WORDS = re.compile(r"\b(dim|dunkler|dimm)\b", re.I)
 _STATE_WORDS = re.compile(
     r"\b(is (the|das) lights? (on|off|an|aus)|are the lights|ist das licht)\b", re.I
 )
+# Words that indicate SCENE activation
+_SCENE_WORDS = re.compile(
+    r"\b(activate|turn on|start|enable|aktiviere|starte)\b.+\b(mode|scene|szene|modus)\b"
+    r"|\b(movie mode|night mode|reading mode|party mode|morning mode|"
+    r"film modus|nacht modus|lese modus|party modus|morgen modus)\b",
+    re.I,
+)
+_SCENE_NAMES: dict[str, str] = {
+    "movie": "movie_mode", "film": "movie_mode",
+    "night": "night_mode", "nacht": "night_mode",
+    "reading": "reading_mode", "lesen": "reading_mode", "lese": "reading_mode",
+    "party": "party_mode",
+    "morning": "morning_mode", "morgen": "morning_mode",
+    "day": "day_mode", "tag": "day_mode",
+    "relax": "relax_mode", "entspannen": "relax_mode",
+}
 
 
 def _is_available() -> bool:
@@ -160,6 +189,21 @@ def run(args: dict | None = None) -> str:
     language = (args or {}).get("language", "en")
     entity_id = _entity_for_utterance(utterance)
     domain = entity_id.split(".")[0] if "." in entity_id else "light"
+
+    # Scene activation
+    if _SCENE_WORDS.search(utterance):
+        scene_id: str | None = None
+        lower = utterance.lower()
+        for keyword, scene in _SCENE_NAMES.items():
+            if keyword in lower:
+                scene_id = scene
+                break
+        if scene_id:
+            ok = _call_service("scene", "turn_on", f"scene.{scene_id}")
+            if language == "de":
+                return f"Szene '{scene_id}' aktiviert." if ok else f"Konnte Szene '{scene_id}' nicht aktivieren."
+            return f"Scene '{scene_id}' activated." if ok else f"Couldn't activate scene '{scene_id}'."
+        return "Which scene? Try: 'activate movie mode', 'night mode', or 'reading mode'."
 
     # State query
     if _STATE_WORDS.search(utterance):

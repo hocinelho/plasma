@@ -91,6 +91,29 @@ def handle_chat(
     memory = get_memory()
     memory.add_message(session_id, "user", user_message)
 
+    # 0. Pending intent — resume multi-step skill conversation
+    try:
+        registry = get_registry()
+        pending = memory.get_facts(category="pending_intent", limit=1)
+        if pending:
+            fact = pending[0]
+            skill_name = fact["content"].split(":")[0]
+            skill = registry.get(skill_name)
+            if skill:
+                memory.delete_fact(fact["id"])
+                log.info(f"Pending intent → {skill_name} for utterance: {user_message!r}")
+                reply = skill.invoke({
+                    "utterance": user_message,
+                    "session_id": session_id,
+                    "language": language,
+                    "speaker": speaker,
+                })
+                memory.add_message(session_id, "assistant", reply)
+                memory.mark_skill_used(skill.name, success=True)
+                return reply
+    except Exception as e:
+        log.warning(f"Pending intent check failed: {e}")
+
     # 1. Try skills first
     try:
         registry = get_registry()
