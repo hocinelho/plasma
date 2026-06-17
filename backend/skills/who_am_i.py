@@ -12,6 +12,9 @@ META = {
         "whose voice is this",
         "wer bin ich",
         "erkennst du mich",
+        "من أنا",
+        "هل تعرفني",
+        "هل تعرف صوتي",
     ],
     "example_utterances": ["Who am I?", "Do you recognize me?"],
 }
@@ -26,6 +29,8 @@ def run(args: dict | None = None) -> str:
     if speaker:
         if language == "de":
             return f"Du bist {speaker}. Ich erkenne deine Stimme."
+        if language == "ar":
+            return f"أنت {speaker}. أعرف صوتك."
         return f"You're {speaker}. I recognize your voice."
 
     if not speaker_id.is_available():
@@ -38,10 +43,14 @@ def run(args: dict | None = None) -> str:
     if not enrolled:
         if language == "de":
             return "Ich kenne deine Stimme noch nicht. Sag: merke dir meine Stimme als, und deinen Namen."
+        if language == "ar":
+            return "لا أعرف صوتك بعد. قل: تذكر صوتي باسم، ثم اسمك."
         return "I don't know your voice yet. Say 'remember my voice as' followed by your name."
 
     if language == "de":
         return "Ich bin nicht sicher. Ich kenne: " + ", ".join(enrolled) + "."
+    if language == "ar":
+        return "لست متأكداً. الأصوات التي أعرفها: " + ", ".join(enrolled) + "."
     return "I'm not sure. Voices I know: " + ", ".join(enrolled) + "."
 
 
