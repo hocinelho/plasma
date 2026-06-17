@@ -189,6 +189,8 @@ so longest-trigger-wins router picks weather over calculator.
 | PA-78 | Story | Slack — read latest message in channel | S13 | **Done** |
 | PA-79 | Story | Microsoft Teams — meeting summary by voice | S13 | **Done** |
 | PA-80 | Story | Send WhatsApp message by voice | S13 | **Done** |
+| PA-90 | Story | Smart home via Home Assistant (lights, switches) | S17 | **Done** | e5dcb0f |
+| PA-91 | Story | Dictionary / word definition skill | S17 | **Done** |
 
 ### Add to PA-44 (Infra) — packaging + release
 

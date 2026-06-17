@@ -58,7 +58,10 @@ _WMO = {
 
 def run(args=None):
     utterance = ((args or {}).get("utterance") or "").strip()
-    m = re.search(r"weather(?:\s+(?:in|for|at))?\s+([a-zA-Z][a-zA-Z\s\-]*?)\s*[.?!]?$", utterance, re.IGNORECASE)
+    m = re.search(
+        r"(?:weather|wetter)(?:\s+(?:in|for|at|in))?\s+([a-zA-ZÄäÖöÜüß][a-zA-ZÄäÖöÜüß\s\-]*?)\s*[.?!]?$",
+        utterance, re.IGNORECASE,
+    )
     city = m.group(1).strip() if m else "Moers"
 
     try:

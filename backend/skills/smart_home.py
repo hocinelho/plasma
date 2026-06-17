@@ -83,7 +83,6 @@ _ROOMS: dict[str, str] = {
     "badezimmer": "bathroom",
     "büro": "office",
     "flur": "hallway",
-    "garage": "garage",
 }
 
 # Words that indicate ON action
