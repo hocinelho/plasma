@@ -50,3 +50,8 @@ _VERIFY = _build_verify()
 def get(url: str, *, timeout: float = 6.0, **kwargs) -> httpx.Response:
     """Drop-in for httpx.get that trusts the OS cert store on Windows."""
     return httpx.get(url, timeout=timeout, verify=_VERIFY, **kwargs)
+
+
+def post(url: str, *, timeout: float = 6.0, **kwargs) -> httpx.Response:
+    """Drop-in for httpx.post that trusts the OS cert store on Windows."""
+    return httpx.post(url, timeout=timeout, verify=_VERIFY, **kwargs)

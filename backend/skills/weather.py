@@ -22,11 +22,6 @@ META = {
         'wie wird das wetter',
         'wetter heute',
         'wetter in',
-        'كيف الطقس',
-        'ما حال الطقس',
-        'الطقس اليوم',
-        'الجو اليوم',
-        'الطقس في',
     ],
     "example_utterances": ["What's the weather in Moers?", "Weather in Paris?"],
 }

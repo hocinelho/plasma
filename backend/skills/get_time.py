@@ -16,16 +16,10 @@ META = {
         "wieviel uhr",
         "uhrzeit",
         "wie spät",
-        "كم الساعة",
-        "ما الوقت",
-        "أخبرني بالوقت",
-        "كم الساعة الآن",
-        "الوقت الآن",
     ],
     "example_utterances": [
         "What time is it?",
         "Wie spät ist es?",
-        "كم الساعة؟",
     ],
 }
 
@@ -35,8 +29,6 @@ def run(args: dict | None = None) -> str:
     language = (args or {}).get("language", "en")
     if language == "de":
         return f"Es ist {now.strftime('%H:%M')} Uhr."
-    if language == "ar":
-        return f"الساعة الآن {now.strftime('%H:%M')}."
     return f"It's {now.strftime('%H:%M')}."
 
 

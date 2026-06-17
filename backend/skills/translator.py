@@ -78,9 +78,9 @@ def run(args: dict | None = None) -> str:
         if not translated or translated.lower() == phrase.lower():
             return f"Couldn't translate '{phrase}' to {lang_word}."
         return f"'{phrase}' in {lang_word} is '{translated}'."
-    except httpx.TimeoutException:
-        return "The translation service took too long."
     except Exception as e:
+        if "timeout" in type(e).__name__.lower() or "timeout" in str(e).lower():
+            return "The translation service took too long."
         return f"Couldn't reach the translation service: {e}"
 
 
