@@ -114,7 +114,7 @@ so longest-trigger-wins router picks weather over calculator.
 | Key | Type | Summary | Sprint | Status |
 |---|---|---|---|---|
 | PA-48 | Story | German language support (Whisper small + Piper de_DE-thorsten) | S9 | **Done** |
-| PA-49 | Story | Arabic language support | Backlog | To Do |
+| PA-49 | Story | Arabic language support | Backlog | **Done** | c76021a |
 | PA-50 | Story | Auto language detection per utterance | S9 | **Done** |
 | PA-51 | Task  | WHISPER_LANGUAGE env var | S9 | **Done** |
 | PA-52 | Story | Multilingual skill triggers (DE / EN) | S9 | **Done** |
