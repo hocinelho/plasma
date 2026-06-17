@@ -313,6 +313,28 @@ so longest-trigger-wins router picks weather over calculator.
 
 ---
 
+## Completed — Vision & Clap Batch (PA-99 → PA-101)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-99  | Story | Double-clap wake detector (pure numpy, zero extra deps) | **Done** |
+| PA-100 | Story | Vision skill — "what do you see?", "watch for X", "stop watching" | **Done** |
+| PA-101 | Story | VisionMonitor background loop + ProactiveTTS alerts | **Done** |
+| PA-102 | Story | MediaPipe object detector wrapper (Apache 2.0, auto-downloads ~4.4 MB) | **Done** |
+| PA-103 | Story | Camera capture — local webcam (OpenCV) + browser/phone decode (bytes→BGR) | **Done** |
+| PA-104 | Story | /vision/snapshot REST endpoint — base64 image → detections | **Done** |
+| PA-105 | Story | /ws/vision-input WebSocket — stream frames from any browser/phone | **Done** |
+
+**Architecture:**
+- Clap detector: state machine (IDLE→AFTER_FIRST→COOLDOWN), adaptive RMS baseline, chunk-boundary-safe gap counting. Wired into WakeMonitor alongside openWakeWord — either triggers `{"type":"wake","source":"clap"}` broadcast.
+- Vision: MediaPipe EfficientDet-Lite0 (Apache 2.0), auto-downloaded to `.plasma/models/`. `VisionMonitor` polls at 1 FPS, fires `ProactiveTTS.fire()` on match with cooldown. All six deps (mediapipe, cv2) are optional — skill degrades gracefully with install hint.
+- Browser/phone camera: POST `/vision/snapshot` with base64 JPEG or stream via WS `/ws/vision-input`.
+- New config vars: `CLAP_WAKE_ENABLED`, `CLAP_THRESHOLD`, `CLAP_WINDOW_MS`, `CAMERA_ENABLED`, `CAMERA_DEVICE`, `VISION_SCORE_THRESHOLD`.
+- **New deps (optional):** `pip install mediapipe opencv-python`
+**Tests:** 32 new tests; 503 passing (3 pre-existing faster_whisper failures unchanged).
+
+---
+
 ## Completed — Features Batch (PA-92 → PA-97)
 
 | Ticket | Type | Summary | Status |
