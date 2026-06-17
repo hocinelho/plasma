@@ -110,6 +110,25 @@ class Config:
     # Default light entity controlled when no room is specified
     HA_LIGHT_ENTITY: str = os.getenv("HA_LIGHT_ENTITY", "light.all")
 
+    # --- Clap-to-wake (double-clap detection, pure numpy, no ML model) ---
+    CLAP_WAKE_ENABLED: bool = os.getenv("CLAP_WAKE_ENABLED", "false").lower() == "true"
+    # How many times louder than background the clap peak must be (8 = default)
+    CLAP_THRESHOLD: float = float(os.getenv("CLAP_THRESHOLD", "8.0"))
+    # Max gap between the two claps in milliseconds
+    CLAP_WINDOW_MS: int = int(os.getenv("CLAP_WINDOW_MS", "600"))
+
+    # --- Camera / vision (MediaPipe, Apache 2.0) ---
+    CAMERA_ENABLED: bool = os.getenv("CAMERA_ENABLED", "false").lower() == "true"
+    # OpenCV device index for local webcam (0 = default camera)
+    CAMERA_DEVICE: int = int(os.getenv("CAMERA_DEVICE", "0"))
+    # Minimum confidence score to report a detected object (0.0–1.0)
+    VISION_SCORE_THRESHOLD: float = float(os.getenv("VISION_SCORE_THRESHOLD", "0.5"))
+    # Where to cache the MediaPipe EfficientDet model (~4.4 MB, auto-downloaded)
+    VISION_MODEL_DIR: Path = Path(os.getenv(
+        "VISION_MODEL_DIR",
+        str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
+    ))
+
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"
     MEMORY_DB: Path = PLASMA_DIR / "memory.sqlite"

@@ -34,6 +34,7 @@ from backend.modules.voice.tts import synthesize as tts_synthesize, health_check
 from backend.modules.skills.suggester import get_suggester
 from backend.modules.voice.wake_monitor import wake_monitor
 from backend.modules.voice.proactive_tts import proactive_tts
+from backend.modules.vision.monitor import vision_monitor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -619,3 +620,102 @@ async def websocket_alerts(ws: WebSocket):
     except WebSocketDisconnect:
         proactive_tts.remove_client(ws)
         log.info("Alert WS client disconnected")
+
+
+# ---------------------------------------------------------------------------
+# Vision — object detection via MediaPipe (Apache 2.0)
+# POST /vision/snapshot   — single-shot: base64 image → labels
+# WS   /ws/vision-input   — stream frames from browser/phone → live detections
+# ---------------------------------------------------------------------------
+
+class VisionSnapshotRequest(BaseModel):
+    """Base64-encoded JPEG or PNG image from any source (local cam, browser, phone)."""
+    image_b64: str
+    language: str = "en"
+
+
+@app.post("/vision/snapshot")
+async def vision_snapshot(req: VisionSnapshotRequest):
+    """
+    Decode a base64 image, run MediaPipe object detection, return labels + scores.
+
+    Browser / phone usage (JavaScript):
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      const b64 = canvas.toDataURL('image/jpeg').split(',')[1];
+      fetch('/vision/snapshot', {method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({image_b64: b64})})
+        .then(r => r.json()).then(d => console.log(d.detections));
+    """
+    try:
+        import base64
+        from backend.modules.vision.capture import decode_frame_bytes
+        from backend.modules.vision.detector import get_detector
+
+        raw = base64.b64decode(req.image_b64)
+        frame = await asyncio.to_thread(decode_frame_bytes, raw)
+        detector = get_detector()
+        detections = await asyncio.to_thread(detector.detect, frame)
+        return {"detections": detections, "count": len(detections)}
+
+    except ImportError as exc:
+        return JSONResponse(
+            {"error": str(exc), "hint": "pip install mediapipe opencv-python"},
+            status_code=503,
+        )
+    except Exception as exc:
+        log.warning("vision_snapshot error: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.websocket("/ws/vision-input")
+async def websocket_vision_input(ws: WebSocket):
+    """
+    Stream frames from browser / phone camera for continuous detection.
+
+    Send:  {"frame": "<base64 jpeg>"}
+    Recv:  {"type": "detections", "detections": [...], "count": N}
+           {"type": "error", "message": "..."}
+
+    JavaScript snippet (camera → WS):
+      const ws = new WebSocket('ws://localhost:8000/ws/vision-input');
+      const video = ...; // getUserMedia stream
+      setInterval(() => {
+        const canvas = document.createElement('canvas');
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        ws.send(JSON.stringify({frame: canvas.toDataURL('image/jpeg').split(',')[1]}));
+      }, 500); // 2 FPS
+      ws.onmessage = e => console.log(JSON.parse(e.data));
+    """
+    await ws.accept()
+    log.info("Vision-input WS client connected")
+    try:
+        import base64
+        from backend.modules.vision.capture import decode_frame_bytes
+        from backend.modules.vision.detector import get_detector
+
+        detector = get_detector()
+
+        while True:
+            try:
+                data = await ws.receive_json()
+                frame_b64 = data.get("frame", "")
+                if not frame_b64:
+                    continue
+                raw = base64.b64decode(frame_b64)
+                frame = await asyncio.to_thread(decode_frame_bytes, raw)
+                detections = await asyncio.to_thread(detector.detect, frame)
+                await ws.send_json({"type": "detections", "detections": detections, "count": len(detections)})
+            except WebSocketDisconnect:
+                raise
+            except Exception as exc:
+                await ws.send_json({"type": "error", "message": str(exc)})
+
+    except WebSocketDisconnect:
+        log.info("Vision-input WS client disconnected")
+    except ImportError as exc:
+        try:
+            await ws.send_json({"type": "error", "message": str(exc), "hint": "pip install mediapipe opencv-python"})
+        except Exception:
+            pass
