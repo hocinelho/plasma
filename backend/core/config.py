@@ -67,7 +67,6 @@ class Config:
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")
     TTS_VOICE_DE: str = os.getenv("TTS_VOICE_DE", "")   # German voice model path
-    TTS_VOICE_AR: str = os.getenv("TTS_VOICE_AR", "")   # Arabic voice model path
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
 
     # --- Speaker identification (PA-65, S11) ---
@@ -102,6 +101,14 @@ class Config:
     TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
     TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
     TWILIO_WHATSAPP_FROM: str = os.getenv("TWILIO_WHATSAPP_FROM", "")
+
+    # --- Home Assistant smart home integration ---
+    # Run Home Assistant locally (https://www.home-assistant.io/) or on a Pi.
+    # Generate a Long-Lived Access Token: Profile → Long-Lived Access Tokens.
+    HA_BASE_URL: str = os.getenv("HA_BASE_URL", "http://homeassistant.local:8123")
+    HA_TOKEN: str = os.getenv("HA_TOKEN", "")
+    # Default light entity controlled when no room is specified
+    HA_LIGHT_ENTITY: str = os.getenv("HA_LIGHT_ENTITY", "light.all")
 
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"
