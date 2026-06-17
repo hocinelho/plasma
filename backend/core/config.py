@@ -67,6 +67,7 @@ class Config:
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")
     TTS_VOICE_DE: str = os.getenv("TTS_VOICE_DE", "")   # German voice model path
+    TTS_VOICE_AR: str = os.getenv("TTS_VOICE_AR", "")   # Arabic voice model path
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
 
     # --- Speaker identification (PA-65, S11) ---

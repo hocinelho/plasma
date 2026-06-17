@@ -22,6 +22,7 @@ log = logging.getLogger("plasma.tts")
 
 _voice = None
 _voice_de = None
+_voice_ar = None
 
 # PA-67: runtime voice override — set by the voice_select skill.
 # When set, it wins over both the default and the German voice.
@@ -106,6 +107,25 @@ def _load_voice_de() -> Optional[object]:
     return _voice_de
 
 
+def _load_voice_ar() -> Optional[object]:
+    """Load Arabic Piper voice if TTS_VOICE_AR is configured. Returns None if not set."""
+    global _voice_ar
+    if _voice_ar is not None:
+        return _voice_ar
+    if not config.TTS_VOICE_AR:
+        return None
+    from piper import PiperVoice
+    model_path = _resolve_model(config.TTS_VOICE_AR)
+    if not model_path.exists():
+        log.warning(f"Arabic Piper voice not found: {model_path} — falling back to default")
+        return None
+    log.info(f"Loading Arabic Piper voice: {model_path.name}")
+    t0 = time.time()
+    _voice_ar = PiperVoice.load(str(model_path))
+    log.info(f"Arabic Piper voice loaded in {time.time() - t0:.1f}s")
+    return _voice_ar
+
+
 def synthesize(text: str, language: str = "en") -> bytes:
     """Synthesize the given text to a mono 16-bit PCM WAV byte string."""
     text = (text or "").strip()
@@ -113,7 +133,12 @@ def synthesize(text: str, language: str = "en") -> bytes:
         return b""
 
     # Priority: runtime override (PA-67) > language-specific voice > default
-    voice = _voice_override or (_load_voice_de() if language == "de" else None) or _load_voice()
+    voice = (
+        _voice_override
+        or (_load_voice_de() if language == "de" else None)
+        or (_load_voice_ar() if language == "ar" else None)
+        or _load_voice()
+    )
 
     t0 = time.time()
 
