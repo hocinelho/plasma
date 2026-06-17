@@ -68,7 +68,7 @@
 | PA-29.1 | Task | Refactor cloud client to provider-agnostic CLOUD_* vars (Gemini default) | **Done** | f916ad7 |
 | PA-30 | Story | Audit log at `.plasma/audit.log` | **Done** | 23b4ac2 |
 | PA-31 | Story | Graceful offline fallback to Ollama | **Done** | built into chat_service |
-| PA-32 | Task  | Claude API as second cloud provider | To Do | — |
+| PA-32 | Task  | Claude API as second cloud provider | **Done** | 50fab3b |
 
 ### PA-33 — EPIC: Wake Word (children PA-34 → PA-35)
 | Key | Type | Summary | Status | Commit |
@@ -222,7 +222,7 @@ so longest-trigger-wins router picks weather over calculator.
 | S13 | Oct 29 – Nov 12 | Slack / Teams / WhatsApp | PA-78, PA-79, PA-80 | **Done** |
 | S14 | Nov 12 – Nov 26 | Packaging & CI | PA-45, PA-46, PA-82 | **Done** |
 | S15 | Nov 26 – Dec 10 | Auto-update & docs | PA-81, PA-83, PA-84, PA-64 | **Done** |
-| S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 | Partial (PA-32, PA-86 outstanding) |
+| S16 | Dec 10 – Dec 15 | v1.0 release | PA-32, PA-85, PA-86 | Partial (PA-86 outstanding) |
 
 ---
 

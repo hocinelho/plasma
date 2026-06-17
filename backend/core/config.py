@@ -33,6 +33,11 @@ class Config:
         "CLOUD_BASE_URL",
         "https://generativelanguage.googleapis.com/v1beta/openai/",
     )
+    # "openai" (default) speaks the OpenAI /chat/completions wire protocol that
+    # Gemini/Cerebras/OpenRouter/Groq all share. "anthropic" switches cloud_client
+    # to Claude's native Messages API (PA-32) — different endpoint/auth/response
+    # shape, so it can't be reached by just pointing CLOUD_BASE_URL at Anthropic.
+    CLOUD_PROVIDER: str = os.getenv("CLOUD_PROVIDER", "openai").strip().lower()
 
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

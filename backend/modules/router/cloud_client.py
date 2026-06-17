@@ -1,15 +1,22 @@
 """
 PA-29 — Provider-agnostic cloud LLM client for Plasma.
+PA-32 — Adds Claude (Anthropic) as a second, natively-supported provider.
 
-Uses any OpenAI-compatible /chat/completions endpoint over httpx.
-Default provider: Google Gemini (free, 1500 req/day via AI Studio).
-Swap provider by setting CLOUD_API_KEY / CLOUD_BASE_URL / CLOUD_MODEL in .env.
-
-Compatible providers (all speak OpenAI wire protocol):
+Default mode (CLOUD_PROVIDER=openai) uses any OpenAI-compatible
+/chat/completions endpoint over httpx:
   - Google Gemini   https://generativelanguage.googleapis.com/v1beta/openai/
   - Cerebras        https://api.cerebras.ai/v1
   - OpenRouter      https://openrouter.ai/api/v1
   - Groq            https://api.groq.com/openai/v1
+
+CLOUD_PROVIDER=anthropic switches to Claude's native Messages API
+(POST https://api.anthropic.com/v1/messages) — different auth header
+(x-api-key, not Bearer), a top-level "system" field instead of a system
+message, and a content-block response shape instead of choices[].message.
+Anthropic has no OpenAI-style /chat/completions endpoint, so it can't be
+reached through the generic path above no matter what CLOUD_BASE_URL is set
+to; it needs its own request/response handling, kept here so chat_service.py
+doesn't need to know which provider is active.
 
 PII is redacted from every outbound message via pii_redactor.redact_messages().
 
@@ -34,8 +41,23 @@ log = logging.getLogger("plasma.cloud_client")
 DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 _SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
 
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models"
+ANTHROPIC_VERSION = "2023-06-01"
+ANTHROPIC_MAX_TOKENS = 1024
+
+
+def _is_anthropic() -> bool:
+    return config.CLOUD_PROVIDER == "anthropic"
+
 
 def _headers() -> dict:
+    if _is_anthropic():
+        return {
+            "x-api-key": config.CLOUD_API_KEY,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "Content-Type": "application/json",
+        }
     return {
         "Authorization": f"Bearer {config.CLOUD_API_KEY}",
         "Content-Type": "application/json",
@@ -57,6 +79,25 @@ def _build_messages(
     return redact_messages(messages)
 
 
+def _build_anthropic_request(
+    system_prompt: str | None,
+    history: list[dict] | None,
+    user_message: str,
+) -> tuple[dict | None, list[dict]]:
+    """Anthropic keeps `system` outside the messages array, and only allows
+    user/assistant roles inside it — build both shapes from the same redacted
+    message list the OpenAI path uses, so PII redaction stays identical."""
+    redacted = _build_messages(system_prompt, history, user_message)
+    system_block = None
+    turns: list[dict] = []
+    for m in redacted:
+        if m["role"] == "system":
+            system_block = m["content"]
+        else:
+            turns.append({"role": m["role"], "content": m["content"]})
+    return system_block, turns
+
+
 def is_available() -> bool:
     """True if a cloud API key is configured."""
     return bool(config.CLOUD_API_KEY)
@@ -71,6 +112,9 @@ def chat(
     """Full blocking cloud call — waits for the complete reply."""
     if not is_available():
         raise RuntimeError("CLOUD_API_KEY not set")
+
+    if _is_anthropic():
+        return _anthropic_chat(user_message, history, system_prompt, model)
 
     model = model or config.CLOUD_MODEL
     url = f"{config.CLOUD_BASE_URL.rstrip('/')}/chat/completions"
@@ -104,6 +148,46 @@ def chat(
     return text
 
 
+def _anthropic_chat(
+    user_message: str,
+    history: list[dict] | None,
+    system_prompt: str | None,
+    model: str | None,
+) -> str:
+    model = model or config.CLOUD_MODEL
+    system_block, turns = _build_anthropic_request(system_prompt, history, user_message)
+    payload = {"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": turns}
+    if system_block:
+        payload["system"] = system_block
+    log.info(f"Cloud call (full, anthropic): model={model} msgs={len(turns)}")
+
+    started = time.monotonic()
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            resp = client.post(ANTHROPIC_API_URL, json=payload, headers=_headers())
+            resp.raise_for_status()
+            data = resp.json()
+        text = "".join(
+            block.get("text", "") for block in data.get("content", [])
+            if block.get("type") == "text"
+        ).strip()
+    except Exception as e:
+        log_call(
+            base_url=ANTHROPIC_API_URL, model=model, mode="full",
+            messages=turns, response_text="",
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status="error", error=str(e),
+        )
+        raise
+
+    log_call(
+        base_url=ANTHROPIC_API_URL, model=model, mode="full",
+        messages=turns, response_text=text,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )
+    return text
+
+
 def chat_first_sentence(
     user_message: str,
     history: list[dict] | None = None,
@@ -119,6 +203,9 @@ def chat_first_sentence(
     """
     if not is_available():
         raise RuntimeError("CLOUD_API_KEY not set")
+
+    if _is_anthropic():
+        return _anthropic_chat_first_sentence(user_message, history, system_prompt, model, min_words)
 
     model = model or config.CLOUD_MODEL
     url = f"{config.CLOUD_BASE_URL.rstrip('/')}/chat/completions"
@@ -178,10 +265,96 @@ def chat_first_sentence(
     return final
 
 
+def _anthropic_chat_first_sentence(
+    user_message: str,
+    history: list[dict] | None,
+    system_prompt: str | None,
+    model: str | None,
+    min_words: int,
+) -> str:
+    """Same early-return-on-first-sentence behavior as chat_first_sentence(),
+    parsing Anthropic's SSE event stream instead of OpenAI delta chunks.
+    Each `data:` line is self-describing via its own "type" field, so the
+    `event:` line that precedes it doesn't need to be tracked separately."""
+    model = model or config.CLOUD_MODEL
+    system_block, turns = _build_anthropic_request(system_prompt, history, user_message)
+    payload = {"model": model, "max_tokens": ANTHROPIC_MAX_TOKENS, "messages": turns, "stream": True}
+    if system_block:
+        payload["system"] = system_block
+    log.info(f"Cloud call (stream, anthropic): model={model} msgs={len(turns)}")
+
+    started = time.monotonic()
+    collected = ""
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            with client.stream("POST", ANTHROPIC_API_URL, json=payload, headers=_headers()) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    try:
+                        event = json.loads(line[len("data: "):])
+                    except json.JSONDecodeError:
+                        continue
+
+                    if event.get("type") != "content_block_delta":
+                        continue
+                    delta = event.get("delta", {})
+                    if delta.get("type") != "text_delta":
+                        continue
+                    token = delta.get("text", "")
+                    if not token:
+                        continue
+                    collected += token
+
+                    if len(collected.split()) >= min_words:
+                        m = _SENTENCE_END.search(collected)
+                        if m:
+                            first = collected[: m.end()].strip()
+                            log.info(f"Cloud first sentence ready ({len(first)} chars)")
+                            log_call(
+                                base_url=ANTHROPIC_API_URL, model=model, mode="stream",
+                                messages=turns, response_text=first,
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                            )
+                            return first
+    except Exception as e:
+        log_call(
+            base_url=ANTHROPIC_API_URL, model=model, mode="stream",
+            messages=turns, response_text=collected,
+            latency_ms=int((time.monotonic() - started) * 1000),
+            status="error", error=str(e),
+        )
+        raise
+
+    final = collected.strip()
+    log_call(
+        base_url=ANTHROPIC_API_URL, model=model, mode="stream",
+        messages=turns, response_text=final,
+        latency_ms=int((time.monotonic() - started) * 1000),
+    )
+    return final
+
+
 def health_check() -> dict:
     """Quick probe: is the cloud provider reachable and is the key valid?"""
     if not is_available():
         return {"reachable": False, "error": "CLOUD_API_KEY not configured"}
+
+    if _is_anthropic():
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get(ANTHROPIC_MODELS_URL, headers=_headers())
+                resp.raise_for_status()
+                models = [m["id"] for m in resp.json().get("data", [])]
+            return {
+                "reachable": True,
+                "model_present": config.CLOUD_MODEL in models,
+                "available_models": models,
+            }
+        except Exception as e:
+            return {"reachable": False, "error": str(e)}
+
     url = f"{config.CLOUD_BASE_URL.rstrip('/')}/models"
     try:
         with httpx.Client(timeout=5.0) as client:
