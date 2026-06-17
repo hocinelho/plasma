@@ -33,6 +33,7 @@ from backend.modules.voice.pipeline import transcribe_audio_bytes
 from backend.modules.voice.tts import synthesize as tts_synthesize, health_check as tts_health
 from backend.modules.skills.suggester import get_suggester
 from backend.modules.voice.wake_monitor import wake_monitor
+from backend.modules.voice.proactive_tts import proactive_tts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,10 +86,12 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_warm_whisper())
     asyncio.create_task(_warm_tts())
     await wake_monitor.start()
+    await proactive_tts.start()
 
     yield
 
     await wake_monitor.stop()
+    await proactive_tts.stop()
     log.info("Plasma backend shutting down...")
 
 
@@ -595,3 +598,24 @@ async def websocket_wake(ws: WebSocket):
     except WebSocketDisconnect:
         wake_monitor.remove_client(ws)
         log.info("Wake WS client disconnected")
+
+
+# ---------------------------------------------------------------------------
+# WebSocket — proactive TTS alerts (alarms, reminders)
+# ---------------------------------------------------------------------------
+@app.websocket("/ws/alerts")
+async def websocket_alerts(ws: WebSocket):
+    """
+    Browser connects here to receive proactive audio alerts.
+    On alarm/reminder fire the server sends:
+      {"type": "alert", "text": str, "audio_b64": str | null}
+    """
+    await ws.accept()
+    proactive_tts.add_client(ws)
+    log.info("Alert WS client connected")
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        proactive_tts.remove_client(ws)
+        log.info("Alert WS client disconnected")

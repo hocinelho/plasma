@@ -313,6 +313,24 @@ so longest-trigger-wins router picks weather over calculator.
 
 ---
 
+## Completed — Features Batch (PA-92 → PA-97)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-92 | Story | Shopping list skill — persistent, EN+DE | **Done** |
+| PA-93 | Story | Alarm clock — persistent + proactive TTS fire | **Done** |
+| PA-94 | Story | Currency converter — Frankfurter API | **Done** |
+| PA-95 | Story | HA scene control — "activate movie mode" | **Done** |
+| PA-96 | Story | Proactive TTS broadcaster + /ws/alerts endpoint | **Done** |
+| PA-97 | Story | Proactive reminders wired to ProactiveTTS | **Done** |
+| PA-98 | Story | Multi-step conversations — pending intent routing | **Done** |
+
+**Architecture:** `ProactiveTTS` singleton (WakeMonitor pattern) — background thread → `asyncio.Queue` → `/ws/alerts` WebSocket → browser plays audio. Skills fire alerts via `proactive_tts.fire(text, language)`.
+**Pending intent:** `chat_service.handle_chat` checks `get_facts(category="pending_intent")` before skill routing. Alarm skill writes intent when time is missing, next utterance resolves it.
+**Tests:** 34 new tests; 471 passing (3 pre-existing faster_whisper failures unchanged).
+
+---
+
 ## Commit convention
 
 ```

@@ -35,20 +35,25 @@ _ABSOLUTE = re.compile(
 )
 
 
-def _fire(delay_s: float, message: str) -> None:
+def _fire(delay_s: float, message: str, language: str = "en") -> None:
     time.sleep(delay_s)
-    # In a real app this would trigger TTS or a system notification.
-    # For now print to server console — sufficient for voice assistant demo.
+    alert = f"Erinnerung: {message}" if language == "de" else f"Reminder: {message}"
+    try:
+        from backend.modules.voice.proactive_tts import proactive_tts
+        proactive_tts.fire(alert, language)
+    except Exception:
+        pass
     print(f"\n🔔 REMINDER: {message}\n", flush=True)
 
 
-def _schedule(delay_s: float, message: str) -> None:
-    t = threading.Thread(target=_fire, args=(delay_s, message), daemon=True)
+def _schedule(delay_s: float, message: str, language: str = "en") -> None:
+    t = threading.Thread(target=_fire, args=(delay_s, message, language), daemon=True)
     t.start()
 
 
 def run(args: dict | None = None) -> str:
     utterance = (args or {}).get("utterance", "")
+    language = (args or {}).get("language", "en")
 
     # Try relative time first
     m = _RELATIVE.search(utterance)
@@ -62,7 +67,7 @@ def run(args: dict | None = None) -> str:
         if total_s <= 0:
             return "I didn't catch how long to wait. Try 'remind me in 10 minutes to call Bob'."
 
-        _schedule(total_s, message)
+        _schedule(total_s, message, language)
 
         parts = []
         if hours:
@@ -92,7 +97,7 @@ def run(args: dict | None = None) -> str:
             target += timedelta(days=1)
 
         delay_s = (target - now).total_seconds()
-        _schedule(delay_s, message)
+        _schedule(delay_s, message, language)
 
         time_str = target.strftime("%I:%M %p").lstrip("0")
         return f"I'll remind you to {message} at {time_str}."
