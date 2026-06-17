@@ -23,8 +23,10 @@ META = {
 }
 
 _CITY_RE = re.compile(
-    r"(?:forecast\s+(?:for|in)|weather\s+(?:forecast\s+)?(?:for|in|tomorrow\s+in))\s+"
-    r"([a-zA-Z][a-zA-Z\s\-]+?)(?:\s*[?.!])?$",
+    r"(?:(?:forecast|vorhersage)\s+(?:for|in|für)"
+    r"|weather\s+(?:forecast\s+)?(?:for|in|tomorrow\s+in)"
+    r"|wetter(?:vorhersage)?\s+(?:für|in))\s+"
+    r"([a-zA-ZÄäÖöÜüß][a-zA-ZÄäÖöÜüß\s\-]+?)(?:\s*[?.!])?$",
     re.I,
 )
 _DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]

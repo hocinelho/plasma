@@ -39,7 +39,7 @@ from backend.modules.router.pii_redactor import redact_messages
 log = logging.getLogger("plasma.cloud_client")
 
 DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
-_SENTENCE_END = re.compile(r"[.!?](?:\s|$)")
+_SENTENCE_END = re.compile(r"[.!?](?:\s|$|(?=[A-Z]))")
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_MODELS_URL = "https://api.anthropic.com/v1/models"
