@@ -69,7 +69,10 @@ _OBJ_RE = re.compile(
 
 def _is_available() -> bool:
     from backend.core.config import config
-    return bool(config.LOCATE_ANYTHING_BIN.strip() and config.LOCATE_ANYTHING_MODEL.strip())
+    return bool(
+        config.LOCATE_ANYTHING_SERVER_URL.strip()
+        or (config.LOCATE_ANYTHING_BIN.strip() and config.LOCATE_ANYTHING_MODEL.strip())
+    )
 
 
 def _extract_object(utterance: str) -> str | None:
@@ -97,9 +100,33 @@ def _describe_location(box: list, img_w: int, img_h: int, de: bool) -> str:
     return f"{horiz_en}{(' ' + vert_en) if vert_en else ''}"
 
 
-def _run_detection(image_path: str, prompt: str) -> list[dict]:
-    """Call locate-anything-cli and return parsed detections."""
+def _run_detection_remote(image_path: str, prompt: str) -> list[dict]:
+    """POST image to a remote locate-anything server and return detections."""
     from backend.core.config import config
+    from backend.core.http_client import post as http_post
+
+    url = config.LOCATE_ANYTHING_SERVER_URL.rstrip("/") + "/detect"
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+    import base64
+    payload = {
+        "image_b64": base64.b64encode(image_bytes).decode(),
+        "prompt": prompt,
+        "mode": config.LOCATE_ANYTHING_MODE,
+    }
+    log.info("Remote locate-anything: POST %s prompt=%r", url, prompt)
+    resp = http_post(url, json=payload, timeout=config.LOCATE_ANYTHING_TIMEOUT)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("detections", []) if isinstance(data, dict) else []
+
+
+def _run_detection(image_path: str, prompt: str) -> list[dict]:
+    """Call locate-anything-cli (or remote server) and return parsed detections."""
+    from backend.core.config import config
+
+    if config.LOCATE_ANYTHING_SERVER_URL.strip():
+        return _run_detection_remote(image_path, prompt)
 
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
         out_path = tf.name

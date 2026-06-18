@@ -130,15 +130,19 @@ class Config:
     ))
 
     # --- LocateAnything open-vocabulary detection (locate-anything.cpp) ---
-    # Build the CLI from https://github.com/mudler/locate-anything.cpp, then set
-    # the binary + GGUF model paths. Lets Plasma find ANY object by text prompt
-    # ("find my keys") rather than the fixed 80 MediaPipe classes.
+    # Option A — local CLI: build from https://github.com/mudler/locate-anything.cpp
+    # Option B — remote server: run tools/locate_server.py on a GPU server and set
+    #   LOCATE_ANYTHING_SERVER_URL=http://<server-ip>:8765
+    #   When set, the local BIN/MODEL are not needed.
     LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")
     LOCATE_ANYTHING_MODEL: str = os.getenv("LOCATE_ANYTHING_MODEL", "")
     # hybrid (default) | slow | fast
     LOCATE_ANYTHING_MODE: str = os.getenv("LOCATE_ANYTHING_MODE", "hybrid")
     # Seconds to allow the (slow, CPU) inference before giving up
     LOCATE_ANYTHING_TIMEOUT: float = float(os.getenv("LOCATE_ANYTHING_TIMEOUT", "60"))
+    # Remote server URL — if set, the CLI subprocess is skipped entirely and the
+    # image is POSTed to this server. Takes priority over local BIN/MODEL.
+    LOCATE_ANYTHING_SERVER_URL: str = os.getenv("LOCATE_ANYTHING_SERVER_URL", "")
 
     # --- Image generation via Muapi.ai (Open-Generative-AI backend) ---
     # Get a key at https://muapi.ai. "generate an image of X" → image URL.
