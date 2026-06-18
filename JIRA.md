@@ -313,6 +313,23 @@ so longest-trigger-wins router picks weather over calculator.
 
 ---
 
+## Completed — Open-Vocab Vision & Image Gen (PA-106 → PA-107)
+
+| Ticket | Type | Summary | Status |
+|---|---|---|---|
+| PA-106 | Story | LocateAnything skill — open-vocabulary "find my [X]" via locate-anything.cpp | **Done** |
+| PA-107 | Story | Image generation skill — "generate an image of X" via Muapi.ai | **Done** |
+
+**LocateAnything (PA-106):** wraps the `locate-anything-cli detect` subprocess (NVIDIA LocateAnything-3B on ggml). Finds ANY object by text prompt, not the fixed 80 MediaPipe classes. Captures a camera frame → temp PNG → CLI → parses `{"detections":[{label,box}]}` → speaks rough location (left/center/right, top/bottom). EN+DE. Optional: needs a cmake build + GGUF model; degrades gracefully when `LOCATE_ANYTHING_BIN`/`_MODEL` unset.
+
+**Image generation (PA-107):** submit+poll against Muapi.ai (the Open-Generative-AI backend). `POST /api/v1/{model}` with `x-api-key` → `request_id` → poll `GET /api/v1/predictions/{id}/result` until `completed` → returns image URL. Handles synchronous-URL responses too. EN+DE. Optional: needs `MUAPI_API_KEY`.
+
+**Config:** `LOCATE_ANYTHING_BIN`, `LOCATE_ANYTHING_MODEL`, `LOCATE_ANYTHING_MODE`, `LOCATE_ANYTHING_TIMEOUT`, `MUAPI_API_KEY`, `MUAPI_BASE_URL`, `MUAPI_IMAGE_MODEL`, `MUAPI_TIMEOUT`.
+**Tests:** 24 new tests; 527 passing (3 pre-existing faster_whisper failures unchanged).
+**Future:** Open-Generative-AI also does video + lip-sync — reserved for a later "talking avatar" sprint.
+
+---
+
 ## Completed — Vision & Clap Batch (PA-99 → PA-101)
 
 | Ticket | Type | Summary | Status |

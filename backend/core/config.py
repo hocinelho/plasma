@@ -129,6 +129,26 @@ class Config:
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
 
+    # --- LocateAnything open-vocabulary detection (locate-anything.cpp) ---
+    # Build the CLI from https://github.com/mudler/locate-anything.cpp, then set
+    # the binary + GGUF model paths. Lets Plasma find ANY object by text prompt
+    # ("find my keys") rather than the fixed 80 MediaPipe classes.
+    LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")
+    LOCATE_ANYTHING_MODEL: str = os.getenv("LOCATE_ANYTHING_MODEL", "")
+    # hybrid (default) | slow | fast
+    LOCATE_ANYTHING_MODE: str = os.getenv("LOCATE_ANYTHING_MODE", "hybrid")
+    # Seconds to allow the (slow, CPU) inference before giving up
+    LOCATE_ANYTHING_TIMEOUT: float = float(os.getenv("LOCATE_ANYTHING_TIMEOUT", "60"))
+
+    # --- Image generation via Muapi.ai (Open-Generative-AI backend) ---
+    # Get a key at https://muapi.ai. "generate an image of X" → image URL.
+    MUAPI_API_KEY: str = os.getenv("MUAPI_API_KEY", "")
+    MUAPI_BASE_URL: str = os.getenv("MUAPI_BASE_URL", "https://api.muapi.ai")
+    # Model endpoint slug (POST /api/v1/<endpoint>). Default: a fast Flux model.
+    MUAPI_IMAGE_MODEL: str = os.getenv("MUAPI_IMAGE_MODEL", "flux-schnell")
+    # Max seconds to poll for the generated image before giving up
+    MUAPI_TIMEOUT: float = float(os.getenv("MUAPI_TIMEOUT", "120"))
+
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"
     MEMORY_DB: Path = PLASMA_DIR / "memory.sqlite"
