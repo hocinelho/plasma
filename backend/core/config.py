@@ -138,6 +138,9 @@ class Config:
     LOCATE_ANYTHING_MODEL: str = os.getenv("LOCATE_ANYTHING_MODEL", "")
     # hybrid (default) | slow | fast
     LOCATE_ANYTHING_MODE: str = os.getenv("LOCATE_ANYTHING_MODE", "hybrid")
+    # CPU threads for the CLI. 0 = let the binary decide. On a many-core machine
+    # set this to (cores - 2) so inference is fast but the PC stays responsive.
+    LOCATE_ANYTHING_THREADS: int = int(os.getenv("LOCATE_ANYTHING_THREADS", "0"))
     # Seconds to allow the (slow, CPU) inference before giving up
     LOCATE_ANYTHING_TIMEOUT: float = float(os.getenv("LOCATE_ANYTHING_TIMEOUT", "60"))
     # Remote server URL — if set, the CLI subprocess is skipped entirely and the

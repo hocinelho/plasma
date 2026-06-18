@@ -140,6 +140,8 @@ def _run_detection(image_path: str, prompt: str) -> list[dict]:
         "--mode", config.LOCATE_ANYTHING_MODE,
         "--output", out_path,
     ]
+    if getattr(config, "LOCATE_ANYTHING_THREADS", 0) > 0:
+        cmd += ["--threads", str(config.LOCATE_ANYTHING_THREADS)]
     log.info("Running locate-anything: %s", " ".join(cmd))
     proc = subprocess.run(
         cmd,

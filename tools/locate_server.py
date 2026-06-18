@@ -41,6 +41,7 @@ from pathlib import Path
 BIN   = os.environ.get("LOCATE_ANYTHING_BIN", "")
 MODEL = os.environ.get("LOCATE_ANYTHING_MODEL", "")
 MODE  = os.environ.get("LOCATE_ANYTHING_MODE", "hybrid")
+THREADS = int(os.environ.get("LOCATE_ANYTHING_THREADS", "0"))
 HOST  = os.environ.get("LOCATE_SERVER_HOST", "0.0.0.0")
 PORT  = int(os.environ.get("LOCATE_SERVER_PORT", "8765"))
 TIMEOUT = float(os.environ.get("LOCATE_ANYTHING_TIMEOUT", "120"))
@@ -66,6 +67,8 @@ def _detect(image_path: str, prompt: str, mode: str) -> list[dict]:
     try:
         cmd = [BIN, "detect", "--model", MODEL, "--input", image_path,
                "--prompt", prompt, "--mode", mode, "--output", out_path]
+        if THREADS > 0:
+            cmd += ["--threads", str(THREADS)]
         log.info("Running: %s", " ".join(cmd))
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=TIMEOUT)
         if proc.returncode != 0:
