@@ -51,3 +51,8 @@ dist/
 
 # --- Claude Code local session state ---
 .claude/
+
+# --- External dependencies (binaries + large models, never commit) ---
+external/locate-anything/bin/*.exe
+external/locate-anything/bin/locate-anything-cli
+external/locate-anything/models/*.gguf
