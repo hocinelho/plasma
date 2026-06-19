@@ -129,6 +129,33 @@ class Config:
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
 
+    # --- LocateAnything open-vocabulary detection (locate-anything.cpp) ---
+    # Option A — local CLI: build from https://github.com/mudler/locate-anything.cpp
+    # Option B — remote server: run tools/locate_server.py on a GPU server and set
+    #   LOCATE_ANYTHING_SERVER_URL=http://<server-ip>:8765
+    #   When set, the local BIN/MODEL are not needed.
+    LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")
+    LOCATE_ANYTHING_MODEL: str = os.getenv("LOCATE_ANYTHING_MODEL", "")
+    # hybrid (default) | slow | fast
+    LOCATE_ANYTHING_MODE: str = os.getenv("LOCATE_ANYTHING_MODE", "hybrid")
+    # CPU threads for the CLI. 0 = let the binary decide. On a many-core machine
+    # set this to (cores - 2) so inference is fast but the PC stays responsive.
+    LOCATE_ANYTHING_THREADS: int = int(os.getenv("LOCATE_ANYTHING_THREADS", "0"))
+    # Seconds to allow the (slow, CPU) inference before giving up
+    LOCATE_ANYTHING_TIMEOUT: float = float(os.getenv("LOCATE_ANYTHING_TIMEOUT", "60"))
+    # Remote server URL — if set, the CLI subprocess is skipped entirely and the
+    # image is POSTed to this server. Takes priority over local BIN/MODEL.
+    LOCATE_ANYTHING_SERVER_URL: str = os.getenv("LOCATE_ANYTHING_SERVER_URL", "")
+
+    # --- Image generation via Muapi.ai (Open-Generative-AI backend) ---
+    # Get a key at https://muapi.ai. "generate an image of X" → image URL.
+    MUAPI_API_KEY: str = os.getenv("MUAPI_API_KEY", "")
+    MUAPI_BASE_URL: str = os.getenv("MUAPI_BASE_URL", "https://api.muapi.ai")
+    # Model endpoint slug (POST /api/v1/<endpoint>). Default: a fast Flux model.
+    MUAPI_IMAGE_MODEL: str = os.getenv("MUAPI_IMAGE_MODEL", "flux-schnell")
+    # Max seconds to poll for the generated image before giving up
+    MUAPI_TIMEOUT: float = float(os.getenv("MUAPI_TIMEOUT", "120"))
+
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"
     MEMORY_DB: Path = PLASMA_DIR / "memory.sqlite"
