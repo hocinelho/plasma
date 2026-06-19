@@ -23,6 +23,8 @@ def _ec(**over):
     c.LOCATE_ANYTHING_MODEL = "/fake/model.gguf"
     c.LOCATE_ANYTHING_MODE = "hybrid"
     c.LOCATE_ANYTHING_TIMEOUT = 60.0
+    c.LOCATE_ANYTHING_SERVER_URL = ""   # local CLI mode by default
+    c.LOCATE_ANYTHING_THREADS = 0
     c.CAMERA_DEVICE = 0
     c.MUAPI_API_KEY = "key123"
     c.MUAPI_BASE_URL = "https://api.muapi.ai"
@@ -56,8 +58,8 @@ def test_locate_extract_object_none():
 
 def test_locate_not_configured():
     from backend.skills.locate import run
-    with patch("backend.skills.locate.config" if False else "backend.core.config.config",
-               _ec(LOCATE_ANYTHING_BIN="", LOCATE_ANYTHING_MODEL="")):
+    with patch("backend.core.config.config",
+               _ec(LOCATE_ANYTHING_BIN="", LOCATE_ANYTHING_MODEL="", LOCATE_ANYTHING_SERVER_URL="")):
         result = run({"utterance": "find my keys"})
     assert "isn't set up" in result.lower() or "locate_anything" in result.lower() or "set up" in result.lower()
 
@@ -112,13 +114,12 @@ def test_locate_object_not_found():
 
 
 def test_locate_run_detection_parses_json(tmp_path):
-    """_run_detection should parse the JSON file written by the CLI."""
+    """_run_detection should parse the JSON file written by the CLI (local mode)."""
     from backend.skills import locate as loc_mod
 
     out_json = {"detections": [{"label": "mug", "box": [10, 20, 30, 40]}]}
 
     def fake_subprocess_run(cmd, **kwargs):
-        # Find the --output path and write JSON there
         out_idx = cmd.index("--output") + 1
         from pathlib import Path
         Path(cmd[out_idx]).write_text(json.dumps(out_json), encoding="utf-8")
@@ -128,7 +129,8 @@ def test_locate_run_detection_parses_json(tmp_path):
         proc.stdout = ""
         return proc
 
-    with patch("backend.core.config.config", _ec()), \
+    # Force local mode (no server URL)
+    with patch("backend.core.config.config", _ec(LOCATE_ANYTHING_SERVER_URL="")), \
          patch("backend.skills.locate.subprocess.run", side_effect=fake_subprocess_run):
         dets = loc_mod._run_detection("/fake/img.png", "mug")
 
@@ -145,7 +147,8 @@ def test_locate_run_detection_nonzero_exit():
         proc.stdout = ""
         return proc
 
-    with patch("backend.core.config.config", _ec()), \
+    # Force local mode (no server URL)
+    with patch("backend.core.config.config", _ec(LOCATE_ANYTHING_SERVER_URL="")), \
          patch("backend.skills.locate.subprocess.run", side_effect=fake_run):
         with pytest.raises(RuntimeError, match="locate-anything-cli failed"):
             loc_mod._run_detection("/fake/img.png", "mug")
