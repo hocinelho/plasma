@@ -121,6 +121,15 @@ def _run_detection_remote(image_path: str, prompt: str) -> list[dict]:
     return data.get("detections", []) if isinstance(data, dict) else []
 
 
+def _resolve_path(p: str) -> str:
+    """Resolve a path relative to the project root if it's not already absolute."""
+    from backend.core.config import PROJECT_ROOT
+    path = Path(p)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return str(path)
+
+
 def _run_detection(image_path: str, prompt: str) -> list[dict]:
     """Call locate-anything-cli (or remote server) and return parsed detections."""
     from backend.core.config import config
@@ -128,13 +137,16 @@ def _run_detection(image_path: str, prompt: str) -> list[dict]:
     if config.LOCATE_ANYTHING_SERVER_URL.strip():
         return _run_detection_remote(image_path, prompt)
 
+    bin_path = _resolve_path(config.LOCATE_ANYTHING_BIN)
+    model_path = _resolve_path(config.LOCATE_ANYTHING_MODEL)
+
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
         out_path = tf.name
 
     cmd = [
-        config.LOCATE_ANYTHING_BIN,
+        bin_path,
         "detect",
-        "--model", config.LOCATE_ANYTHING_MODEL,
+        "--model", model_path,
         "--input", image_path,
         "--prompt", prompt,
         "--mode", config.LOCATE_ANYTHING_MODE,
