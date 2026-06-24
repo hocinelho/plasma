@@ -214,7 +214,15 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
     }
     resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
     resp.raise_for_status()
-    return resp.json().get("response", "").strip()
+    text = resp.json().get("response", "").strip().strip("'\"")
+    if not text:
+        raise RuntimeError("moondream returned an empty response")
+    # Wrap in a natural sentence if moondream returned a bare phrase.
+    if not any(text.lower().startswith(w) for w in ("your", "i ", "the", "i'm", "ich", "dein")):
+        if de:
+            return f"Dein {obj} ist {text}."
+        return f"Your {obj} is {text}."
+    return text
 
 
 # ── Backend 3: locate-anything CLI ───────────────────────────────────────────
