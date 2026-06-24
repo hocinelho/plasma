@@ -98,6 +98,7 @@ class WakeMonitor:
                     wake_word=config.WAKE_WORD_MODEL,
                     threshold=config.WAKE_WORD_THRESHOLD,
                     model_path=config.WAKE_WORD_MODEL_PATH or None,
+                    trigger_frames=getattr(config, "WAKE_WORD_TRIGGER_FRAMES", 2),
                 )
             except Exception as e:
                 log.warning("Wake word detector failed to load: %s", e)
@@ -129,7 +130,7 @@ class WakeMonitor:
                 if detector:
                     result = detector.process(chunk)
                     if result["detected"]:
-                        log.info("Wake word '%s' detected! score=%.2f", config.WAKE_WORD_MODEL, result["score"])
+                        log.info("Wake word '%s' detected! score=%.2f", detector.wake_word, result["score"])
                         asyncio.run_coroutine_threadsafe(
                             self._queue.put({**result, "source": "wake_word"}), loop
                         )

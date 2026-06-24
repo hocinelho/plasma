@@ -50,11 +50,17 @@ class WakeWordDetector:
         threshold: float = 0.3,
         cooldown_ms: int = 1500,
         model_path: Optional[str] = None,
+        trigger_frames: int = 1,
     ):
         self.threshold = threshold
         self.cooldown_samples = cooldown_ms * OWW_SAMPLE_RATE // 1000
         self._cooldown_remaining = 0
         self._buffer: deque[int] = deque()
+        # Require this many consecutive frames above threshold before firing.
+        # A real wake word spans several 80 ms frames; brief noise spikes don't,
+        # so this suppresses most single-frame false positives.
+        self.trigger_frames = max(1, trigger_frames)
+        self._consecutive = 0
 
         if Model is None:
             raise ImportError(
@@ -121,8 +127,14 @@ class WakeWordDetector:
                 continue
 
             if score >= self.threshold:
-                detected = True
-                self._cooldown_remaining = self.cooldown_samples
+                self._consecutive += 1
+                if self._consecutive >= self.trigger_frames:
+                    detected = True
+                    self._consecutive = 0
+                    self._cooldown_remaining = self.cooldown_samples
+            else:
+                # Reset the streak the moment a frame drops below threshold.
+                self._consecutive = 0
 
         return {"detected": detected, "score": top_score}
 
@@ -130,6 +142,7 @@ class WakeWordDetector:
         self.model.reset()
         self._buffer.clear()
         self._cooldown_remaining = 0
+        self._consecutive = 0
 
 
 def _smoke_test() -> None:

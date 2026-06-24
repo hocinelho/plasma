@@ -60,6 +60,10 @@ class Config:
     # Pre-trained model name (fallback when WAKE_WORD_MODEL_PATH not set)
     WAKE_WORD_MODEL: str = os.getenv("WAKE_WORD_MODEL", "hey_jarvis")
     WAKE_WORD_THRESHOLD: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
+    # Consecutive 80ms frames that must exceed the threshold before firing.
+    # Higher = fewer false triggers (but a slightly longer wake word needed).
+    # 2-3 is a good range; raise to 3 if you get spurious activations.
+    WAKE_WORD_TRIGGER_FRAMES: int = int(os.getenv("WAKE_WORD_TRIGGER_FRAMES", "2"))
     # Path to a custom .onnx wake word model trained via scripts/train_hey_plasma.py
     # When set and file exists, used instead of WAKE_WORD_MODEL.
     WAKE_WORD_MODEL_PATH: str = os.getenv("WAKE_WORD_MODEL_PATH", "")
