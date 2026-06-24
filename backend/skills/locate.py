@@ -1,28 +1,31 @@
-"""Open-vocabulary visual search via locate-anything.cpp (NVIDIA LocateAnything-3B).
+"""Open-vocabulary visual search — finds ANY object by natural language description.
 
-Unlike the MediaPipe `vision` skill (fixed 80 COCO classes), this finds ANY
-object described in natural language — "find my keys", "where is my coffee mug".
+Three backends, tried in priority order:
 
-Setup (one-time, on the machine running Plasma):
-  1. git clone --recursive https://github.com/mudler/locate-anything.cpp
-  2. cmake -B build -DLA_BUILD_CLI=ON && cmake --build build -j
-  3. Download a GGUF model from huggingface.co/mudler/locate-anything.cpp-gguf
-  4. Set in .env:
-       LOCATE_ANYTHING_BIN=/path/to/build/locate-anything-cli
-       LOCATE_ANYTHING_MODEL=/path/to/locate-anything-q8_0.gguf
+1. Cloud Vision LLM (Gemini / OpenAI-vision-compatible) — instant, zero install,
+   uses the CLOUD_API_KEY already in .env. Works from phones/laptops with no
+   extra setup. Requires internet.
 
-CLI contract (from the repo):
-  locate-anything-cli detect --model <gguf> --input <img> --prompt <text>
-      --mode hybrid --output boxes.json
-  → writes {"detections":[{"label":"keys","box":[x,y,w,h]}, ...]} to boxes.json
+2. Ollama moondream — offline fallback, ~1.9 GB, fast on CPU.
+   Enable: `ollama pull moondream`  then set LOCATE_VISION_OLLAMA_MODEL=moondream
+
+3. locate-anything CLI — heavy offline option (6 GB GGUF, C++ build).
+   Kept for users who have it set up and want GPU-accelerated local inference.
+   Enabled when LOCATE_ANYTHING_BIN + LOCATE_ANYTHING_MODEL are set.
+
+Phones/laptops never need to install anything — they connect to Plasma's browser
+UI and the vision runs server-side.
 """
 from __future__ import annotations
+import base64
 import json
 import logging
 import re
 import subprocess
 import tempfile
 from pathlib import Path
+
+from backend.core.http_client import post as http_post
 
 log = logging.getLogger("plasma.skill.locate")
 
@@ -66,13 +69,19 @@ _OBJ_RE = re.compile(
     re.I,
 )
 
-
-def _is_available() -> bool:
-    from backend.core.config import config
-    return bool(
-        config.LOCATE_ANYTHING_SERVER_URL.strip()
-        or (config.LOCATE_ANYTHING_BIN.strip() and config.LOCATE_ANYTHING_MODEL.strip())
-    )
+_VISION_PROMPT_EN = (
+    "Look at this image carefully. I am looking for: {obj}. "
+    "If you can see it, describe exactly where it is in the image using simple "
+    "directions like 'on the left', 'in the center', 'on the right', 'near the top', "
+    "'near the bottom'. Keep your answer to one short sentence. "
+    "If you cannot see it, say exactly: 'I cannot see your {obj}.'"
+)
+_VISION_PROMPT_DE = (
+    "Schau dir dieses Bild genau an. Ich suche: {obj}. "
+    "Wenn du es siehst, beschreibe kurz wo es ist (links, Mitte, rechts, oben, unten). "
+    "Ein kurzer Satz reicht. "
+    "Wenn du es nicht siehst, sag genau: 'Ich kann {obj} nicht sehen.'"
+)
 
 
 def _extract_object(utterance: str) -> str | None:
@@ -84,7 +93,6 @@ def _extract_object(utterance: str) -> str | None:
 
 
 def _describe_location(box: list, img_w: int, img_h: int, de: bool) -> str:
-    """Turn a bounding box into a rough spoken location (left/center/right, top/bottom)."""
     try:
         x, y, w, h = box[0], box[1], box[2], box[3]
         cx = x + w / 2
@@ -100,29 +108,88 @@ def _describe_location(box: list, img_w: int, img_h: int, de: bool) -> str:
     return f"{horiz_en}{(' ' + vert_en) if vert_en else ''}"
 
 
-def _run_detection_remote(image_path: str, prompt: str) -> list[dict]:
-    """POST image to a remote locate-anything server and return detections."""
-    from backend.core.config import config
-    from backend.core.http_client import post as http_post
+# ── Backend 1: Cloud Vision LLM ──────────────────────────────────────────────
 
-    url = config.LOCATE_ANYTHING_SERVER_URL.rstrip("/") + "/detect"
+def _cloud_vision_available() -> bool:
+    from backend.core.config import config
+    return bool(config.CLOUD_API_KEY.strip())
+
+
+def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
+    """Send image + prompt to the configured cloud LLM (Gemini / OpenAI vision)."""
+    from backend.core.config import config
+
     with open(image_path, "rb") as f:
-        image_bytes = f.read()
-    import base64
+        b64 = base64.b64encode(f.read()).decode()
+
+    prompt = (_VISION_PROMPT_DE if de else _VISION_PROMPT_EN).format(obj=obj)
     payload = {
-        "image_b64": base64.b64encode(image_bytes).decode(),
-        "prompt": prompt,
-        "mode": config.LOCATE_ANYTHING_MODE,
+        "model": config.CLOUD_MODEL,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+        "max_tokens": 120,
     }
-    log.info("Remote locate-anything: POST %s prompt=%r", url, prompt)
-    resp = http_post(url, json=payload, timeout=config.LOCATE_ANYTHING_TIMEOUT)
+    headers = {
+        "Authorization": f"Bearer {config.CLOUD_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    base = config.CLOUD_BASE_URL.rstrip("/")
+    resp = http_post(f"{base}/chat/completions", json=payload, headers=headers, timeout=20.0)
     resp.raise_for_status()
     data = resp.json()
-    return data.get("detections", []) if isinstance(data, dict) else []
+    return data["choices"][0]["message"]["content"].strip()
+
+
+# ── Backend 2: Ollama moondream ───────────────────────────────────────────────
+
+def _ollama_vision_available() -> bool:
+    from backend.core.config import config
+    return bool(getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "").strip())
+
+
+def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
+    """Send image to Ollama moondream (or any vision model) for object location."""
+    from backend.core.config import config
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+
+    prompt = (_VISION_PROMPT_DE if de else _VISION_PROMPT_EN).format(obj=obj)
+    model = config.LOCATE_VISION_OLLAMA_MODEL
+    base = config.OLLAMA_BASE_URL.rstrip("/")
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "images": [b64],
+        "stream": False,
+    }
+    resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
+    resp.raise_for_status()
+    return resp.json().get("response", "").strip()
+
+
+# ── Backend 3: locate-anything CLI ───────────────────────────────────────────
+
+def _cli_available() -> bool:
+    from backend.core.config import config
+    return bool(
+        getattr(config, "LOCATE_ANYTHING_SERVER_URL", "").strip()
+        or (config.LOCATE_ANYTHING_BIN.strip() and config.LOCATE_ANYTHING_MODEL.strip())
+    )
 
 
 def _resolve_path(p: str) -> str:
-    """Resolve a path relative to the project root if it's not already absolute."""
     from backend.core.config import PROJECT_ROOT
     path = Path(p)
     if not path.is_absolute():
@@ -130,59 +197,60 @@ def _resolve_path(p: str) -> str:
     return str(path)
 
 
-def _run_detection(image_path: str, prompt: str) -> list[dict]:
-    """Call locate-anything-cli (or remote server) and return parsed detections."""
+def _locate_via_cli(image_path: str, obj: str, img_w: int, img_h: int, de: bool) -> str:
     from backend.core.config import config
 
-    if config.LOCATE_ANYTHING_SERVER_URL.strip():
-        return _run_detection_remote(image_path, prompt)
-
-    bin_path = _resolve_path(config.LOCATE_ANYTHING_BIN)
-    model_path = _resolve_path(config.LOCATE_ANYTHING_MODEL)
-
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
-        out_path = tf.name
-
-    cmd = [
-        bin_path,
-        "detect",
-        "--model", model_path,
-        "--input", image_path,
-        "--prompt", prompt,
-        "--mode", config.LOCATE_ANYTHING_MODE,
-        "--output", out_path,
-    ]
-    if getattr(config, "LOCATE_ANYTHING_THREADS", 0) > 0:
-        cmd += ["--threads", str(config.LOCATE_ANYTHING_THREADS)]
-    log.info("Running locate-anything: %s", " ".join(cmd))
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=config.LOCATE_ANYTHING_TIMEOUT,
-    )
-    if proc.returncode != 0:
-        raise RuntimeError(f"locate-anything-cli failed: {proc.stderr.strip()[:200]}")
-
-    # Prefer the JSON output file; fall back to parsing stdout.
-    raw = ""
-    try:
-        raw = Path(out_path).read_text(encoding="utf-8")
-    except Exception:
-        raw = proc.stdout
-    finally:
+    if getattr(config, "LOCATE_ANYTHING_SERVER_URL", "").strip():
+        url = config.LOCATE_ANYTHING_SERVER_URL.rstrip("/") + "/detect"
+        with open(image_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        resp = http_post(url, json={"image_b64": b64, "prompt": obj, "mode": config.LOCATE_ANYTHING_MODE},
+                         timeout=config.LOCATE_ANYTHING_TIMEOUT)
+        resp.raise_for_status()
+        detections = resp.json().get("detections", [])
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            out_path = tf.name
+        cmd = [
+            _resolve_path(config.LOCATE_ANYTHING_BIN), "detect",
+            "--model", _resolve_path(config.LOCATE_ANYTHING_MODEL),
+            "--input", image_path,
+            "--prompt", obj,
+            "--mode", config.LOCATE_ANYTHING_MODE,
+            "--output", out_path,
+        ]
+        if getattr(config, "LOCATE_ANYTHING_THREADS", 0) > 0:
+            cmd += ["--threads", str(config.LOCATE_ANYTHING_THREADS)]
+        log.info("Running locate-anything: %s", " ".join(cmd))
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=config.LOCATE_ANYTHING_TIMEOUT)
+        if proc.returncode != 0:
+            raise RuntimeError(f"locate-anything-cli failed: {proc.stderr.strip()[:200]}")
         try:
-            Path(out_path).unlink(missing_ok=True)
+            raw = Path(out_path).read_text(encoding="utf-8")
         except Exception:
-            pass
+            raw = proc.stdout
+        finally:
+            Path(out_path).unlink(missing_ok=True)
+        try:
+            data = json.loads(raw)
+        except Exception:
+            data = json.loads(proc.stdout)
+        detections = data.get("detections", []) if isinstance(data, dict) else []
 
-    try:
-        data = json.loads(raw)
-    except Exception:
-        # Some builds print JSON to stdout instead
-        data = json.loads(proc.stdout)
-    return data.get("detections", []) if isinstance(data, dict) else []
+    if not detections:
+        return f"Ich kann '{obj}' nicht sehen." if de else f"I can't see your {obj}."
+    best = detections[0]
+    loc = _describe_location(best.get("box", []), img_w, img_h, de)
+    if de:
+        return f"Ich sehe {obj} {loc}." if loc else f"Ich sehe {obj}."
+    return f"I found your {obj} {loc}." if loc else f"I found your {obj}."
 
+
+def _is_available() -> bool:
+    return _cloud_vision_available() or _ollama_vision_available() or _cli_available()
+
+
+# ── Main skill entry point ────────────────────────────────────────────────────
 
 def run(args: dict | None = None) -> str:
     utterance = ((args or {}).get("utterance") or "").strip()
@@ -191,11 +259,11 @@ def run(args: dict | None = None) -> str:
 
     if not _is_available():
         return (
-            "LocateAnything ist nicht eingerichtet. Setze LOCATE_ANYTHING_BIN und "
-            "LOCATE_ANYTHING_MODEL in der .env."
+            "LocateAnything ist nicht eingerichtet. Setze CLOUD_API_KEY (Gemini) oder "
+            "LOCATE_VISION_OLLAMA_MODEL=moondream in der .env."
             if de
-            else "LocateAnything isn't set up. Add LOCATE_ANYTHING_BIN and "
-            "LOCATE_ANYTHING_MODEL to your .env (see the locate skill docstring)."
+            else "Locate isn't set up. Add CLOUD_API_KEY (Gemini, already free) or "
+            "set LOCATE_VISION_OLLAMA_MODEL=moondream in your .env."
         )
 
     obj = _extract_object(utterance)
@@ -206,19 +274,16 @@ def run(args: dict | None = None) -> str:
             else "What should I look for? Try 'find my keys'."
         )
 
-    # Grab a frame from the local camera and write it to a temp PNG
     try:
         from backend.core.config import config
         from backend.modules.vision.capture import snapshot
-        import numpy as np  # noqa: F401
+        import cv2
 
         frame = snapshot(config.CAMERA_DEVICE)
         img_h, img_w = frame.shape[0], frame.shape[1]
-
-        import cv2
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             img_path = tf.name
-        cv2.imwrite(img_path, frame)
+        cv2.imwrite(img_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
     except ImportError as e:
         return (
             f"Kamera-Pakete fehlen ({e}). Installiere: pip install opencv-python"
@@ -226,45 +291,33 @@ def run(args: dict | None = None) -> str:
             else f"Camera packages missing ({e}). Install: pip install opencv-python"
         )
     except Exception as e:
-        return (
-            f"Kamera nicht verfügbar: {e}"
-            if de
-            else f"Camera not available: {e}"
-        )
+        return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
 
     try:
-        detections = _run_detection(img_path, obj)
+        # Tier 1: Cloud vision (Gemini etc.) — instant
+        if _cloud_vision_available():
+            log.info("locate: using cloud vision (tier 1)")
+            return _locate_via_cloud(img_path, obj, de)
+
+        # Tier 2: Ollama moondream — fast offline
+        if _ollama_vision_available():
+            log.info("locate: using Ollama vision (tier 2)")
+            return _locate_via_ollama(img_path, obj, de)
+
+        # Tier 3: locate-anything CLI — heavy offline
+        log.info("locate: using CLI (tier 3)")
+        return _locate_via_cli(img_path, obj, img_w, img_h, de)
+
     except subprocess.TimeoutExpired:
-        return (
-            "Die Suche hat zu lange gedauert."
-            if de
-            else "The search took too long."
-        )
+        return "Die Suche hat zu lange gedauert." if de else "The search took too long."
     except Exception as e:
-        log.warning("locate detection failed: %s", e)
-        return (
-            f"Suche fehlgeschlagen: {e}"
-            if de
-            else f"Search failed: {e}"
-        )
+        log.warning("locate failed: %s", e)
+        return f"Suche fehlgeschlagen: {e}" if de else f"Search failed: {e}"
     finally:
         try:
             Path(img_path).unlink(missing_ok=True)
         except Exception:
             pass
-
-    if not detections:
-        return (
-            f"Ich kann '{obj}' nicht sehen."
-            if de
-            else f"I can't see your {obj}."
-        )
-
-    best = detections[0]
-    loc = _describe_location(best.get("box", []), img_w, img_h, de)
-    if de:
-        return f"Ich sehe {obj} {loc}." if loc else f"Ich sehe {obj}."
-    return f"I found your {obj} {loc}." if loc else f"I found your {obj}."
 
 
 def self_test() -> bool:
