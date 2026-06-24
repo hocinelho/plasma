@@ -131,7 +131,10 @@ class Config:
 
     # --- LocateAnything open-vocabulary detection — 3-tier backend ---
     # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.
-    #   Gemini 2.0 Flash supports image input, free 1500 req/day. No extra config.
+    #   Uses CLOUD_MODEL by default. Override with LOCATE_CLOUD_MODEL to pick a
+    #   vision-capable model without changing your main chat model.
+    #   On OpenRouter, free vision model: google/gemini-2.0-flash-exp:free
+    LOCATE_CLOUD_MODEL: str = os.getenv("LOCATE_CLOUD_MODEL", "")
     # Tier 2 (offline, fast): Ollama vision model (moondream ~1.9 GB).
     #   Enable: ollama pull moondream  then set:
     LOCATE_VISION_OLLAMA_MODEL: str = os.getenv("LOCATE_VISION_OLLAMA_MODEL", "")

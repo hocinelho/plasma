@@ -115,6 +115,20 @@ def _cloud_vision_available() -> bool:
     return bool(config.CLOUD_API_KEY.strip())
 
 
+def _cloud_chat_completions_url() -> str:
+    """Build the correct chat/completions URL for the configured provider."""
+    from backend.core.config import config
+    base = config.CLOUD_BASE_URL.rstrip("/")
+    # Gemini OpenAI-compat: ends in /openai/ or /openai
+    if "generativelanguage.googleapis.com" in base:
+        return f"{base}/chat/completions"
+    # OpenRouter: always /api/v1/chat/completions regardless of CLOUD_BASE_URL path
+    if "openrouter.ai" in base:
+        return "https://openrouter.ai/api/v1/chat/completions"
+    # Groq, Cerebras, generic OpenAI-compat: append /chat/completions
+    return f"{base}/chat/completions"
+
+
 def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
     """Send image + prompt to the configured cloud LLM (Gemini / OpenAI vision)."""
     from backend.core.config import config
@@ -123,8 +137,10 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
         b64 = base64.b64encode(f.read()).decode()
 
     prompt = (_VISION_PROMPT_DE if de else _VISION_PROMPT_EN).format(obj=obj)
+    # Use dedicated vision model if set, otherwise fall back to main cloud model
+    model = getattr(config, "LOCATE_CLOUD_MODEL", "").strip() or config.CLOUD_MODEL
     payload = {
-        "model": config.CLOUD_MODEL,
+        "model": model,
         "messages": [
             {
                 "role": "user",
@@ -143,8 +159,9 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
         "Authorization": f"Bearer {config.CLOUD_API_KEY}",
         "Content-Type": "application/json",
     }
-    base = config.CLOUD_BASE_URL.rstrip("/")
-    resp = http_post(f"{base}/chat/completions", json=payload, headers=headers, timeout=20.0)
+    url = _cloud_chat_completions_url()
+    log.info("locate: cloud vision POST %s model=%s", url, model)
+    resp = http_post(url, json=payload, headers=headers, timeout=20.0)
     resp.raise_for_status()
     data = resp.json()
     return data["choices"][0]["message"]["content"].strip()
@@ -293,26 +310,39 @@ def run(args: dict | None = None) -> str:
     except Exception as e:
         return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
 
+    last_err = None
     try:
-        # Tier 1: Cloud vision (Gemini etc.) — instant
+        # Tier 1: Cloud vision — instant, uses existing CLOUD_API_KEY
         if _cloud_vision_available():
-            log.info("locate: using cloud vision (tier 1)")
-            return _locate_via_cloud(img_path, obj, de)
+            try:
+                log.info("locate: using cloud vision (tier 1)")
+                return _locate_via_cloud(img_path, obj, de)
+            except Exception as e:
+                log.warning("locate tier 1 (cloud) failed: %s — trying next tier", e)
+                last_err = e
 
         # Tier 2: Ollama moondream — fast offline
         if _ollama_vision_available():
-            log.info("locate: using Ollama vision (tier 2)")
-            return _locate_via_ollama(img_path, obj, de)
+            try:
+                log.info("locate: using Ollama vision (tier 2)")
+                return _locate_via_ollama(img_path, obj, de)
+            except Exception as e:
+                log.warning("locate tier 2 (ollama) failed: %s — trying next tier", e)
+                last_err = e
 
         # Tier 3: locate-anything CLI — heavy offline
-        log.info("locate: using CLI (tier 3)")
-        return _locate_via_cli(img_path, obj, img_w, img_h, de)
+        if _cli_available():
+            try:
+                log.info("locate: using CLI (tier 3)")
+                return _locate_via_cli(img_path, obj, img_w, img_h, de)
+            except subprocess.TimeoutExpired:
+                return "Die Suche hat zu lange gedauert." if de else "The search took too long."
+            except Exception as e:
+                log.warning("locate tier 3 (CLI) failed: %s", e)
+                last_err = e
 
-    except subprocess.TimeoutExpired:
-        return "Die Suche hat zu lange gedauert." if de else "The search took too long."
-    except Exception as e:
-        log.warning("locate failed: %s", e)
-        return f"Suche fehlgeschlagen: {e}" if de else f"Search failed: {e}"
+        err_str = str(last_err) if last_err else "no backend available"
+        return f"Suche fehlgeschlagen: {err_str}" if de else f"Search failed: {err_str}"
     finally:
         try:
             Path(img_path).unlink(missing_ok=True)
