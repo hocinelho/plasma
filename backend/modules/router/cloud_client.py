@@ -51,6 +51,15 @@ def _is_anthropic() -> bool:
     return config.CLOUD_PROVIDER == "anthropic"
 
 
+def _base_url() -> str:
+    """Return a normalized CLOUD_BASE_URL — fixes common misconfiguration."""
+    base = config.CLOUD_BASE_URL.rstrip("/")
+    # OpenRouter API is always at /api/v1 — not /free, /api, etc.
+    if "openrouter.ai" in base and not base.endswith("/api/v1"):
+        return "https://openrouter.ai/api/v1"
+    return base
+
+
 def _headers() -> dict:
     if _is_anthropic():
         return {
@@ -117,7 +126,7 @@ def chat(
         return _anthropic_chat(user_message, history, system_prompt, model)
 
     model = model or config.CLOUD_MODEL
-    url = f"{config.CLOUD_BASE_URL.rstrip('/')}/chat/completions"
+    url = f"{_base_url()}/chat/completions"
     messages = _build_messages(system_prompt, history, user_message)
     payload = {"model": model, "messages": messages, "stream": False}
     log.info(f"Cloud call (full): model={model} msgs={len(messages)}")
@@ -133,7 +142,7 @@ def chat(
                 .get("content", "")).strip()
     except Exception as e:
         log_call(
-            base_url=config.CLOUD_BASE_URL, model=model, mode="full",
+            base_url=_base_url(), model=model, mode="full",
             messages=messages, response_text="",
             latency_ms=int((time.monotonic() - started) * 1000),
             status="error", error=str(e),
@@ -141,7 +150,7 @@ def chat(
         raise
 
     log_call(
-        base_url=config.CLOUD_BASE_URL, model=model, mode="full",
+        base_url=_base_url(), model=model, mode="full",
         messages=messages, response_text=text,
         latency_ms=int((time.monotonic() - started) * 1000),
     )
@@ -208,7 +217,7 @@ def chat_first_sentence(
         return _anthropic_chat_first_sentence(user_message, history, system_prompt, model, min_words)
 
     model = model or config.CLOUD_MODEL
-    url = f"{config.CLOUD_BASE_URL.rstrip('/')}/chat/completions"
+    url = f"{_base_url()}/chat/completions"
     messages = _build_messages(system_prompt, history, user_message)
     payload = {"model": model, "messages": messages, "stream": True}
     log.info(f"Cloud call (stream): model={model} msgs={len(messages)}")
@@ -242,14 +251,14 @@ def chat_first_sentence(
                             first = collected[: m.end()].strip()
                             log.info(f"Cloud first sentence ready ({len(first)} chars)")
                             log_call(
-                                base_url=config.CLOUD_BASE_URL, model=model, mode="stream",
+                                base_url=_base_url(), model=model, mode="stream",
                                 messages=messages, response_text=first,
                                 latency_ms=int((time.monotonic() - started) * 1000),
                             )
                             return first
     except Exception as e:
         log_call(
-            base_url=config.CLOUD_BASE_URL, model=model, mode="stream",
+            base_url=_base_url(), model=model, mode="stream",
             messages=messages, response_text=collected,
             latency_ms=int((time.monotonic() - started) * 1000),
             status="error", error=str(e),
@@ -258,7 +267,7 @@ def chat_first_sentence(
 
     final = collected.strip()
     log_call(
-        base_url=config.CLOUD_BASE_URL, model=model, mode="stream",
+        base_url=_base_url(), model=model, mode="stream",
         messages=messages, response_text=final,
         latency_ms=int((time.monotonic() - started) * 1000),
     )
@@ -355,7 +364,7 @@ def health_check() -> dict:
         except Exception as e:
             return {"reachable": False, "error": str(e)}
 
-    url = f"{config.CLOUD_BASE_URL.rstrip('/')}/models"
+    url = f"{_base_url()}/models"
     try:
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(url, headers=_headers())
