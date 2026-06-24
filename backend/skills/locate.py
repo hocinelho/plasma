@@ -137,34 +137,48 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
         b64 = base64.b64encode(f.read()).decode()
 
     prompt = (_VISION_PROMPT_DE if de else _VISION_PROMPT_EN).format(obj=obj)
-    # Use dedicated vision model if set, otherwise fall back to main cloud model
-    model = getattr(config, "LOCATE_CLOUD_MODEL", "").strip() or config.CLOUD_MODEL
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
-        "max_tokens": 120,
-    }
+    url = _cloud_chat_completions_url()
     headers = {
         "Authorization": f"Bearer {config.CLOUD_API_KEY}",
         "Content-Type": "application/json",
     }
-    url = _cloud_chat_completions_url()
-    log.info("locate: cloud vision POST %s model=%s", url, model)
-    resp = http_post(url, json=payload, headers=headers, timeout=20.0)
-    resp.raise_for_status()
-    data = resp.json()
-    return data["choices"][0]["message"]["content"].strip()
+
+    locate_model = getattr(config, "LOCATE_CLOUD_MODEL", "").strip()
+    # Prefer LOCATE_CLOUD_MODEL; fall back to CLOUD_MODEL if not set or if it
+    # returns 404 (model removed/renamed on the provider).
+    models_to_try = [m for m in [locate_model, config.CLOUD_MODEL] if m]
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    models_to_try = [m for m in models_to_try if not (m in seen or seen.add(m))]  # type: ignore[func-returns-value]
+
+    last_err: Exception | None = None
+    for model in models_to_try:
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            "max_tokens": 120,
+        }
+        log.info("locate: cloud vision POST %s model=%s", url, model)
+        resp = http_post(url, json=payload, headers=headers, timeout=20.0)
+        if resp.status_code == 404:
+            log.warning("locate: cloud model %s not found (404), trying next model", model)
+            last_err = Exception(f"model not found: {model}")
+            continue
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"].strip()
+
+    raise last_err or RuntimeError("no cloud vision model available")
 
 
 # ── Backend 2: Ollama moondream ───────────────────────────────────────────────
