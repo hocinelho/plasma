@@ -129,11 +129,14 @@ class Config:
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
 
-    # --- LocateAnything open-vocabulary detection (locate-anything.cpp) ---
-    # Option A — local CLI: build from https://github.com/mudler/locate-anything.cpp
-    # Option B — remote server: run tools/locate_server.py on a GPU server and set
-    #   LOCATE_ANYTHING_SERVER_URL=http://<server-ip>:8765
-    #   When set, the local BIN/MODEL are not needed.
+    # --- LocateAnything open-vocabulary detection — 3-tier backend ---
+    # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.
+    #   Gemini 2.0 Flash supports image input, free 1500 req/day. No extra config.
+    # Tier 2 (offline, fast): Ollama vision model (moondream ~1.9 GB).
+    #   Enable: ollama pull moondream  then set:
+    LOCATE_VISION_OLLAMA_MODEL: str = os.getenv("LOCATE_VISION_OLLAMA_MODEL", "")
+    # Tier 3 (offline, heavy): locate-anything.cpp CLI (6 GB GGUF, C++ build).
+    #   See external/locate-anything/README.md for build instructions.
     LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")
     LOCATE_ANYTHING_MODEL: str = os.getenv("LOCATE_ANYTHING_MODEL", "")
     # hybrid (default) | slow | fast

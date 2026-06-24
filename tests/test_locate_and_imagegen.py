@@ -1,4 +1,4 @@
-"""Tests for PA-106/107 — LocateAnything skill + Muapi image generation (all I/O mocked)."""
+"""Tests for PA-106/107 — LocateAnything skill (3-tier) + Muapi image generation."""
 from __future__ import annotations
 import json
 import sys
@@ -17,15 +17,25 @@ def _make_resp(json_data, status=200):
 
 
 def _ec(**over):
-    """Fake config with both skills configured."""
+    """Fake config — cloud vision enabled by default (tier 1), CLI disabled."""
     c = MagicMock()
-    c.LOCATE_ANYTHING_BIN = "/fake/locate-anything-cli"
-    c.LOCATE_ANYTHING_MODEL = "/fake/model.gguf"
+    # Cloud (tier 1) — enabled by default so _is_available() returns True
+    c.CLOUD_API_KEY = "fake-cloud-key"
+    c.CLOUD_MODEL = "gemini-2.0-flash"
+    c.CLOUD_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    # Ollama vision (tier 2) — disabled by default
+    c.LOCATE_VISION_OLLAMA_MODEL = ""
+    c.OLLAMA_BASE_URL = "http://localhost:11434"
+    # CLI (tier 3) — disabled by default
+    c.LOCATE_ANYTHING_BIN = ""
+    c.LOCATE_ANYTHING_MODEL = ""
     c.LOCATE_ANYTHING_MODE = "hybrid"
     c.LOCATE_ANYTHING_TIMEOUT = 60.0
-    c.LOCATE_ANYTHING_SERVER_URL = ""   # local CLI mode by default
+    c.LOCATE_ANYTHING_SERVER_URL = ""
     c.LOCATE_ANYTHING_THREADS = 0
+    # Camera
     c.CAMERA_DEVICE = 0
+    # Image gen
     c.MUAPI_API_KEY = "key123"
     c.MUAPI_BASE_URL = "https://api.muapi.ai"
     c.MUAPI_IMAGE_MODEL = "flux-schnell"
@@ -33,6 +43,13 @@ def _ec(**over):
     for k, v in over.items():
         setattr(c, k, v)
     return c
+
+
+def _cv2_mock():
+    m = types.ModuleType("cv2")
+    m.imwrite = MagicMock(return_value=True)
+    m.IMWRITE_JPEG_QUALITY = 1
+    return m
 
 
 # ───────────────────────────── LocateAnything ──────────────────────────────────
@@ -52,21 +69,22 @@ def test_locate_extract_object_de():
 
 def test_locate_extract_object_none():
     from backend.skills.locate import _extract_object
-    # No object after the trigger
     assert _extract_object("find") is None or _extract_object("find") == ""
 
 
 def test_locate_not_configured():
+    """All three tiers disabled → skill reports not configured."""
     from backend.skills.locate import run
-    with patch("backend.core.config.config",
-               _ec(LOCATE_ANYTHING_BIN="", LOCATE_ANYTHING_MODEL="", LOCATE_ANYTHING_SERVER_URL="")):
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="",
+              LOCATE_ANYTHING_BIN="", LOCATE_ANYTHING_MODEL="",
+              LOCATE_ANYTHING_SERVER_URL="")
+    with patch("backend.core.config.config", cfg):
         result = run({"utterance": "find my keys"})
-    assert "isn't set up" in result.lower() or "locate_anything" in result.lower() or "set up" in result.lower()
+    assert "set up" in result.lower() or "cloud_api_key" in result.lower() or "isn't" in result.lower()
 
 
 def test_locate_describe_location_center():
     from backend.skills.locate import _describe_location
-    # Box centered in a 600x400 image
     loc = _describe_location([250, 150, 100, 100], 600, 400, de=False)
     assert "center" in loc.lower()
 
@@ -77,44 +95,42 @@ def test_locate_describe_location_left():
     assert "left" in loc.lower()
 
 
-def test_locate_found_object():
-    from backend.skills import locate as loc_mod
-
-    detections = [{"label": "keys", "box": [250, 150, 100, 100]}]
-    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
-
-    cv2_mock = types.ModuleType("cv2")
-    cv2_mock.imwrite = MagicMock(return_value=True)
-
-    with patch("backend.core.config.config", _ec()), \
-         patch("backend.skills.locate.snapshot" if False else "backend.modules.vision.capture.snapshot",
-               return_value=fake_frame), \
-         patch.dict(sys.modules, {"cv2": cv2_mock}), \
-         patch("backend.skills.locate._run_detection", return_value=detections):
-        result = loc_mod.run({"utterance": "find my keys"})
-
-    assert "keys" in result.lower()
-    assert "found" in result.lower() or "see" in result.lower()
-
-
-def test_locate_object_not_found():
+def test_locate_cloud_vision_tier1():
+    """Tier 1: cloud vision returns a natural language location."""
     from backend.skills import locate as loc_mod
 
     fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
-    cv2_mock = types.ModuleType("cv2")
-    cv2_mock.imwrite = MagicMock(return_value=True)
+    cloud_resp = _make_resp({"choices": [{"message": {"content": "I can see your keys on the left side of the image."}}]})
 
     with patch("backend.core.config.config", _ec()), \
          patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
-         patch.dict(sys.modules, {"cv2": cv2_mock}), \
-         patch("backend.skills.locate._run_detection", return_value=[]):
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post", return_value=cloud_resp):
         result = loc_mod.run({"utterance": "find my keys"})
 
-    assert "can't see" in result.lower() or "keys" in result.lower()
+    assert "keys" in result.lower()
+    assert "left" in result.lower()
 
 
-def test_locate_run_detection_parses_json(tmp_path):
-    """_run_detection should parse the JSON file written by the CLI (local mode)."""
+def test_locate_ollama_tier2():
+    """Tier 2: Ollama moondream used when cloud key absent."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    ollama_resp = _make_resp({"response": "Your keys are in the center of the image."})
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="moondream")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post", return_value=ollama_resp):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "keys" in result.lower() or "center" in result.lower()
+
+
+def test_locate_cli_tier3_parses_json(tmp_path):
+    """Tier 3: CLI subprocess — parses JSON output file."""
     from backend.skills import locate as loc_mod
 
     out_json = {"detections": [{"label": "mug", "box": [10, 20, 30, 40]}]}
@@ -129,15 +145,18 @@ def test_locate_run_detection_parses_json(tmp_path):
         proc.stdout = ""
         return proc
 
-    # Force local mode (no server URL)
-    with patch("backend.core.config.config", _ec(LOCATE_ANYTHING_SERVER_URL="")), \
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="",
+              LOCATE_ANYTHING_BIN="/fake/cli", LOCATE_ANYTHING_MODEL="/fake/model.gguf",
+              LOCATE_ANYTHING_SERVER_URL="")
+    with patch("backend.core.config.config", cfg), \
          patch("backend.skills.locate.subprocess.run", side_effect=fake_subprocess_run):
-        dets = loc_mod._run_detection("/fake/img.png", "mug")
+        result = loc_mod._locate_via_cli("/fake/img.png", "mug", 600, 400, False)
 
-    assert dets == out_json["detections"]
+    assert "mug" in result.lower()
 
 
-def test_locate_run_detection_nonzero_exit():
+def test_locate_cli_tier3_nonzero_exit():
+    """Tier 3: CLI nonzero exit raises RuntimeError."""
     from backend.skills import locate as loc_mod
 
     def fake_run(cmd, **kwargs):
@@ -147,11 +166,13 @@ def test_locate_run_detection_nonzero_exit():
         proc.stdout = ""
         return proc
 
-    # Force local mode (no server URL)
-    with patch("backend.core.config.config", _ec(LOCATE_ANYTHING_SERVER_URL="")), \
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="",
+              LOCATE_ANYTHING_BIN="/fake/cli", LOCATE_ANYTHING_MODEL="/fake/model.gguf",
+              LOCATE_ANYTHING_SERVER_URL="")
+    with patch("backend.core.config.config", cfg), \
          patch("backend.skills.locate.subprocess.run", side_effect=fake_run):
         with pytest.raises(RuntimeError, match="locate-anything-cli failed"):
-            loc_mod._run_detection("/fake/img.png", "mug")
+            loc_mod._locate_via_cli("/fake/img.png", "mug", 600, 400, False)
 
 
 def test_locate_self_test():
@@ -171,7 +192,6 @@ def test_locate_meta():
 def test_imagegen_extract_prompt_en():
     from backend.skills.image_gen import _extract_prompt
     assert _extract_prompt("generate an image of a sunset") == "a sunset"
-    # "draw a cat..." — the leading article is consumed; subject is preserved
     assert _extract_prompt("draw a cat wearing a hat") == "cat wearing a hat"
 
 
@@ -210,7 +230,6 @@ def test_imagegen_async_poll_success():
 
 
 def test_imagegen_sync_url_in_submit():
-    """Some models return the URL directly in the submit response."""
     from backend.skills import image_gen as ig
 
     submit_resp = _make_resp({"outputs": ["https://cdn.muapi.ai/direct.png"]})
