@@ -101,6 +101,25 @@ def _extract_url(result: dict) -> str | None:
     return None
 
 
+def _model_slug() -> str:
+    """Return a valid MUAPI text-to-image slug.
+
+    MUAPI text-to-image endpoints end in "-image" (e.g. flux-schnell-image).
+    A bare "flux-schnell" returns 404, so we auto-append "-image" for the
+    common Flux/SD slugs to keep old .env values working.
+    """
+    from backend.core.config import config
+
+    slug = config.MUAPI_IMAGE_MODEL.strip().strip("/")
+    bare_image_models = {
+        "flux-schnell", "flux-dev", "flux-pro", "flux-1.1-pro",
+        "sdxl", "stable-diffusion-xl",
+    }
+    if slug in bare_image_models:
+        return f"{slug}-image"
+    return slug
+
+
 def _generate(prompt: str) -> str | None:
     """Submit + poll Muapi.ai. Returns an image URL or None."""
     from backend.core.config import config
@@ -108,12 +127,18 @@ def _generate(prompt: str) -> str | None:
     base = config.MUAPI_BASE_URL.rstrip("/")
     headers = {"x-api-key": config.MUAPI_API_KEY, "Content-Type": "application/json"}
 
+    slug = _model_slug()
     submit = http_post(
-        f"{base}/api/v1/{config.MUAPI_IMAGE_MODEL}",
+        f"{base}/api/v1/{slug}",
         json={"prompt": prompt},
         headers=headers,
         timeout=30.0,
     )
+    if submit.status_code >= 400:
+        log.warning(
+            "muapi submit %s -> %s: %s",
+            slug, submit.status_code, submit.text[:300],
+        )
     submit.raise_for_status()
     body = submit.json()
     request_id = body.get("request_id") or body.get("id")

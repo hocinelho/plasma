@@ -158,7 +158,9 @@ class Config:
     MUAPI_API_KEY: str = os.getenv("MUAPI_API_KEY", "")
     MUAPI_BASE_URL: str = os.getenv("MUAPI_BASE_URL", "https://api.muapi.ai")
     # Model endpoint slug (POST /api/v1/<endpoint>). Default: a fast Flux model.
-    MUAPI_IMAGE_MODEL: str = os.getenv("MUAPI_IMAGE_MODEL", "flux-schnell")
+    # NOTE: MUAPI text-to-image slugs end in "-image" (e.g. flux-schnell-image,
+    # flux-dev-image). A bare "flux-schnell" returns 404.
+    MUAPI_IMAGE_MODEL: str = os.getenv("MUAPI_IMAGE_MODEL", "flux-schnell-image")
     # Max seconds to poll for the generated image before giving up
     MUAPI_TIMEOUT: float = float(os.getenv("MUAPI_TIMEOUT", "120"))
 

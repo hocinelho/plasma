@@ -290,6 +290,36 @@ def test_imagegen_de_response():
     assert "dein bild" in result.lower() or "hier" in result.lower()
 
 
+def test_imagegen_slug_appends_image_suffix():
+    """Bare flux slugs get '-image' appended; full slugs pass through."""
+    from backend.skills.image_gen import _model_slug
+    with patch("backend.core.config.config", _ec(MUAPI_IMAGE_MODEL="flux-schnell")):
+        assert _model_slug() == "flux-schnell-image"
+    with patch("backend.core.config.config", _ec(MUAPI_IMAGE_MODEL="flux-dev-image")):
+        assert _model_slug() == "flux-dev-image"
+    with patch("backend.core.config.config", _ec(MUAPI_IMAGE_MODEL="some-custom-model")):
+        assert _model_slug() == "some-custom-model"
+
+
+def test_locate_cloud_400_falls_through_to_cloud_model():
+    """Tier 1: a 400 on LOCATE_CLOUD_MODEL retries with CLOUD_MODEL."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    bad = _make_resp({}, status=400)
+    bad.text = "model does not support images"
+    good = _make_resp({"choices": [{"message": {"content": "Your keys are on the right."}}]})
+
+    cfg = _ec(LOCATE_CLOUD_MODEL="text-only-model", CLOUD_MODEL="vision-model")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post", side_effect=[bad, good]):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "right" in result.lower()
+
+
 def test_imagegen_self_test():
     from backend.skills.image_gen import self_test
     assert self_test()

@@ -175,7 +175,14 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
             log.warning("locate: cloud model %s not found (404), trying next model", model)
             last_err = Exception(f"model not found: {model}")
             continue
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Log the provider's actual error message so misconfig is visible.
+            body = resp.text[:300]
+            log.warning("locate: cloud model %s -> %s: %s", model, resp.status_code, body)
+            # 400 often means the model can't accept images (text-only model).
+            # Fall through to the next candidate model rather than aborting.
+            last_err = Exception(f"{resp.status_code}: {body}")
+            continue
         return resp.json()["choices"][0]["message"]["content"].strip()
 
     raise last_err or RuntimeError("no cloud vision model available")
@@ -312,6 +319,17 @@ def run(args: dict | None = None) -> str:
 
         frame = snapshot(config.CAMERA_DEVICE)
         img_h, img_w = frame.shape[0], frame.shape[1]
+        # Downscale to max 1024px on the long edge before sending to a cloud
+        # vision model: smaller payloads upload faster and avoid 400 errors from
+        # models that cap input image size. img_w/img_h above stay as the
+        # ORIGINAL dims so _describe_location math is unaffected (it only matters
+        # for the CLI tier, which reads the resized file but returns relative box).
+        max_edge = 1024
+        long_edge = max(img_h, img_w)
+        if long_edge > max_edge:
+            scale = max_edge / long_edge
+            new_size = (int(img_w * scale), int(img_h * scale))
+            frame = cv2.resize(frame, new_size, interpolation=cv2.INTER_AREA)
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             img_path = tf.name
         cv2.imwrite(img_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
