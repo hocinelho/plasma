@@ -165,8 +165,7 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
                 }
             ],
             "max_tokens": 120,
-            # Deterministic — reduces made-up locations for unseen objects.
-            "temperature": 0,
+            "temperature": 0.1,
         }
         log.info("locate: cloud vision POST %s model=%s", url, model)
         resp = http_post(url, json=payload, headers=headers, timeout=20.0)
@@ -258,9 +257,9 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
         "prompt": prompt,
         "images": [b64],
         "stream": False,
-        # temperature 0 = deterministic, far less likely to confabulate a
-        # location for an object that isn't actually visible.
-        "options": {"temperature": 0},
+        # temperature 0 can cause degenerate empty output in small models;
+        # 0.1 is near-deterministic while avoiding blank responses.
+        "options": {"temperature": 0.1},
     }
 
     # moondream occasionally returns an empty string on the first pass; retry
@@ -400,6 +399,17 @@ def run(args: dict | None = None) -> str:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             img_path = tf.name
         cv2.imwrite(img_path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        img_bytes = Path(img_path).stat().st_size
+        log.info(
+            "locate: captured %dx%d image → %s (%.1f KB)",
+            frame.shape[1], frame.shape[0], img_path, img_bytes / 1024,
+        )
+        if img_bytes < 1024:
+            return (
+                "Das Kamerabild ist schwarz oder leer. Prüfe ob die Kamera frei ist."
+                if de
+                else "Camera image is black or empty — make sure no other app is using the webcam."
+            )
     except ImportError as e:
         return (
             f"Kamera-Pakete fehlen ({e}). Installiere: pip install opencv-python"

@@ -47,8 +47,22 @@ def _ec(**over):
 
 def _cv2_mock():
     m = types.ModuleType("cv2")
-    m.imwrite = MagicMock(return_value=True)
     m.IMWRITE_JPEG_QUALITY = 1
+    m.INTER_AREA = 3
+
+    # Write a minimal valid JPEG stub so Path.stat().st_size > 1024 in tests.
+    _MINIMAL_JPEG = bytes([0xFF, 0xD8, 0xFF, 0xE0]) + b"\x00" * 2048
+
+    def _imwrite(path, frame, params=None):
+        try:
+            with open(path, "wb") as f:
+                f.write(_MINIMAL_JPEG)
+        except Exception:
+            pass
+        return True
+
+    m.imwrite = MagicMock(side_effect=_imwrite)
+    m.resize = MagicMock(side_effect=lambda frame, size, interpolation=None: frame)
     return m
 
 
