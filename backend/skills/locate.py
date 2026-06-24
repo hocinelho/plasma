@@ -70,17 +70,27 @@ _OBJ_RE = re.compile(
 )
 
 _VISION_PROMPT_EN = (
-    "Look at this image carefully. I am looking for: {obj}. "
-    "If you can see it, describe exactly where it is in the image using simple "
-    "directions like 'on the left', 'in the center', 'on the right', 'near the top', "
-    "'near the bottom'. Keep your answer to one short sentence. "
-    "If you cannot see it, say exactly: 'I cannot see your {obj}.'"
+    "You are a careful visual inspector. Look at this image and report ONLY what "
+    "is literally visible. Do not guess, assume, or invent anything.\n\n"
+    "Question: Is there a {obj} actually visible in this image?\n\n"
+    "Rules:\n"
+    "- If you do NOT clearly see a {obj}, you MUST answer exactly: "
+    "'I cannot see your {obj}.' Do not describe a location. Do not guess.\n"
+    "- Only if you can clearly see the {obj}, answer in one short sentence "
+    "describing where it is using simple directions like 'on the left', "
+    "'in the center', 'on the right', 'near the top', 'near the bottom'.\n"
+    "Never make up a location for something you cannot see."
 )
 _VISION_PROMPT_DE = (
-    "Schau dir dieses Bild genau an. Ich suche: {obj}. "
-    "Wenn du es siehst, beschreibe kurz wo es ist (links, Mitte, rechts, oben, unten). "
-    "Ein kurzer Satz reicht. "
-    "Wenn du es nicht siehst, sag genau: 'Ich kann {obj} nicht sehen.'"
+    "Du bist ein sorgfältiger Bildprüfer. Schau dir dieses Bild an und nenne NUR, "
+    "was wirklich zu sehen ist. Rate nicht und erfinde nichts.\n\n"
+    "Frage: Ist {obj} wirklich im Bild sichtbar?\n\n"
+    "Regeln:\n"
+    "- Wenn du {obj} NICHT klar siehst, antworte genau: "
+    "'Ich kann {obj} nicht sehen.' Beschreibe keinen Ort. Rate nicht.\n"
+    "- Nur wenn du {obj} klar siehst, antworte in einem kurzen Satz, wo es ist "
+    "(links, Mitte, rechts, oben, unten).\n"
+    "Erfinde niemals einen Ort für etwas, das du nicht siehst."
 )
 
 
@@ -168,6 +178,8 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
                 }
             ],
             "max_tokens": 120,
+            # Deterministic — reduces made-up locations for unseen objects.
+            "temperature": 0,
         }
         log.info("locate: cloud vision POST %s model=%s", url, model)
         resp = http_post(url, json=payload, headers=headers, timeout=20.0)
@@ -211,6 +223,9 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
         "prompt": prompt,
         "images": [b64],
         "stream": False,
+        # temperature 0 = deterministic, far less likely to confabulate a
+        # location for an object that isn't actually visible.
+        "options": {"temperature": 0},
     }
     resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
     resp.raise_for_status()

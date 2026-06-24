@@ -129,6 +129,44 @@ def test_locate_ollama_tier2():
     assert "keys" in result.lower() or "center" in result.lower()
 
 
+def test_locate_ollama_cannot_see_passthrough():
+    """A 'cannot see' reply is preserved verbatim (no bogus location wrapping)."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    ollama_resp = _make_resp({"response": "I cannot see your keys."})
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="moondream")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post", return_value=ollama_resp):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "cannot see" in result.lower()
+    # Must NOT have been turned into a fake "Your keys is ..." location.
+    assert not result.lower().startswith("your keys is")
+
+
+def test_locate_ollama_bare_phrase_wrapped():
+    """A bare location phrase gets wrapped into a natural sentence."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    ollama_resp = _make_resp({"response": "'on the table'"})
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="moondream")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post", return_value=ollama_resp):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "'" not in result  # quotes stripped
+    assert "on the table" in result.lower()
+    assert "your keys" in result.lower()
+
+
 def test_locate_cli_tier3_parses_json(tmp_path):
     """Tier 3: CLI subprocess — parses JSON output file."""
     from backend.skills import locate as loc_mod
