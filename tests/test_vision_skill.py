@@ -347,6 +347,26 @@ def test_local_camera_capture_frame():
     assert frame.shape == (480, 640, 3)
 
 
+def test_local_camera_capture_frame_retries_after_empty_reads():
+    """Webcam returns failed/empty reads first, then a good frame — capture retries."""
+    from backend.modules.vision.capture import LocalCameraCapture
+    cv2_mock = _build_cv2_mock()
+    good = _fake_frame()
+    # First several reads fail (ret=False / None), then a real frame arrives.
+    cap_inst = cv2_mock.VideoCapture.return_value
+    cap_inst.read.side_effect = (
+        [(False, None)] * 7 + [(True, good)] + [(True, good)] * 20
+    )
+    with patch.dict(sys.modules, {"cv2": cv2_mock}), \
+         patch("backend.modules.vision.capture.time.sleep"):
+        cam = LocalCameraCapture(device_index=0)
+        cam.open()
+        frame = cam.capture_frame()
+        cam.close()
+    assert frame is not None
+    assert frame.shape == (480, 640, 3)
+
+
 def test_decode_frame_bytes_valid():
     from backend.modules.vision.capture import decode_frame_bytes
     fake = _fake_frame()
