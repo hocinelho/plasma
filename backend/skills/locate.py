@@ -70,27 +70,14 @@ _OBJ_RE = re.compile(
 )
 
 _VISION_PROMPT_EN = (
-    "You are a careful visual inspector. Look at this image and report ONLY what "
-    "is literally visible. Do not guess, assume, or invent anything.\n\n"
-    "Question: Is there a {obj} actually visible in this image?\n\n"
-    "Rules:\n"
-    "- If you do NOT clearly see a {obj}, you MUST answer exactly: "
-    "'I cannot see your {obj}.' Do not describe a location. Do not guess.\n"
-    "- Only if you can clearly see the {obj}, answer in one short sentence "
-    "describing where it is using simple directions like 'on the left', "
-    "'in the center', 'on the right', 'near the top', 'near the bottom'.\n"
-    "Never make up a location for something you cannot see."
+    "Look at this image. Do you see a {obj} anywhere? "
+    "Reply with one sentence: either where you see it "
+    "(e.g. 'Yes, the {obj} is on the left.') or 'No, I do not see a {obj}.'"
 )
 _VISION_PROMPT_DE = (
-    "Du bist ein sorgfältiger Bildprüfer. Schau dir dieses Bild an und nenne NUR, "
-    "was wirklich zu sehen ist. Rate nicht und erfinde nichts.\n\n"
-    "Frage: Ist {obj} wirklich im Bild sichtbar?\n\n"
-    "Regeln:\n"
-    "- Wenn du {obj} NICHT klar siehst, antworte genau: "
-    "'Ich kann {obj} nicht sehen.' Beschreibe keinen Ort. Rate nicht.\n"
-    "- Nur wenn du {obj} klar siehst, antworte in einem kurzen Satz, wo es ist "
-    "(links, Mitte, rechts, oben, unten).\n"
-    "Erfinde niemals einen Ort für etwas, das du nicht siehst."
+    "Schau dir dieses Bild an. Siehst du {obj}? "
+    "Antworte in einem Satz: entweder wo du es siehst "
+    "(z.B. 'Ja, {obj} ist links.') oder 'Nein, ich sehe {obj} nicht.'"
 )
 
 
@@ -195,7 +182,9 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
             # Fall through to the next candidate model rather than aborting.
             last_err = Exception(f"{resp.status_code}: {body}")
             continue
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        return _parse_vision_response(
+            resp.json()["choices"][0]["message"]["content"].strip(), obj, de
+        )
 
     raise last_err or RuntimeError("no cloud vision model available")
 
@@ -206,6 +195,52 @@ def _ollama_vision_available() -> bool:
     from backend.core.config import config
     return bool(getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "").strip())
 
+
+_NOT_FOUND_WORDS = frozenset([
+    "no,", "no.", "nein", "not see", "cannot see", "can't see", "do not see",
+    "don't see", "not visible", "not in", "not find", "cannot find",
+    "can't find", "don't find", "keine", "nicht sehen", "not present",
+    "no sign", "unable to see", "i don't", "i can't",
+])
+
+
+def _parse_vision_response(text: str, obj: str, de: bool) -> str:
+    """Normalise a raw vision-model reply into a clean locate response.
+
+    Small models (moondream) answer in many different styles. This helper:
+    - Detects "not found" semantics and returns a clean "I cannot see X" message
+      rather than letting a confusing model reply reach the user.
+    - Strips leading "Yes, " / "Ja, " when the object was found.
+    - Wraps bare location phrases ("on the left") in a natural sentence.
+    """
+    lower = text.lower()
+
+    # If the model says it doesn't see the object, normalise to a clean message.
+    if any(w in lower for w in _NOT_FOUND_WORDS):
+        return (
+            f"Ich kann {obj} nicht sehen."
+            if de
+            else f"I cannot see your {obj}."
+        )
+
+    # Strip leading "Yes, " / "Ja, " confirmations.
+    for prefix in ("yes, the ", "yes, i can see ", "yes, ", "ja, "):
+        if lower.startswith(prefix):
+            text = text[len(prefix):]
+            lower = text.lower()
+            break
+
+    # Wrap bare phrases like "on the table" → "Your keys are on the table."
+    has_subject = any(lower.startswith(w) for w in (
+        "your", "the ", "i ", "it ", "ich", "dein", "es ",
+    ))
+    if not has_subject:
+        return f"Dein {obj} ist {text}." if de else f"Your {obj} is {text}."
+
+    return text
+
+
+# ── Backend 2: Ollama moondream ───────────────────────────────────────────────
 
 def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
     """Send image to Ollama moondream (or any vision model) for object location."""
@@ -232,12 +267,7 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
     text = resp.json().get("response", "").strip().strip("'\"")
     if not text:
         raise RuntimeError("moondream returned an empty response")
-    # Wrap in a natural sentence if moondream returned a bare phrase.
-    if not any(text.lower().startswith(w) for w in ("your", "i ", "the", "i'm", "ich", "dein")):
-        if de:
-            return f"Dein {obj} ist {text}."
-        return f"Your {obj} is {text}."
-    return text
+    return _parse_vision_response(text, obj, de)
 
 
 # ── Backend 3: locate-anything CLI ───────────────────────────────────────────
