@@ -262,11 +262,25 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
         # location for an object that isn't actually visible.
         "options": {"temperature": 0},
     }
-    resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
-    resp.raise_for_status()
-    text = resp.json().get("response", "").strip().strip("'\"")
+
+    # moondream occasionally returns an empty string on the first pass; retry
+    # once before giving up so a transient blank doesn't surface as an error.
+    text = ""
+    for attempt in range(2):
+        resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
+        resp.raise_for_status()
+        text = resp.json().get("response", "").strip().strip("'\"")
+        if text:
+            break
+        log.warning("locate: moondream returned empty response (attempt %d)", attempt + 1)
+
     if not text:
-        raise RuntimeError("moondream returned an empty response")
+        # Don't surface a raw error to the user — say honestly we couldn't see.
+        return (
+            f"Ich konnte {obj} nicht klar erkennen. Versuch es nochmal."
+            if de
+            else f"I couldn't get a clear look at your {obj}. Please try again."
+        )
     return _parse_vision_response(text, obj, de)
 
 

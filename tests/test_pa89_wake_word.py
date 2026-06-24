@@ -334,3 +334,41 @@ class TestEndToEndCustomModel:
         for _ in range(3):
             det.process(_audio_chunk(1280))
         assert det._fake_model_instance.predict.call_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Consecutive-frame debounce (false-positive suppression)
+# ---------------------------------------------------------------------------
+
+class TestTriggerFramesDebounce:
+    def _detector(self, fake_score, trigger_frames):
+        fake = _make_fake_model("hey_jarvis", fake_score)
+        with patch.object(_ww, "Model", return_value=fake):
+            return _ww.WakeWordDetector(
+                wake_word="hey_jarvis",
+                threshold=0.5,
+                trigger_frames=trigger_frames,
+            )
+
+    def test_single_frame_does_not_fire_when_two_required(self):
+        det = self._detector(fake_score=0.9, trigger_frames=2)
+        # One frame above threshold — must NOT fire yet.
+        assert det.process(_audio_chunk(1280))["detected"] is False
+        # Second consecutive frame above threshold — now it fires.
+        assert det.process(_audio_chunk(1280))["detected"] is True
+
+    def test_streak_resets_on_low_frame(self):
+        det = self._detector(fake_score=0.9, trigger_frames=2)
+        assert det.process(_audio_chunk(1280))["detected"] is False
+        # Drop below threshold — streak resets.
+        det._fake = None  # noqa — illustrative
+        det.model.predict.return_value = {"hey_jarvis": 0.1}
+        assert det.process(_audio_chunk(1280))["detected"] is False
+        # Back above threshold: needs two again, so one frame isn't enough.
+        det.model.predict.return_value = {"hey_jarvis": 0.9}
+        assert det.process(_audio_chunk(1280))["detected"] is False
+        assert det.process(_audio_chunk(1280))["detected"] is True
+
+    def test_trigger_frames_one_is_immediate(self):
+        det = self._detector(fake_score=0.9, trigger_frames=1)
+        assert det.process(_audio_chunk(1280))["detected"] is True
