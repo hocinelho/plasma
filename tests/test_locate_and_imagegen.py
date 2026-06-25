@@ -181,6 +181,63 @@ def test_locate_ollama_bare_phrase_wrapped():
     assert "your keys" in result.lower()
 
 
+def test_locate_ollama_describe_fallback_found():
+    """When moondream blanks on the question, it falls back to describe + search."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    # 3 empty question attempts, then a scene description that mentions keys.
+    empty = _make_resp({"response": ""})
+    described = _make_resp({"response": "A wooden desk with a laptop and a set of car keys on the right."})
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="moondream")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post",
+               side_effect=[empty, empty, empty, described]):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "keys" in result.lower()
+    assert "car keys" in result.lower()
+
+
+def test_locate_ollama_describe_fallback_not_found():
+    """Describe fallback that doesn't mention the object → clean 'cannot see'."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    empty = _make_resp({"response": ""})
+    described = _make_resp({"response": "A plain white wall with a framed picture."})
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="moondream")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post",
+               side_effect=[empty, empty, empty, described]):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "cannot see" in result.lower()
+
+
+def test_locate_ollama_all_empty_graceful():
+    """Both question and describe blank → honest 'couldn't get a clear look'."""
+    from backend.skills import locate as loc_mod
+
+    fake_frame = np.zeros((400, 600, 3), dtype=np.uint8)
+    empty = _make_resp({"response": ""})
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="moondream")
+    with patch("backend.core.config.config", cfg), \
+         patch("backend.modules.vision.capture.snapshot", return_value=fake_frame), \
+         patch.dict(sys.modules, {"cv2": _cv2_mock()}), \
+         patch("backend.skills.locate.http_post", return_value=empty):
+        result = loc_mod.run({"utterance": "find my keys"})
+
+    assert "clear look" in result.lower()
+
+
 def test_locate_cli_tier3_parses_json(tmp_path):
     """Tier 3: CLI subprocess — parses JSON output file."""
     from backend.skills import locate as loc_mod

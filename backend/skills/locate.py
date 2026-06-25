@@ -251,19 +251,15 @@ def _parse_vision_response(text: str, obj: str, de: bool) -> str:
 
 # ── Backend 2: Ollama moondream ───────────────────────────────────────────────
 
-def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
-    """Send image to Ollama moondream (or any vision model) for object location."""
-    from backend.core.config import config
+# moondream describes images very reliably, but intermittently returns an empty
+# string on question-form prompts. So we try the direct question first, then
+# fall back to "describe the scene" + Python-side search for the object.
+_DESCRIBE_PROMPT_EN = "Describe everything you see in this image in detail."
+_DESCRIBE_PROMPT_DE = "Beschreibe alles, was du in diesem Bild siehst, im Detail."
 
-    with open(image_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode()
 
-    # Use the minimal prompt format that moondream was trained on.
-    # Complex multi-sentence prompts cause small vision models to return empty.
-    prompt = (_VISION_PROMPT_OLLAMA_DE if de else _VISION_PROMPT_OLLAMA_EN).format(obj=obj)
-    model = config.LOCATE_VISION_OLLAMA_MODEL
-    base = config.OLLAMA_BASE_URL.rstrip("/")
-
+def _ollama_generate(base: str, model: str, prompt: str, b64: str) -> str:
+    """One Ollama /api/generate call with an image; return text (may be empty)."""
     payload = {
         "model": model,
         "prompt": prompt,
@@ -273,25 +269,67 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
         # 0.1 is near-deterministic while avoiding blank responses.
         "options": {"temperature": 0.1},
     }
+    resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
+    resp.raise_for_status()
+    return resp.json().get("response", "").strip().strip("'\"")
 
-    # Retry up to 3 times — transient empty responses are common on first load.
-    text = ""
+
+def _interpret_description(description: str, obj: str, de: bool) -> str:
+    """Search a free-form scene description for the requested object."""
+    lower = description.lower()
+    # Match the whole phrase, or any meaningful word in it ("coffee mug" → "mug").
+    obj_words = [w for w in re.split(r"\s+", obj.lower()) if len(w) > 2]
+    found = obj.lower() in lower or any(w in lower for w in obj_words)
+    if not found:
+        return f"Ich kann {obj} nicht sehen." if de else f"I cannot see your {obj}."
+
+    # Return the sentence that mentions the object so the user gets context.
+    for sentence in re.split(r"(?<=[.!?])\s+", description.strip()):
+        sl = sentence.lower()
+        if obj.lower() in sl or any(w in sl for w in obj_words):
+            s = sentence.strip()
+            return f"Ich sehe {obj}: {s}" if de else f"I can see your {obj}: {s}"
+
+    return f"Ich sehe {obj} im Bild." if de else f"I can see your {obj} in the image."
+
+
+def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
+    """Send image to Ollama moondream (or any vision model) for object location."""
+    from backend.core.config import config
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+
+    model = config.LOCATE_VISION_OLLAMA_MODEL
+    base = config.OLLAMA_BASE_URL.rstrip("/")
+
+    # Strategy 1 — direct question. Minimal prompt that moondream was trained on;
+    # complex prompts make small vision models return empty. Retry the transient
+    # blanks that moondream produces on first load.
+    q_prompt = (_VISION_PROMPT_OLLAMA_DE if de else _VISION_PROMPT_OLLAMA_EN).format(obj=obj)
     for attempt in range(3):
-        resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
-        resp.raise_for_status()
-        text = resp.json().get("response", "").strip().strip("'\"")
+        text = _ollama_generate(base, model, q_prompt, b64)
         if text:
-            break
-        log.warning("locate: moondream returned empty response (attempt %d/3)", attempt + 1)
+            return _parse_vision_response(text, obj, de)
+        log.warning("locate: moondream empty on direct question (attempt %d/3)", attempt + 1)
 
-    if not text:
-        # Don't surface a raw error to the user — say honestly we couldn't see.
-        return (
-            f"Ich konnte {obj} nicht klar erkennen. Versuch es nochmal."
-            if de
-            else f"I couldn't get a clear look at your {obj}. Please try again."
-        )
-    return _parse_vision_response(text, obj, de)
+    # Strategy 2 — moondream blanks on questions but describes images reliably.
+    # Ask it to describe the whole scene, then search the description ourselves.
+    log.info("locate: question returned empty, falling back to scene description")
+    desc_prompt = _DESCRIBE_PROMPT_DE if de else _DESCRIBE_PROMPT_EN
+    for attempt in range(2):
+        description = _ollama_generate(base, model, desc_prompt, b64)
+        if description:
+            log.info("locate: moondream description: %s", description[:200])
+            return _interpret_description(description, obj, de)
+        log.warning("locate: moondream empty on describe (attempt %d/2)", attempt + 1)
+
+    # Both strategies blanked — be honest rather than surfacing a raw error.
+    return (
+        f"Ich konnte {obj} nicht klar erkennen. Versuch es nochmal."
+        if de
+        else f"I couldn't get a clear look at your {obj}. Please try again."
+    )
 
 
 # ── Backend 3: locate-anything CLI ───────────────────────────────────────────
