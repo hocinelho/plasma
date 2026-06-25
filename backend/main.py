@@ -835,6 +835,11 @@ async def websocket_perception_input(ws: WebSocket):
     last_sleepy_alert_t  = 0.0
     sleepy_frames        = 0
 
+    # DeepFace (TF) takes ~30-60 s to load on the first call.
+    # Running identify() as a fire-and-forget task keeps frames flowing
+    # while TF initialises; we collect the result on the next iteration.
+    _identify_task: asyncio.Task | None = None
+
     try:
         from backend.modules.vision.capture import decode_frame_bytes
         from backend.modules.vision.perception import get_perceiver, summarize
@@ -854,14 +859,23 @@ async def websocket_perception_input(ws: WebSocket):
                 frame = await asyncio.to_thread(decode_frame_bytes, raw)
                 perception = await asyncio.to_thread(perceiver.perceive, frame)
 
-                # Throttle identity: only when asked AND a face is present AND
-                # enough time has elapsed since the last identity check.
+                # Identity: non-blocking background task so TF load never
+                # stalls the frame loop.  Collect the result when it's done,
+                # start a new task once the throttle interval has elapsed.
                 if data.get("identify") and perception.get("faces"):
                     now = time.monotonic()
-                    if now - last_identity_t >= interval:
+                    if _identify_task is not None and _identify_task.done():
+                        try:
+                            name, _ = _identify_task.result()
+                            cached_identity = name
+                        except Exception as _e:
+                            log.debug("face_id task error: %s", _e)
+                        _identify_task = None
+                    if _identify_task is None and (now - last_identity_t) >= interval:
                         last_identity_t = now
-                        name, _dist = await asyncio.to_thread(face_id.identify, frame)
-                        cached_identity = name
+                        _identify_task = asyncio.create_task(
+                            asyncio.to_thread(face_id.identify, frame)
+                        )
 
                 # ── proactive: greet by name when first seen ──────────────
                 now = time.monotonic()
@@ -909,6 +923,8 @@ async def websocket_perception_input(ws: WebSocket):
                 await ws.send_json({"type": "error", "message": str(exc)})
 
     except WebSocketDisconnect:
+        if _identify_task and not _identify_task.done():
+            _identify_task.cancel()
         log.info("Perception-input WS client disconnected")
     except ImportError as exc:
         try:
