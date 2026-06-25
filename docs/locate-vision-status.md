@@ -50,6 +50,7 @@ to break, phones just open the PC's browser URL.
 | 7 | Wake word debounce (N consecutive frames) + fixed misleading log | `82cf75e` |
 | 8 | Empty-moondream retry + black-frame detection + image-size logging | `2f64257` |
 | 9 | Ultra-short moondream prompt (`"Where is the {obj}?"`) + expanded not-found vocab + 3 retries | `09d8725` |
+| 10 | **Describe-and-search fallback** — if moondream blanks on the question, ask it to *describe* the scene, then search the description for the object | `b6dca4c` |
 
 ---
 
@@ -65,7 +66,7 @@ to break, phones just open the PC's browser URL.
 
 | Bug | Status | Action needed |
 |-----|--------|---------------|
-| moondream returns empty response | **Fixed** — root cause was over-complex prompt. Now uses `"Where is the {obj}?"` (moondream native format). | Restart + try again; image log should be followed by a real answer |
+| moondream returns empty response | **Fixed (2 layers)** — short native prompt, then a *describe-the-scene* fallback that searches the description in Python. moondream blanks on questions but always describes images. | Restart + try again. Log now shows `falling back to scene description` then `moondream description: ...` |
 | Wake word false fires ("hello hocine" unprompted) | Debounce shipped — **re-test** | Set `WAKE_WORD_THRESHOLD=0.6`, `WAKE_WORD_TRIGGER_FRAMES=3` |
 | OpenRouter every model returns 404 | **Not a code bug** — account/key issue | Use local models (recommended) or fix the OpenRouter key |
 
