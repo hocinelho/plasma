@@ -719,3 +719,151 @@ async def websocket_vision_input(ws: WebSocket):
             await ws.send_json({"type": "error", "message": str(exc), "hint": "pip install mediapipe opencv-python"})
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Perception — face expression + hand gestures + face identity (MediaPipe + DeepFace)
+# POST /vision/perceive    — single-shot: base64 image → expression/gesture/finger count
+# POST /api/face/enroll    — base64 image + name → learn this face
+# WS   /ws/perception-input — stream frames from browser/phone → live perception
+# ---------------------------------------------------------------------------
+
+class PerceiveRequest(BaseModel):
+    """Base64-encoded JPEG/PNG image from any camera (local, browser, phone)."""
+    image_b64: str
+    language: str = "en"
+    identify: bool = False
+
+
+@app.post("/vision/perceive")
+async def vision_perceive(req: PerceiveRequest):
+    """Decode an image, return face expression + hand gestures (+ optional identity)."""
+    try:
+        from backend.modules.vision.capture import decode_frame_bytes
+        from backend.modules.vision.perception import get_perceiver, summarize
+
+        raw = base64.b64decode(req.image_b64)
+        frame = await asyncio.to_thread(decode_frame_bytes, raw)
+        perception = await asyncio.to_thread(get_perceiver().perceive, frame)
+        summary = summarize(perception, de=req.language == "de")
+
+        identity = None
+        if req.identify and perception.get("faces"):
+            from backend.modules.vision import face_id
+            name, _dist = await asyncio.to_thread(face_id.identify, frame)
+            identity = name
+
+        return {"perception": perception, "summary": summary, "identity": identity}
+
+    except ImportError as exc:
+        return JSONResponse(
+            {"error": str(exc), "hint": "pip install mediapipe opencv-python"},
+            status_code=503,
+        )
+    except Exception as exc:
+        log.warning("vision_perceive error: %s", exc)
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+class FaceEnrollRequest(BaseModel):
+    image_b64: str
+    name: str
+
+
+@app.post("/api/face/enroll")
+async def face_enroll(req: FaceEnrollRequest):
+    """Learn a face from a single base64 image so Plasma can recognize it later."""
+    try:
+        from backend.modules.vision.capture import decode_frame_bytes
+        from backend.modules.vision import face_id
+
+        raw = base64.b64decode(req.image_b64)
+        frame = await asyncio.to_thread(decode_frame_bytes, raw)
+        msg = await asyncio.to_thread(face_id.enroll, req.name.strip(), frame)
+        return {"ok": True, "message": msg, "people": face_id.list_people()}
+    except Exception as exc:
+        log.warning("face_enroll error: %s", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+
+@app.get("/api/perception/status")
+async def perception_status():
+    """Report whether perception deps are available + enrolled faces."""
+    from backend.modules.vision import face_id
+    mp_ok = True
+    try:
+        import mediapipe  # noqa: F401
+    except Exception:
+        mp_ok = False
+    return {
+        "mediapipe": mp_ok,
+        "face_id": face_id.is_available(),
+        "people": face_id.list_people(),
+        "default_fps": plasma_config.PERCEPTION_FPS,
+        "enabled_at_boot": plasma_config.PERCEPTION_ENABLED,
+    }
+
+
+@app.websocket("/ws/perception-input")
+async def websocket_perception_input(ws: WebSocket):
+    """
+    Stream frames from a device camera for always-on face/hand tracking.
+
+    Send:  {"frame": "<base64 jpeg>", "language": "en", "identify": true}
+    Recv:  {"type": "perception", "perception": {...}, "summary": "...", "identity": "Hocine"|null}
+           {"type": "error", "message": "..."}
+
+    Identity (DeepFace) is throttled to FACE_ID_INTERVAL_S so it never eats CPU;
+    landmark tracking runs every frame. The browser button starts/stops this
+    stream, so there is zero cost when you're not watching.
+    """
+    await ws.accept()
+    log.info("Perception-input WS client connected")
+    last_identity_t = 0.0
+    cached_identity = None
+    try:
+        from backend.modules.vision.capture import decode_frame_bytes
+        from backend.modules.vision.perception import get_perceiver, summarize
+        from backend.modules.vision import face_id
+
+        perceiver = get_perceiver()
+        interval = plasma_config.FACE_ID_INTERVAL_S
+
+        while True:
+            try:
+                data = await ws.receive_json()
+                frame_b64 = data.get("frame", "")
+                if not frame_b64:
+                    continue
+                de = data.get("language", "en") == "de"
+                raw = base64.b64decode(frame_b64)
+                frame = await asyncio.to_thread(decode_frame_bytes, raw)
+                perception = await asyncio.to_thread(perceiver.perceive, frame)
+
+                # Throttle identity: only when asked AND a face is present AND
+                # enough time has elapsed since the last identity check.
+                if data.get("identify") and perception.get("faces"):
+                    now = time.monotonic()
+                    if now - last_identity_t >= interval:
+                        last_identity_t = now
+                        name, _dist = await asyncio.to_thread(face_id.identify, frame)
+                        cached_identity = name
+
+                await ws.send_json({
+                    "type": "perception",
+                    "perception": perception,
+                    "summary": summarize(perception, de),
+                    "identity": cached_identity,
+                })
+            except WebSocketDisconnect:
+                raise
+            except Exception as exc:
+                await ws.send_json({"type": "error", "message": str(exc)})
+
+    except WebSocketDisconnect:
+        log.info("Perception-input WS client disconnected")
+    except ImportError as exc:
+        try:
+            await ws.send_json({"type": "error", "message": str(exc), "hint": "pip install mediapipe deepface opencv-python"})
+        except Exception:
+            pass

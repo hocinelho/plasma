@@ -133,6 +133,23 @@ class Config:
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
 
+    # --- Face + hand perception (MediaPipe FaceLandmarker + HandLandmarker) ---
+    # Real-time face expression (smile / sleepy / wink) and hand gestures
+    # (finger counting, victory, thumbs up). Runs on CPU, browser-driven so it
+    # works on PC and phones. Models (~3.7 MB + ~7.5 MB) auto-download on first use.
+    # Default off at boot — the web UI "Watch me" button turns it on live.
+    PERCEPTION_ENABLED: bool = os.getenv("PERCEPTION_ENABLED", "false").lower() == "true"
+    # Frames per second the browser streams for live tracking (keep low for CPU).
+    PERCEPTION_FPS: float = float(os.getenv("PERCEPTION_FPS", "6"))
+
+    # --- Face identity recognition (DeepFace, MIT, fully local) ---
+    # Optional heavy dep: pip install deepface. Gracefully disabled if missing.
+    FACE_ID_ENABLED: bool = os.getenv("FACE_ID_ENABLED", "true").lower() == "true"
+    # DeepFace backbone: ArcFace (accurate) | Facenet | SFace (light) | VGG-Face
+    FACE_ID_MODEL: str = os.getenv("FACE_ID_MODEL", "ArcFace")
+    # In always-on tracking, run identity at most once per this many seconds.
+    FACE_ID_INTERVAL_S: float = float(os.getenv("FACE_ID_INTERVAL_S", "3.0"))
+
     # --- LocateAnything open-vocabulary detection — 3-tier backend ---
     # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.
     #   Uses CLOUD_MODEL by default. Override with LOCATE_CLOUD_MODEL to pick a

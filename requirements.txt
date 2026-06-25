@@ -29,3 +29,14 @@ spotipy>=2.25.0
 # Install manually to enable voice profiles:
 #   pip install resemblyzer
 # Plasma works fine without it (speaker ID silently disabled).
+
+# --- Vision: object detection + face/hand perception (MediaPipe, Apache 2.0) ---
+# Powers "find my X", finger counting, gestures (victory/thumbs up), and face
+# expression (smile/sleepy/wink). Runs on CPU; models auto-download (~16 MB).
+mediapipe>=0.10.14
+opencv-python>=4.10.0
+
+# --- Face identity recognition (DeepFace, MIT) — OPTIONAL, pulls in tensorflow ---
+# Install manually to let Plasma recognize WHO it sees:
+#   pip install deepface
+# Plasma works fine without it (face naming silently disabled; tracking still works).
