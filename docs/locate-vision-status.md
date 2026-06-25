@@ -3,7 +3,7 @@
 > Living status for the camera + "find my X" (LocateAnything) work on
 > branch `claude/enhance-plasma-project-cOZli`. Update as bugs close.
 
-_Last updated: 2026-06-25_
+_Last updated: 2026-06-25 (proactive reactions)_
 
 ---
 
@@ -51,6 +51,7 @@ to break, phones just open the PC's browser URL.
 | 8 | Empty-moondream retry + black-frame detection + image-size logging | `2f64257` |
 | 9 | Ultra-short moondream prompt (`"Where is the {obj}?"`) + expanded not-found vocab + 3 retries | `09d8725` |
 | 10 | **Describe-and-search fallback** — if moondream blanks on the question, ask it to *describe* the scene, then search the description for the object | `b6dca4c` |
+| 11 | **Proactive reactions** — on the always-on stream, Plasma greets you by name when it sees you, and warns "you look tired" after sustained sleepy expression. Toast + TTS. | _this commit_ |
 
 ---
 
@@ -111,10 +112,64 @@ LOCATE_VISION_OLLAMA_MODEL=llama3.2-vision   # or llava:13b
 
 ---
 
+## 👁 Face & gesture perception (NEW)
+
+Plasma can now **see you**: read your face expression and hand gestures, count
+fingers, and recognize who you are.
+
+| Capability | Backend | How |
+|-----------|---------|-----|
+| Finger counting (0–5) | MediaPipe HandLandmarker | 21 hand keypoints → `count_fingers()` |
+| Gestures: victory ✌️, thumbs up 👍, open palm, fist, pointing | MediaPipe | `classify_gesture()` |
+| Expression: happy 😀 / sleepy 😴 / winking 😉 / neutral | MediaPipe FaceLandmarker blendshapes | `classify_expression()` |
+| Face identity ("you're Hocine") | **DeepFace** (optional) | `face_id.identify()` against `.plasma/faces/` |
+
+**Why MediaPipe (35.8k ⭐) not GLM-4V / Kimi-VL:** real-time tracking needs
+landmark coordinates at ~30 fps on CPU. Big vision-LLMs give a paragraph per
+frame (1–5 s) and would freeze the machine — wrong tool. GLM/Kimi remain an
+optional plug-in for the *describe-the-scene* path (`LOCATE_CLOUD_MODEL`).
+
+**Always-on, but safe:** perception is **browser-driven** — the web UI
+"👁 Watch me" button uses the device camera (PC *or* phone), streams frames to
+the server, and stops instantly when toggled off. **Zero idle CPU** when off,
+and no fighting "find my keys" for the webcam. Identity (DeepFace) is throttled
+to once per `FACE_ID_INTERVAL_S` so it never eats CPU.
+
+**Voice too:** "how many fingers?", "how do I look?", "do you see me?",
+"remember my face as Hocine" → `backend/skills/vision_query.py` (one-shot snapshot).
+
+### Endpoints
+| Route | Purpose |
+|-------|---------|
+| `POST /vision/perceive` | base64 image → expression + gestures + finger count |
+| `POST /api/face/enroll` | base64 image + name → learn a face |
+| `GET /api/perception/status` | deps available + enrolled people |
+| `WS /ws/perception-input` | stream device-camera frames → live perception |
+
+### Setup
+```ini
+# Always required for tracking (auto-downloads ~16 MB of models):
+#   pip install mediapipe opencv-python
+# Optional — recognize WHO it sees (heavier, pulls tensorflow):
+#   pip install deepface
+
+FACE_ID_MODEL=ArcFace        # or Facenet / SFace (lighter)
+PERCEPTION_FPS=6             # browser stream rate
+FACE_ID_INTERVAL_S=3.0       # how often identity runs in always-on
+```
+
+Files: `backend/modules/vision/perception.py` (MediaPipe face+hand),
+`backend/modules/vision/face_id.py` (DeepFace), `backend/skills/vision_query.py`,
+`frontend/index.html` (Watch me button), `tests/test_vision_perception.py`.
+
+---
+
 ## 📋 Not started (next features)
 
-- **Phone camera** — stream the phone's own camera to the server (browser
-  `getUserMedia`) instead of only the PC webcam.
+- **Phone camera** — ✅ groundwork done: `/ws/perception-input` + `/vision/perceive`
+  are camera-source agnostic; a phone hitting the browser UI already streams its
+  own camera. Still to do: a dedicated mobile-friendly page.
+- **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **Talking avatar** — animated Plasma icon with lip-sync while speaking.
 - **Demo video** for the README (PA-86).
 

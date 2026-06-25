@@ -204,6 +204,64 @@
         #waveform-wrap.active { opacity: 1; }
         #waveform { width: 100%; height: 100%; display: block; }
 
+        /* ── Vision: face/hand perception panel ───────────────── */
+        #vision-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        #vision-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--accent);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        #vision-btn.active { background: var(--accent); color: #000; }
+        .vision-status {
+            font-size: 0.85em;
+            opacity: 0.75;
+            min-height: 1.2em;
+            text-align: center;
+        }
+        #vision-video {
+            width: 220px;
+            max-width: 70%;
+            border-radius: 10px;
+            display: none;
+            transform: scaleX(-1); /* mirror like a selfie */
+        }
+        #vision-video.live { display: block; }
+
+        /* ── Proactive alert toast ─────────────────────────── */
+        #alert-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: var(--panel);
+            border: 1px solid var(--accent);
+            color: var(--text);
+            padding: 10px 20px;
+            border-radius: 24px;
+            font-size: 0.9em;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 80%;
+            text-align: center;
+        }
+        #alert-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
         /* ── PA-38 + PA-69: conversation log ───────────────── */
         .log-header {
             width: 100%;
@@ -320,6 +378,16 @@
     <div id="waveform-wrap">
         <canvas id="waveform"></canvas>
     </div>
+
+    <!-- Vision: face expression + hand gestures (MediaPipe, browser-driven) -->
+    <div id="vision-panel">
+        <button id="vision-btn" title="Let Plasma watch you through the camera">👁 Watch me</button>
+        <div id="vision-status" class="vision-status">vision off</div>
+        <video id="vision-video" autoplay playsinline muted></video>
+    </div>
+
+    <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
+    <div id="alert-toast"></div>
 
     <!-- PA-38: conversation history -->
     <div class="log-header">
@@ -607,6 +675,108 @@ function connectWakeSocket() {
 }
 
 connectWakeSocket();
+
+// ── Proactive alerts (/ws/alerts → spoken + toast) ────────────
+const alertToast = document.getElementById('alert-toast');
+let alertToastTimer = null;
+
+function showAlertToast(text) {
+    alertToast.textContent = text;
+    alertToast.classList.add('show');
+    clearTimeout(alertToastTimer);
+    alertToastTimer = setTimeout(() => alertToast.classList.remove('show'), 5000);
+}
+
+function connectAlertSocket() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/alerts`);
+    ws.onmessage = async (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'alert') {
+                if (msg.text) showAlertToast(msg.text);
+                if (msg.audio_b64) await playBase64Audio(msg.audio_b64);
+            }
+        } catch (e) { console.warn('[alerts] bad message', ev.data); }
+    };
+    ws.onclose = () => setTimeout(connectAlertSocket, 3000);
+    ws.onerror = e => console.warn('[alerts] WS error', e);
+}
+connectAlertSocket();
+
+// ── Vision: browser-driven face/hand perception ───────────────
+// The button owns the camera (works on PC and phone). Frames stream to the
+// server at a low FPS; perception runs server-side. Toggling off stops the
+// camera and the socket, so there's zero cost when not watching.
+const visionBtn    = document.getElementById('vision-btn');
+const visionStatus = document.getElementById('vision-status');
+const visionVideo  = document.getElementById('vision-video');
+let visionOn = false;
+let visionStream = null;
+let visionWS = null;
+let visionTimer = null;
+let visionCanvas = null;
+const VISION_FPS = 6;
+
+async function startVision() {
+    try {
+        visionStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    } catch (e) {
+        visionStatus.textContent = 'camera blocked';
+        console.warn('[vision] getUserMedia failed', e);
+        return;
+    }
+    visionVideo.srcObject = visionStream;
+    visionVideo.classList.add('live');
+    visionCanvas = document.createElement('canvas');
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    visionWS = new WebSocket(`${proto}://${location.host}/ws/perception-input`);
+
+    visionWS.onopen = () => {
+        visionStatus.textContent = 'watching…';
+        visionTimer = setInterval(sendVisionFrame, Math.round(1000 / VISION_FPS));
+    };
+    visionWS.onmessage = (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'perception') {
+                const who = msg.identity ? `${msg.identity}: ` : '';
+                visionStatus.textContent = who + (msg.summary || '…');
+            } else if (msg.type === 'error') {
+                visionStatus.textContent = '⚠ ' + msg.message;
+            }
+        } catch (e) { /* ignore */ }
+    };
+    visionWS.onclose = () => { if (visionOn) visionStatus.textContent = 'reconnecting…'; };
+    visionWS.onerror = e => console.warn('[vision] WS error', e);
+}
+
+function sendVisionFrame() {
+    if (!visionWS || visionWS.readyState !== WebSocket.OPEN) return;
+    if (!visionVideo.videoWidth) return;
+    visionCanvas.width = visionVideo.videoWidth;
+    visionCanvas.height = visionVideo.videoHeight;
+    visionCanvas.getContext('2d').drawImage(visionVideo, 0, 0);
+    const b64 = visionCanvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    visionWS.send(JSON.stringify({ frame: b64, language: 'en', identify: true }));
+}
+
+function stopVision() {
+    clearInterval(visionTimer); visionTimer = null;
+    if (visionWS) { try { visionWS.close(); } catch (e) {} visionWS = null; }
+    if (visionStream) { visionStream.getTracks().forEach(t => t.stop()); visionStream = null; }
+    visionVideo.srcObject = null;
+    visionVideo.classList.remove('live');
+    visionStatus.textContent = 'vision off';
+}
+
+visionBtn.addEventListener('click', () => {
+    visionOn = !visionOn;
+    visionBtn.classList.toggle('active', visionOn);
+    visionBtn.textContent = visionOn ? '👁 Stop watching' : '👁 Watch me';
+    if (visionOn) startVision(); else stopVision();
+});
 </script>
 </body>
 </html>
