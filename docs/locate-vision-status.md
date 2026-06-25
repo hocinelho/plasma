@@ -3,7 +3,7 @@
 > Living status for the camera + "find my X" (LocateAnything) work on
 > branch `claude/enhance-plasma-project-cOZli`. Update as bugs close.
 
-_Last updated: 2026-06-25_
+_Last updated: 2026-06-25 (proactive reactions)_
 
 ---
 
@@ -51,6 +51,7 @@ to break, phones just open the PC's browser URL.
 | 8 | Empty-moondream retry + black-frame detection + image-size logging | `2f64257` |
 | 9 | Ultra-short moondream prompt (`"Where is the {obj}?"`) + expanded not-found vocab + 3 retries | `09d8725` |
 | 10 | **Describe-and-search fallback** — if moondream blanks on the question, ask it to *describe* the scene, then search the description for the object | `b6dca4c` |
+| 11 | **Proactive reactions** — on the always-on stream, Plasma greets you by name when it sees you, and warns "you look tired" after sustained sleepy expression. Toast + TTS. | _this commit_ |
 
 ---
 
@@ -168,8 +169,7 @@ Files: `backend/modules/vision/perception.py` (MediaPipe face+hand),
 - **Phone camera** — ✅ groundwork done: `/ws/perception-input` + `/vision/perceive`
   are camera-source agnostic; a phone hitting the browser UI already streams its
   own camera. Still to do: a dedicated mobile-friendly page.
-- **Proactive reactions** — Plasma greets you by name when it sees you, or notices
-  you look sleepy (needs the always-on stream wired to `proactive_tts`).
+- **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **Talking avatar** — animated Plasma icon with lip-sync while speaking.
 - **Demo video** for the README (PA-86).
 

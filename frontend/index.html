@@ -238,6 +238,30 @@
         }
         #vision-video.live { display: block; }
 
+        /* ── Proactive alert toast ─────────────────────────── */
+        #alert-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: var(--panel);
+            border: 1px solid var(--accent);
+            color: var(--text);
+            padding: 10px 20px;
+            border-radius: 24px;
+            font-size: 0.9em;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 80%;
+            text-align: center;
+        }
+        #alert-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
         /* ── PA-38 + PA-69: conversation log ───────────────── */
         .log-header {
             width: 100%;
@@ -361,6 +385,9 @@
         <div id="vision-status" class="vision-status">vision off</div>
         <video id="vision-video" autoplay playsinline muted></video>
     </div>
+
+    <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
+    <div id="alert-toast"></div>
 
     <!-- PA-38: conversation history -->
     <div class="log-header">
@@ -648,6 +675,34 @@ function connectWakeSocket() {
 }
 
 connectWakeSocket();
+
+// ── Proactive alerts (/ws/alerts → spoken + toast) ────────────
+const alertToast = document.getElementById('alert-toast');
+let alertToastTimer = null;
+
+function showAlertToast(text) {
+    alertToast.textContent = text;
+    alertToast.classList.add('show');
+    clearTimeout(alertToastTimer);
+    alertToastTimer = setTimeout(() => alertToast.classList.remove('show'), 5000);
+}
+
+function connectAlertSocket() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/alerts`);
+    ws.onmessage = async (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'alert') {
+                if (msg.text) showAlertToast(msg.text);
+                if (msg.audio_b64) await playBase64Audio(msg.audio_b64);
+            }
+        } catch (e) { console.warn('[alerts] bad message', ev.data); }
+    };
+    ws.onclose = () => setTimeout(connectAlertSocket, 3000);
+    ws.onerror = e => console.warn('[alerts] WS error', e);
+}
+connectAlertSocket();
 
 // ── Vision: browser-driven face/hand perception ───────────────
 // The button owns the camera (works on PC and phone). Frames stream to the

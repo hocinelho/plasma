@@ -816,11 +816,25 @@ async def websocket_perception_input(ws: WebSocket):
     Identity (DeepFace) is throttled to FACE_ID_INTERVAL_S so it never eats CPU;
     landmark tracking runs every frame. The browser button starts/stops this
     stream, so there is zero cost when you're not watching.
+
+    Proactive reactions fire via ProactiveTTS (→ /ws/alerts) when:
+      • A known person is recognised for the first time (or after GREETING_COOLDOWN_S).
+      • The user looks sleepy for SLEEPY_FRAMES_THRESHOLD consecutive frames.
     """
     await ws.accept()
     log.info("Perception-input WS client connected")
     last_identity_t = 0.0
     cached_identity = None
+
+    # ── proactive reaction state ──────────────────────────────────────────
+    _GREETING_COOLDOWN_S = 300.0   # re-greet same person at most every 5 min
+    _SLEEPY_COOLDOWN_S   = 120.0   # sleepy alert at most every 2 min
+    _SLEEPY_THRESHOLD    = 10      # consecutive frames (~1.7 s at 6 fps)
+    last_greeted: str | None = None
+    last_greeting_t      = 0.0
+    last_sleepy_alert_t  = 0.0
+    sleepy_frames        = 0
+
     try:
         from backend.modules.vision.capture import decode_frame_bytes
         from backend.modules.vision.perception import get_perceiver, summarize
@@ -848,6 +862,40 @@ async def websocket_perception_input(ws: WebSocket):
                         last_identity_t = now
                         name, _dist = await asyncio.to_thread(face_id.identify, frame)
                         cached_identity = name
+
+                # ── proactive: greet by name when first seen ──────────────
+                now = time.monotonic()
+                if cached_identity:
+                    new_person = cached_identity != last_greeted
+                    cooldown_expired = (now - last_greeting_t) >= _GREETING_COOLDOWN_S
+                    if (new_person or cooldown_expired) and (now - last_greeting_t) >= 10.0:
+                        lang = "de" if de else "en"
+                        greeting = (
+                            f"Hallo, {cached_identity}!"
+                            if de
+                            else f"Hello, {cached_identity}!"
+                        )
+                        proactive_tts.fire(greeting, lang)
+                        last_greeted = cached_identity
+                        last_greeting_t = now
+
+                # ── proactive: sleepy alert after sustained drowsiness ─────
+                faces = perception.get("faces", [])
+                if faces and faces[0].get("expression") == "sleepy":
+                    sleepy_frames += 1
+                    if sleepy_frames >= _SLEEPY_THRESHOLD:
+                        if (now - last_sleepy_alert_t) >= _SLEEPY_COOLDOWN_S:
+                            lang = "de" if de else "en"
+                            msg = (
+                                "Du siehst müde aus. Vielleicht eine kurze Pause?"
+                                if de
+                                else "You look tired. Maybe take a short break?"
+                            )
+                            proactive_tts.fire(msg, lang)
+                            last_sleepy_alert_t = now
+                            sleepy_frames = 0
+                else:
+                    sleepy_frames = 0
 
                 await ws.send_json({
                     "type": "perception",
