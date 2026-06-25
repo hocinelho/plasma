@@ -69,6 +69,7 @@ _OBJ_RE = re.compile(
     re.I,
 )
 
+# Cloud/capable models get a richer prompt with format guidance.
 _VISION_PROMPT_EN = (
     "Look at this image. Do you see a {obj} anywhere? "
     "Reply with one sentence: either where you see it "
@@ -79,6 +80,11 @@ _VISION_PROMPT_DE = (
     "Antworte in einem Satz: entweder wo du es siehst "
     "(z.B. 'Ja, {obj} ist links.') oder 'Nein, ich sehe {obj} nicht.'"
 )
+
+# moondream / small vision models need ultra-short, direct Q&A prompts.
+# Complex prompts with format examples cause them to return empty strings.
+_VISION_PROMPT_OLLAMA_EN = "Where is the {obj}?"
+_VISION_PROMPT_OLLAMA_DE = "Wo ist {obj}?"
 
 
 def _extract_object(utterance: str) -> str | None:
@@ -200,6 +206,10 @@ _NOT_FOUND_WORDS = frozenset([
     "don't see", "not visible", "not in", "not find", "cannot find",
     "can't find", "don't find", "keine", "nicht sehen", "not present",
     "no sign", "unable to see", "i don't", "i can't",
+    # moondream-specific phrasing
+    "not visible in", "not in the image", "there is no", "there are no",
+    "i do not see", "there's no", "doesn't appear", "does not appear",
+    "not appear", "no visible", "i cannot locate", "not located",
 ])
 
 
@@ -248,7 +258,9 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
     with open(image_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
 
-    prompt = (_VISION_PROMPT_DE if de else _VISION_PROMPT_EN).format(obj=obj)
+    # Use the minimal prompt format that moondream was trained on.
+    # Complex multi-sentence prompts cause small vision models to return empty.
+    prompt = (_VISION_PROMPT_OLLAMA_DE if de else _VISION_PROMPT_OLLAMA_EN).format(obj=obj)
     model = config.LOCATE_VISION_OLLAMA_MODEL
     base = config.OLLAMA_BASE_URL.rstrip("/")
 
@@ -257,21 +269,20 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
         "prompt": prompt,
         "images": [b64],
         "stream": False,
-        # temperature 0 can cause degenerate empty output in small models;
+        # temperature 0 causes degenerate empty output in small models;
         # 0.1 is near-deterministic while avoiding blank responses.
         "options": {"temperature": 0.1},
     }
 
-    # moondream occasionally returns an empty string on the first pass; retry
-    # once before giving up so a transient blank doesn't surface as an error.
+    # Retry up to 3 times — transient empty responses are common on first load.
     text = ""
-    for attempt in range(2):
+    for attempt in range(3):
         resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
         resp.raise_for_status()
         text = resp.json().get("response", "").strip().strip("'\"")
         if text:
             break
-        log.warning("locate: moondream returned empty response (attempt %d)", attempt + 1)
+        log.warning("locate: moondream returned empty response (attempt %d/3)", attempt + 1)
 
     if not text:
         # Don't surface a raw error to the user — say honestly we couldn't see.
