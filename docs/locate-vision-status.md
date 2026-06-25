@@ -3,7 +3,7 @@
 > Living status for the camera + "find my X" (LocateAnything) work on
 > branch `claude/enhance-plasma-project-cOZli`. Update as bugs close.
 
-_Last updated: 2026-06-24_
+_Last updated: 2026-06-25_
 
 ---
 
@@ -49,6 +49,7 @@ to break, phones just open the PC's browser URL.
 | 6 | Reduce hallucination — simpler prompt + Python-side response parser | `466d6c3`, `201c795` |
 | 7 | Wake word debounce (N consecutive frames) + fixed misleading log | `82cf75e` |
 | 8 | Empty-moondream retry + black-frame detection + image-size logging | `2f64257` |
+| 9 | Ultra-short moondream prompt (`"Where is the {obj}?"`) + expanded not-found vocab + 3 retries | `09d8725` |
 
 ---
 
@@ -64,7 +65,7 @@ to break, phones just open the PC's browser URL.
 
 | Bug | Status | Action needed |
 |-----|--------|---------------|
-| moondream returns empty response | Fixed (temp `0`→`0.1`, retry, size log) — **re-test** | Check the new `locate: captured WxH image → ... (XX KB)` log line |
+| moondream returns empty response | **Fixed** — root cause was over-complex prompt. Now uses `"Where is the {obj}?"` (moondream native format). | Restart + try again; image log should be followed by a real answer |
 | Wake word false fires ("hello hocine" unprompted) | Debounce shipped — **re-test** | Set `WAKE_WORD_THRESHOLD=0.6`, `WAKE_WORD_TRIGGER_FRAMES=3` |
 | OpenRouter every model returns 404 | **Not a code bug** — account/key issue | Use local models (recommended) or fix the OpenRouter key |
 
