@@ -439,3 +439,67 @@ def test_imagegen_meta():
     assert META["name"] == "image_gen"
     assert any("generate an image" in t for t in META["triggers"])
     assert any("generiere" in t for t in META["triggers"])
+
+
+# ── Annotated-frame side channel (box on "find my X") ─────────────────────────
+
+def test_locate_annotated_side_channel_pop_once():
+    from backend.skills import locate as loc
+
+    loc._set_last_annotated("/tmp/locate_last.jpg")
+    # First pop returns the path, second returns None (consumed).
+    assert loc.pop_last_annotated() == "/tmp/locate_last.jpg"
+    assert loc.pop_last_annotated() is None
+
+
+def test_locate_annotated_side_channel_staleness():
+    from backend.skills import locate as loc
+
+    loc._set_last_annotated("/tmp/old.jpg")
+    # Force the timestamp far into the past → treated as stale.
+    loc._last_annotated["ts"] -= 999
+    assert loc.pop_last_annotated(max_age_s=30.0) is None
+
+
+def _fake_detector_module(detections):
+    """A stand-in backend.modules.vision.detector exposing get_detector()."""
+    mod = types.ModuleType("backend.modules.vision.detector")
+    det = MagicMock()
+    det.detect.return_value = detections
+    mod.get_detector = lambda: det
+    return mod
+
+
+def test_annotate_object_matches_and_saves(monkeypatch, tmp_path):
+    from backend.skills import locate as loc
+
+    det_mod = _fake_detector_module(
+        [{"label": "bottle", "score": 0.9, "box": [10, 20, 30, 40]}]
+    )
+    monkeypatch.setitem(sys.modules, "backend.modules.vision.detector", det_mod)
+
+    saved = {}
+    cv2_mock = MagicMock()
+    cv2_mock.imwrite.side_effect = lambda p, *a, **k: saved.update(path=p) or True
+    monkeypatch.setitem(sys.modules, "cv2", cv2_mock)
+
+    cfg = _ec()
+    cfg.PLASMA_DIR = tmp_path
+    monkeypatch.setattr("backend.core.config.config", cfg)
+
+    out = loc._annotate_object(object(), "bottle")
+    assert out is not None
+    assert cv2_mock.rectangle.called          # a box was drawn
+    assert saved["path"].endswith("locate_last.jpg")
+
+
+def test_annotate_object_no_match_returns_none(monkeypatch):
+    from backend.skills import locate as loc
+
+    det_mod = _fake_detector_module(
+        [{"label": "chair", "score": 0.8, "box": [0, 0, 5, 5]}]
+    )
+    monkeypatch.setitem(sys.modules, "backend.modules.vision.detector", det_mod)
+    monkeypatch.setitem(sys.modules, "cv2", MagicMock())
+
+    assert loc._annotate_object(object(), "banana") is None

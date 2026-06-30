@@ -455,6 +455,18 @@ async def voice_chat(
         _maybe_refresh_user_md(session_id)
     llm_ms = (time.monotonic() - llm_t0) * 1000.0
 
+    # If the locate skill pinned the object to a box, ship the annotated frame
+    # so the user *sees* where it is (spoken reply stays clean text).
+    locate_image_b64 = None
+    try:
+        from backend.skills import locate as _locate_skill
+        _img_path = _locate_skill.pop_last_annotated()
+        if _img_path:
+            with open(_img_path, "rb") as _f:
+                locate_image_b64 = base64.b64encode(_f.read()).decode("ascii")
+    except Exception as _e:
+        log.debug("locate image attach skipped: %s", _e)
+
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
     tts_ms = 0.0
@@ -494,6 +506,7 @@ async def voice_chat(
         "tts_ms": tts_ms,
         "total_ms": total_ms,
         "audio_b64": audio_b64,
+        "image_b64": locate_image_b64,
     }
 
 

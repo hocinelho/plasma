@@ -406,6 +406,14 @@
         .turn.error     .role,
         .turn.error  .content { color: var(--accent-hot); }
         .turn .content { white-space: pre-wrap; }
+        .turn-image {
+            margin-top: 6px;
+            max-width: 100%;
+            border-radius: 10px;
+            border: 1px solid rgba(120,180,255,0.25);
+            box-shadow: 0 0 18px rgba(74,158,255,0.18);
+            display: block;
+        }
 
         .empty-hint {
             color: var(--muted);
@@ -824,6 +832,25 @@ function addTurn(role, content) {
     logEl.scrollTop = logEl.scrollHeight;
 }
 
+// Render an annotated camera frame (e.g. "find my X" with a box drawn on it).
+function addImageTurn(b64) {
+    document.getElementById('empty-hint')?.remove();
+    const div = document.createElement('div');
+    div.className = 'turn assistant';
+    div.innerHTML =
+        `<div class="turn-meta">` +
+            `<span class="role">assistant</span>` +
+            `<span class="ts">${nowStr()}</span>` +
+        `</div>`;
+    const img = document.createElement('img');
+    img.className = 'turn-image';
+    img.src = 'data:image/jpeg;base64,' + b64;
+    img.alt = 'annotated camera view';
+    div.appendChild(img);
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
 clearBtn.addEventListener('click', () => {
     logEl.innerHTML = '<div class="empty-hint" id="empty-hint">Say something to start…</div>';
 });
@@ -926,6 +953,7 @@ async function sendAudio(blob) {
         const data = await r.json();
         if (data.transcript) addTurn('user', data.transcript);
         if (data.reply)      addTurn('assistant', data.reply);
+        if (data.image_b64)  addImageTurn(data.image_b64);
         if (data.error && !data.transcript) addTurn('error', data.error);
         if (data.audio_b64) {
             setStatus('speaking');
