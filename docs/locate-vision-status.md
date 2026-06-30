@@ -170,10 +170,13 @@ Files: `backend/modules/vision/perception.py` (MediaPipe face+hand),
   are camera-source agnostic; a phone hitting the browser UI already streams its
   own camera. Still to do: a dedicated mobile-friendly page.
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
-- **Talking avatar** — ✅ shipped: SVG Plasma face in `frontend/index.html`.
-  Breathes when idle, brightens when listening, glances when thinking, and the
-  mouth **lip-syncs to the live TTS audio amplitude** (Web Audio analyser) while
-  speaking — for both replies and proactive alerts.
+- **JARVIS avatar** — ✅ shipped: a canvas **neural-network galaxy** in
+  `frontend/index.html`. Neurons orbit the centre like a galaxy disk
+  (differential rotation), nearby ones link into a shifting neural net, colours
+  flow continuously, and the whole thing **pulses live with the TTS voice**
+  (Web Audio analyser → `avatarLevel`). Colour palette + spin shift per state
+  (idle blue→violet, listening magenta, thinking teal, speaking full-spectrum).
+  Reacts to both replies and proactive alerts; respects `prefers-reduced-motion`.
 - **Demo video** for the README (PA-86).
 
 ---
