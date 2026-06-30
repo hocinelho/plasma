@@ -107,3 +107,20 @@ def get_detector(score_threshold: float | None = None) -> ObjectDetector:
             score_threshold=score_threshold or config.VISION_SCORE_THRESHOLD,
         )
     return _detector
+
+
+# Separate instance for live tracking: a LOWER threshold + MORE results so the
+# tracker sees many objects at once and doesn't lose them on a weak frame. Kept
+# apart from the snapshot detector so the "what do you see" skill stays strict.
+_track_detector: ObjectDetector | None = None
+
+
+def get_tracking_detector() -> ObjectDetector:
+    global _track_detector
+    if _track_detector is None:
+        from backend.core.config import config
+        _track_detector = ObjectDetector(
+            max_results=config.TRACK_MAX_OBJECTS,
+            score_threshold=config.TRACK_CONF,
+        )
+    return _track_detector

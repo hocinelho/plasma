@@ -940,10 +940,11 @@ async def websocket_perception_input(ws: WebSocket):
                     if now - last_track_t >= track_interval:
                         last_track_t = now
                         try:
-                            from backend.modules.vision.detector import get_detector
+                            from backend.modules.vision.detector import get_tracking_detector
                             from backend.modules.vision.tracker import get_tracker
-                            dets = await asyncio.to_thread(get_detector().detect, frame)
-                            dets = [d for d in dets if d.get("score", 1.0) >= plasma_config.TRACK_CONF]
+                            # Dedicated lower-threshold detector → richer multi-object;
+                            # it already applies TRACK_CONF, so no post-filter needed.
+                            dets = await asyncio.to_thread(get_tracking_detector().detect, frame)
                             cached_objects = get_tracker().update(dets)
                         except Exception as _te:
                             log.debug("tracking step error: %s", _te)
