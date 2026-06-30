@@ -1093,6 +1093,19 @@ function connectAlertSocket() {
 }
 connectAlertSocket();
 
+// Show the LAN URL to open the camera page on a phone (over HTTPS).
+(function showPhoneUrl() {
+    const link = document.getElementById('phone-cam-link');
+    if (!link) return;
+    fetch('/api/network-info').then(r => r.json()).then(info => {
+        const url = (info.phone_urls && info.phone_urls[0]) || '';
+        if (url) {
+            link.title = `On your phone (same Wi-Fi) open: ${url}\n` +
+                `First run "python serve_phone.py" on this PC for HTTPS.`;
+        }
+    }).catch(() => {});
+})();
+
 // ── Vision: browser-driven face/hand perception ───────────────
 // The button owns the camera (works on PC and phone). Frames stream to the
 // server at a low FPS; perception runs server-side. Toggling off stops the

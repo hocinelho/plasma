@@ -221,6 +221,19 @@ Linked from the desktop UI ("📱 Use your phone's camera →").
 > detects this and tells the user to use **https://** (or a tunnel). On localhost
 > it works directly.
 
+### Turnkey HTTPS for the phone — `python serve_phone.py`
+
+Run `python serve_phone.py` and it:
+1. Generates a **self-signed cert** with your computer's LAN IP in its SANs
+   (`backend/core/tls.py`, cached in `.plasma/certs/`, regenerated when the IP
+   changes), then serves Plasma over **HTTPS** (default port 8443) — no internet,
+   accounts, or tunnels.
+2. Prints the exact phone URL, e.g. `https://192.168.1.42:8443/camera`.
+
+On the phone (same Wi-Fi) open that URL and tap **Advanced → Proceed** once to
+accept the self-signed cert — then the camera works. The desktop UI fetches
+`GET /api/network-info` and shows the URL on the "📱 Use your phone's camera" link.
+
 ## 📋 Not started (next features)
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **JARVIS avatar + living UI** — ✅ shipped: a pseudo-**3D glass-node sphere**

@@ -205,6 +205,18 @@ smooth interpolated boxes as desktop, glass status bar, safe-area insets.
 Detects the non-secure-origin gotcha (phones block getUserMedia on plain http)
 and tells the user to use https/tunnel. Linked from the desktop UI.
 
+## 9b. Turnkey HTTPS so the phone camera actually works
+
+Phones block `getUserMedia` on plain http:// — the real blocker for the phone
+page. Fixed with a one-command HTTPS launcher:
+- `backend/core/tls.py` — self-signed cert generator (`cryptography`), bakes the
+  machine's LAN IPs into the cert SANs, caches in `.plasma/certs/`, regenerates
+  when the IP changes. Pure + unit-tested (`tests/test_tls.py`, 5 tests).
+- `serve_phone.py` — generates the cert, prints `https://<lan-ip>:8443/camera`,
+  serves Plasma over TLS via uvicorn.
+- `GET /api/network-info` returns LAN IPs + phone URLs; desktop UI shows it on the
+  phone-camera link. camera.html's error now points at `serve_phone.py`.
+
 ---
 
 ## Next (not started)
