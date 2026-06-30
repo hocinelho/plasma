@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -164,6 +165,20 @@ async def camera_page():
     if html_path.exists():
         return FileResponse(html_path)
     return JSONResponse({"error": "camera.html not found"}, status_code=404)
+
+
+@app.get("/api/network-info")
+async def network_info():
+    """LAN IPs + the HTTPS phone URLs, so the UI can tell the user where to point
+    their phone for the camera page."""
+    from backend.core.tls import local_ips
+    ips = local_ips()
+    https_port = int(os.getenv("PLASMA_HTTPS_PORT", "8443"))
+    return {
+        "lan_ips": ips,
+        "https_port": https_port,
+        "phone_urls": [f"https://{ip}:{https_port}/camera" for ip in ips],
+    }
 
 
 # ---------------------------------------------------------------------------

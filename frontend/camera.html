@@ -256,8 +256,10 @@ async function startCamera() {
         const localish = ['localhost', '127.0.0.1', '[::1]'].includes(host);
         failStart(localish
             ? '⚠ Camera API unavailable in this browser.'
-            : `⚠ Phone cameras need a secure connection.<br>Open Plasma over <b>https://</b> ` +
-              `(or use an SSH/Tailscale tunnel) and reload — plain http://${host} is blocked by the browser.`);
+            : `⚠ Phone cameras need a secure (https) connection.<br>` +
+              `On your computer run <b>python serve_phone.py</b>, then open the ` +
+              `<b>https://</b> address it prints (tap “Advanced → Proceed” once). ` +
+              `Plain http://${host} is blocked by the browser.`);
         return;
     }
     try {
