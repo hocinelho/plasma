@@ -276,6 +276,16 @@
         }
         #track-toggle.show { display: inline-flex; }
         #track-toggle input { accent-color: var(--accent); cursor: pointer; }
+        #phone-cam-link {
+            font-size: 0.82em;
+            color: var(--muted);
+            text-decoration: none;
+            border: 1px solid rgba(120,180,255,0.2);
+            border-radius: 999px;
+            padding: 4px 12px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        #phone-cam-link:hover { color: var(--accent); border-color: var(--accent); }
         .vision-status {
             font-size: 0.85em;
             opacity: 0.75;
@@ -477,6 +487,7 @@
             <video id="vision-video" autoplay playsinline muted></video>
             <canvas id="vision-overlay"></canvas>
         </div>
+        <a id="phone-cam-link" href="/camera" title="Open the camera page on your phone">📱 Use your phone's camera →</a>
     </div>
 
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->

@@ -208,11 +208,20 @@ Files: `backend/modules/vision/perception.py` (MediaPipe face+hand),
 
 ---
 
-## 📋 Not started (next features)
+## 📱 Phone camera page (NEW)
 
-- **Phone camera** — ✅ groundwork done: `/ws/perception-input` + `/vision/perceive`
-  are camera-source agnostic; a phone hitting the browser UI already streams its
-  own camera. Still to do: a dedicated mobile-friendly page.
+`GET /camera` (`frontend/camera.html`) — a dedicated **mobile-friendly** page:
+full-screen camera stage, big touch controls, **front/back camera flip** (back by
+default for objects, front mirrors for selfie/face), and a **🎯 Track** toggle
+that draws smooth interpolated boxes. Streams to the same `/ws/perception-input`,
+so it gets faces, gestures, identity *and* object tracking with no extra backend.
+Linked from the desktop UI ("📱 Use your phone's camera →").
+
+> Phones block `getUserMedia` on plain `http://` (non-secure origin). The page
+> detects this and tells the user to use **https://** (or a tunnel). On localhost
+> it works directly.
+
+## 📋 Not started (next features)
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **JARVIS avatar + living UI** — ✅ shipped: a pseudo-**3D glass-node sphere**
   in `frontend/index.html`. Nodes sit on a rotating Fibonacci sphere

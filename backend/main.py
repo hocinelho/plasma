@@ -157,6 +157,15 @@ async def setup_page():
     return JSONResponse({"error": "setup.html not found"}, status_code=404)
 
 
+@app.get("/camera")
+async def camera_page():
+    """Serve the mobile-friendly phone-camera page (streams to perception WS)."""
+    html_path = Path(__file__).resolve().parents[1] / "frontend" / "camera.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    return JSONResponse({"error": "camera.html not found"}, status_code=404)
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
