@@ -150,6 +150,19 @@ class Config:
     # In always-on tracking, run identity at most once per this many seconds.
     FACE_ID_INTERVAL_S: float = float(os.getenv("FACE_ID_INTERVAL_S", "3.0"))
 
+    # --- Real-time object tracking (MediaPipe EfficientDet + SORT-lite tracker) ---
+    # Detects objects per frame (existing Apache-2.0 detector) and assigns
+    # PERSISTENT track IDs across frames so Plasma can follow things on the live
+    # "Watch me" feed and draw boxes. Pure-Python tracker — no AGPL, no new deps.
+    # Opt-in per stream (the browser sends track:true), so zero cost when off.
+    TRACK_ENABLED: bool = os.getenv("TRACK_ENABLED", "true").lower() == "true"
+    # Detection confidence floor (0..1) — lower = more boxes, more noise.
+    TRACK_CONF: float = float(os.getenv("TRACK_CONF", "0.4"))
+    # Run detection at most this many times/sec in always-on (tracker fills gaps).
+    TRACK_FPS: float = float(os.getenv("TRACK_FPS", "4"))
+    # Drop a track after it's been unseen for this many detection cycles.
+    TRACK_MAX_AGE: int = int(os.getenv("TRACK_MAX_AGE", "8"))
+
     # --- LocateAnything open-vocabulary detection — 3-tier backend ---
     # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.
     #   Uses CLOUD_MODEL by default. Override with LOCATE_CLOUD_MODEL to pick a

@@ -25,9 +25,80 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import time
+
 from backend.core.http_client import post as http_post
 
 log = logging.getLogger("plasma.skill.locate")
+
+# ── Annotated-frame side channel ──────────────────────────────────────────────
+# When locate can pin the object to a box (via the on-board EfficientDet
+# detector, Apache 2.0), it draws that box on the captured frame and stashes the
+# path here. /voice/chat and /chat pop it and ship the image to the UI, so the
+# user *sees* exactly where their thing is — while the spoken reply stays clean
+# text (no URL read aloud).
+_last_annotated: dict = {"path": None, "ts": 0.0}
+
+
+def _set_last_annotated(path: str) -> None:
+    _last_annotated["path"] = path
+    _last_annotated["ts"] = time.monotonic()
+
+
+def pop_last_annotated(max_age_s: float = 30.0) -> str | None:
+    """Return (once) the most recent annotated frame path if it's fresh."""
+    path = _last_annotated["path"]
+    if path and (time.monotonic() - _last_annotated["ts"]) <= max_age_s:
+        _last_annotated["path"] = None
+        return path
+    return None
+
+
+def _annotate_object(frame, obj: str) -> str | None:
+    """Detect ``obj`` in ``frame`` and, if found, draw its box and save a JPEG.
+
+    Uses the already-shipped MediaPipe EfficientDet detector (offline, 80 common
+    classes). Returns the saved path, or None if the object class isn't found
+    (the text answer from the vision tiers still stands).
+    """
+    try:
+        import cv2
+        from backend.modules.vision.detector import get_detector
+        dets = get_detector().detect(frame)
+    except Exception as e:  # detector/opencv missing → just skip the box
+        log.debug("locate annotate: detector unavailable: %s", e)
+        return None
+
+    obj_l = obj.lower()
+    obj_words = [w for w in re.split(r"\s+", obj_l) if len(w) > 2]
+
+    def _matches(label: str) -> bool:
+        label = label.lower()
+        if obj_l in label or label in obj_l:
+            return True
+        return any(w in label or label in w for w in obj_words)
+
+    match = next((d for d in dets if _matches(d.get("label", ""))), None)
+    if not match:
+        return None
+
+    try:
+        x, y, w, h = (int(v) for v in match["box"])
+        color = (138, 230, 74)  # BGR — Plasma green
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
+        cap = f"{match['label']} {int(match.get('score', 0) * 100)}%"
+        cv2.putText(frame, cap, (x, max(20, y - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+        from backend.core.config import config
+        out = Path(config.PLASMA_DIR) / "locate_last.jpg"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out), frame)
+        log.info("locate: annotated %s at [%d,%d,%d,%d] → %s",
+                 match["label"], x, y, w, h, out)
+        return str(out)
+    except Exception as e:
+        log.debug("locate annotate: draw/save failed: %s", e)
+        return None
 
 META = {
     "name": "locate",
@@ -467,6 +538,15 @@ def run(args: dict | None = None) -> str:
         )
     except Exception as e:
         return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
+
+    # Try to pin the object to a box on the captured frame (offline detector).
+    # Draw on a copy so the JPEG already written for the vision tiers is untouched.
+    try:
+        annotated = _annotate_object(frame.copy(), obj)
+        if annotated:
+            _set_last_annotated(annotated)
+    except Exception as e:
+        log.debug("locate: annotation step skipped: %s", e)
 
     last_err = None
     try:

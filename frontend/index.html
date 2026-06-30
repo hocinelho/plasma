@@ -265,20 +265,45 @@
             font-size: 0.95em;
         }
         #vision-btn.active { background: var(--accent); color: #000; }
+        #track-toggle {
+            display: none;            /* shown only while watching */
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85em;
+            color: var(--muted);
+            cursor: pointer;
+            user-select: none;
+        }
+        #track-toggle.show { display: inline-flex; }
+        #track-toggle input { accent-color: var(--accent); cursor: pointer; }
         .vision-status {
             font-size: 0.85em;
             opacity: 0.75;
             min-height: 1.2em;
             text-align: center;
         }
-        #vision-video {
+        /* video + box-overlay share one positioned stage so boxes line up */
+        #vision-stage {
+            position: relative;
             width: 220px;
             max-width: 70%;
-            border-radius: 10px;
             display: none;
+        }
+        #vision-stage.live { display: block; }
+        #vision-video {
+            width: 100%;
+            border-radius: 10px;
+            display: block;
             transform: scaleX(-1); /* mirror like a selfie */
         }
-        #vision-video.live { display: block; }
+        #vision-overlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            transform: scaleX(-1); /* match the mirrored video */
+        }
 
         /* ── Proactive alert toast ─────────────────────────── */
         #alert-toast {
@@ -381,6 +406,14 @@
         .turn.error     .role,
         .turn.error  .content { color: var(--accent-hot); }
         .turn .content { white-space: pre-wrap; }
+        .turn-image {
+            margin-top: 6px;
+            max-width: 100%;
+            border-radius: 10px;
+            border: 1px solid rgba(120,180,255,0.25);
+            box-shadow: 0 0 18px rgba(74,158,255,0.18);
+            display: block;
+        }
 
         .empty-hint {
             color: var(--muted);
@@ -433,11 +466,17 @@
         <canvas id="waveform"></canvas>
     </div>
 
-    <!-- Vision: face expression + hand gestures (MediaPipe, browser-driven) -->
+    <!-- Vision: face expression + hand gestures + object tracking (browser-driven) -->
     <div id="vision-panel">
         <button id="vision-btn" title="Let Plasma watch you through the camera">👁 Watch me</button>
+        <label id="track-toggle" title="Detect &amp; track objects in real time, drawing boxes on the feed">
+            <input type="checkbox" id="track-check"> 🎯 Track objects
+        </label>
         <div id="vision-status" class="vision-status">vision off</div>
-        <video id="vision-video" autoplay playsinline muted></video>
+        <div id="vision-stage">
+            <video id="vision-video" autoplay playsinline muted></video>
+            <canvas id="vision-overlay"></canvas>
+        </div>
     </div>
 
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
@@ -793,6 +832,25 @@ function addTurn(role, content) {
     logEl.scrollTop = logEl.scrollHeight;
 }
 
+// Render an annotated camera frame (e.g. "find my X" with a box drawn on it).
+function addImageTurn(b64) {
+    document.getElementById('empty-hint')?.remove();
+    const div = document.createElement('div');
+    div.className = 'turn assistant';
+    div.innerHTML =
+        `<div class="turn-meta">` +
+            `<span class="role">assistant</span>` +
+            `<span class="ts">${nowStr()}</span>` +
+        `</div>`;
+    const img = document.createElement('img');
+    img.className = 'turn-image';
+    img.src = 'data:image/jpeg;base64,' + b64;
+    img.alt = 'annotated camera view';
+    div.appendChild(img);
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
 clearBtn.addEventListener('click', () => {
     logEl.innerHTML = '<div class="empty-hint" id="empty-hint">Say something to start…</div>';
 });
@@ -895,6 +953,7 @@ async function sendAudio(blob) {
         const data = await r.json();
         if (data.transcript) addTurn('user', data.transcript);
         if (data.reply)      addTurn('assistant', data.reply);
+        if (data.image_b64)  addImageTurn(data.image_b64);
         if (data.error && !data.transcript) addTurn('error', data.error);
         if (data.audio_b64) {
             setStatus('speaking');
@@ -1027,15 +1086,66 @@ connectAlertSocket();
 // The button owns the camera (works on PC and phone). Frames stream to the
 // server at a low FPS; perception runs server-side. Toggling off stops the
 // camera and the socket, so there's zero cost when not watching.
-const visionBtn    = document.getElementById('vision-btn');
-const visionStatus = document.getElementById('vision-status');
-const visionVideo  = document.getElementById('vision-video');
+const visionBtn     = document.getElementById('vision-btn');
+const visionStatus  = document.getElementById('vision-status');
+const visionVideo   = document.getElementById('vision-video');
+const visionStage   = document.getElementById('vision-stage');
+const visionOverlay = document.getElementById('vision-overlay');
+const trackToggle   = document.getElementById('track-toggle');
+const trackCheck    = document.getElementById('track-check');
 let visionOn = false;
 let visionStream = null;
 let visionWS = null;
 let visionTimer = null;
 let visionCanvas = null;
 const VISION_FPS = 6;
+
+// Persistent colour per track id so a tracked object keeps its box colour.
+const trackColors = {};
+function colorFor(id) {
+    if (!trackColors[id]) {
+        const hue = (id * 67) % 360;          // spread ids around the wheel
+        trackColors[id] = `hsl(${hue}, 90%, 60%)`;
+    }
+    return trackColors[id];
+}
+
+function drawBoxes(objects, fw, fh) {
+    const ctx = visionOverlay.getContext('2d');
+    // Size the overlay buffer to the displayed video, once known.
+    const dw = visionVideo.clientWidth, dh = visionVideo.clientHeight;
+    if (visionOverlay.width !== dw || visionOverlay.height !== dh) {
+        visionOverlay.width = dw; visionOverlay.height = dh;
+    }
+    ctx.clearRect(0, 0, dw, dh);
+    if (!objects || !objects.length || !fw || !fh) return;
+    const sx = dw / fw, sy = dh / fh;
+    ctx.lineWidth = 2;
+    ctx.font = '600 13px -apple-system, Segoe UI, sans-serif';
+    ctx.textBaseline = 'bottom';
+    for (const o of objects) {
+        const [x, y, w, h] = o.box;
+        const c = colorFor(o.id);
+        ctx.strokeStyle = c;
+        ctx.shadowColor = c; ctx.shadowBlur = 8;
+        ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+        ctx.shadowBlur = 0;
+        // Label is drawn un-mirrored: the overlay is flipped via CSS, so flip
+        // the text back so it reads correctly to the user.
+        const arrow = o.direction ? ({left:'←',right:'→',up:'↑',down:'↓'}[o.direction] || '') : '';
+        const label = `${o.label} #${o.id} ${arrow}`.trim();
+        ctx.save();
+        ctx.scale(-1, 1);
+        const tx = -(x * sx + w * sx);     // mirror the x origin
+        const ty = Math.max(13, y * sy - 3);
+        ctx.fillStyle = c;
+        const tw = ctx.measureText(label).width + 8;
+        ctx.fillRect(tx, ty - 15, tw, 16);
+        ctx.fillStyle = '#000';
+        ctx.fillText(label, tx + 4, ty);
+        ctx.restore();
+    }
+}
 
 async function startVision() {
     try {
@@ -1046,7 +1156,8 @@ async function startVision() {
         return;
     }
     visionVideo.srcObject = visionStream;
-    visionVideo.classList.add('live');
+    visionStage.classList.add('live');
+    trackToggle.classList.add('show');
     visionCanvas = document.createElement('canvas');
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -1061,7 +1172,13 @@ async function startVision() {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'perception') {
                 const who = msg.identity ? `${msg.identity}: ` : '';
-                visionStatus.textContent = who + (msg.summary || '…');
+                let line = who + (msg.summary || '…');
+                if (trackCheck.checked && msg.objects && msg.objects.length) {
+                    const names = msg.objects.map(o => `${o.label} #${o.id}`).join(', ');
+                    line += ` · 🎯 ${names}`;
+                }
+                visionStatus.textContent = line;
+                if (trackCheck.checked) drawBoxes(msg.objects, msg.frame_w, msg.frame_h);
             } else if (msg.type === 'error') {
                 visionStatus.textContent = '⚠ ' + msg.message;
             }
@@ -1078,7 +1195,9 @@ function sendVisionFrame() {
     visionCanvas.height = visionVideo.videoHeight;
     visionCanvas.getContext('2d').drawImage(visionVideo, 0, 0);
     const b64 = visionCanvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-    visionWS.send(JSON.stringify({ frame: b64, language: 'en', identify: true }));
+    visionWS.send(JSON.stringify({
+        frame: b64, language: 'en', identify: true, track: trackCheck.checked,
+    }));
 }
 
 function stopVision() {
@@ -1086,9 +1205,20 @@ function stopVision() {
     if (visionWS) { try { visionWS.close(); } catch (e) {} visionWS = null; }
     if (visionStream) { visionStream.getTracks().forEach(t => t.stop()); visionStream = null; }
     visionVideo.srcObject = null;
-    visionVideo.classList.remove('live');
+    visionStage.classList.remove('live');
+    trackToggle.classList.remove('show');
+    const ctx = visionOverlay.getContext('2d');
+    ctx.clearRect(0, 0, visionOverlay.width, visionOverlay.height);
     visionStatus.textContent = 'vision off';
 }
+
+// Clear boxes immediately when tracking is switched off mid-stream.
+trackCheck.addEventListener('change', () => {
+    if (!trackCheck.checked) {
+        const ctx = visionOverlay.getContext('2d');
+        ctx.clearRect(0, 0, visionOverlay.width, visionOverlay.height);
+    }
+});
 
 visionBtn.addEventListener('click', () => {
     visionOn = !visionOn;

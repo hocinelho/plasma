@@ -152,9 +152,53 @@ headless-Chromium full-page + close-up screenshots.
 
 ---
 
+## 7. Real-time object tracking (from the forked repos)
+
+Researched three of the user's repos and integrated the highest-value feature:
+
+- **locate-anything.cpp** — NVIDIA LocateAnything-3B ported to C++/ggml. Accurate
+  open-vocab boxes, CPU-friendly, single-image. = Plasma's accurate locate tier.
+- **VLM-AutoYOLO** — LocateAnything auto-label → SAM2/SAM3 → train YOLO. Heavy
+  (12 GB VRAM, AGPL, Postgres). Documented as power-user "train your own object".
+- **Handy-speech** — offline STT (Silero VAD, Parakeet V3, dictionary). Mostly
+  already covered by Plasma.
+
+**Built:** real-time object **tracking** — the gap all three pointed at. Plasma
+already *detects* objects (MediaPipe EfficientDet); added the tracking layer:
+- `backend/modules/vision/tracker.py` — pure-Python SORT-lite: IoU matching →
+  **persistent track IDs**, velocity/direction, retire-after-max-age. No new deps.
+- **Judgment call:** VLM-AutoYOLO uses Ultralytics YOLO (**AGPL-3.0**); Plasma's
+  `detector.py` explicitly avoids AGPL. So we track on top of the Apache-2.0
+  detector instead of bolting on AGPL YOLO — same outcome, license-clean.
+- Wired into `/ws/perception-input` (opt-in `track:true`, throttled to `TRACK_FPS`).
+- Frontend: **🎯 Track objects** toggle draws coloured boxes + `label #id →` over
+  the live camera feed (overlay canvas, mirror-corrected labels).
+- Config: `TRACK_ENABLED/CONF/FPS/MAX_AGE`. Tests: `tests/test_vision_tracker.py` (10).
+
+---
+
+## 8. Box on "find my X" — annotated frame in the chat
+
+When you say "find my keys/bottle/phone", Plasma now draws the **bounding box**
+on the captured frame and shows that image inline in the conversation, while the
+spoken reply stays clean text.
+
+- `locate.py` `_annotate_object()` runs the already-shipped MediaPipe EfficientDet
+  detector (offline, Apache 2.0) on the captured frame; if the object class is
+  found it draws a green box + label, saves `.plasma/locate_last.jpg`, and stashes
+  the path via a `_set_last_annotated` / `pop_last_annotated` side channel.
+- `/voice/chat` pops the path and returns it as `image_b64`; the frontend
+  `addImageTurn()` renders it (with a glowing border) in the chat log.
+- Objects outside EfficientDet's 80 classes still get the text answer from the
+  vision tiers; locate-anything.cpp's precise boxes can feed the same channel later.
+- Tests: 4 added to `tests/test_locate_and_imagegen.py` (side channel + match/no-match).
+
+---
+
 ## Next (not started)
 
 - **Phone camera page** — backend is camera-agnostic; needs a mobile-friendly UI.
+- **Train-your-own-object** — auto-label your specific keys/wallet, track in real time.
 - **Demo video** for README (PA-86).
 
 ---
