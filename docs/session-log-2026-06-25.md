@@ -117,17 +117,23 @@ After the first cold start, identity is instant (TF stays cached in-process).
 | Face identity | ✅ working |
 | Proactive greet + sleepy alert | ✅ shipped (non-blocking identity fix in) |
 
-## 6. Talking avatar (lip-sync)
+## 6. JARVIS avatar — neural-network galaxy
 
-SVG Plasma face in `frontend/index.html`, above the status bar:
-- **idle** → gentle breathing glow
-- **listening** → brightens (hot accent), eyes widen
-- **thinking** → eyes glance side to side
-- **speaking** → mouth **lip-syncs to the live TTS audio amplitude** via a Web
-  Audio AnalyserNode; works for both spoken replies and proactive alerts.
+Canvas avatar in `frontend/index.html`, above the status bar. A swarm of
+"neurons" orbits the centre like a galaxy disk (inner ones spin faster →
+real swirl), nearby neurons link into a shifting neural net, and colours flow
+continuously. The whole thing **pulses live with the TTS voice** — the lip-sync
+Web Audio analyser feeds `avatarLevel` (0..1), which drives node size, link
+density, glow, and orbit speed.
 
-Respects `prefers-reduced-motion`. Falls back to plain playback if Web Audio
-is unavailable.
+Per-state palette + motion:
+- **idle** → blue→violet, slow calm swirl
+- **listening** → magenta, faster spin
+- **thinking** → teal, medium
+- **speaking** → full-spectrum, pulses with the voice (replies + proactive alerts)
+
+Respects `prefers-reduced-motion` (fewer nodes, no extra motion). Verified by
+headless-Chromium screenshots of all four states.
 
 ---
 
