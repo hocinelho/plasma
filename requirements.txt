@@ -31,8 +31,10 @@ spotipy>=2.25.0
 # Plasma works fine without it (speaker ID silently disabled).
 
 # --- Vision: object detection + face/hand perception (MediaPipe, Apache 2.0) ---
-# Powers "find my X", finger counting, gestures (victory/thumbs up), and face
-# expression (smile/sleepy/wink). Runs on CPU; models auto-download (~16 MB).
+# Powers "find my X", finger counting, gestures (victory/thumbs up), face
+# expression (smile/sleepy/wink), AND real-time object tracking (EfficientDet +
+# a pure-Python SORT-lite tracker — persistent IDs, boxes on the live feed; no
+# AGPL, no extra deps). Runs on CPU; models auto-download (~16 MB).
 mediapipe>=0.10.14
 opencv-python>=4.10.0
 

@@ -143,8 +143,41 @@ to once per `FACE_ID_INTERVAL_S` so it never eats CPU.
 |-------|---------|
 | `POST /vision/perceive` | base64 image → expression + gestures + finger count |
 | `POST /api/face/enroll` | base64 image + name → learn a face |
-| `GET /api/perception/status` | deps available + enrolled people |
-| `WS /ws/perception-input` | stream device-camera frames → live perception |
+| `GET /api/perception/status` | deps available + enrolled people + tracking |
+| `WS /ws/perception-input` | stream device-camera frames → live perception + object tracking |
+
+---
+
+## 🎯 Real-time object tracking (NEW)
+
+The "Watch me" feed can now **track objects with persistent IDs** and draw boxes
+live. Tick **🎯 Track objects**; Plasma detects objects each frame and follows
+each one with a stable id (e.g. `bottle #3 →` as it moves right).
+
+| Layer | Backend | License |
+|-------|---------|---------|
+| Detection (80 classes) | MediaPipe EfficientDet-Lite0 (already shipped) | Apache 2.0 |
+| Tracking (persistent IDs) | `backend/modules/vision/tracker.py` — pure-Python SORT-lite (IoU matching) | MIT (ours) |
+
+**Why not Ultralytics YOLO + ByteTrack (as VLM-AutoYOLO uses)?** Ultralytics is
+**AGPL-3.0**; Plasma deliberately stays Apache/MIT (see `detector.py`). A classic
+SORT-style IoU tracker gives persistent IDs with **zero new dependencies and no
+license entanglement**, runs in microseconds, and rides on the detector we
+already ship. Opt-in per stream (`track:true`) → zero cost when off. Throttled to
+`TRACK_FPS`; the tracker keeps IDs stable between detection cycles.
+
+Config: `TRACK_ENABLED` (true), `TRACK_CONF` (0.4), `TRACK_FPS` (4), `TRACK_MAX_AGE` (8).
+
+### Where the forked repos fit
+- **locate-anything.cpp** (NVIDIA LocateAnything-3B → C++/ggml): the *accurate,
+  open-vocabulary* "find my X" tier (precise boxes, single-image, CPU-friendly
+  q4_k ~4.7 GB). Already Plasma's locate tier 3.
+- **VLM-AutoYOLO**: auto-label (LocateAnything) → SAM2/SAM3 masks → train a
+  custom YOLO for *your* objects. Heavy (12 GB VRAM, AGPL, Postgres) — documented
+  as a power-user path to make a real-time model of your specific keys/wallet,
+  not bundled.
+- **Handy-speech**: offline STT (Silero VAD, Parakeet V3, dictionary). Plasma
+  already covers most of this; Parakeet/dictionary are future nice-to-haves.
 
 ### Setup
 ```ini

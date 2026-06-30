@@ -795,10 +795,13 @@ async def perception_status():
         import mediapipe  # noqa: F401
     except Exception:
         mp_ok = False
+    from backend.modules.vision import tracker
     return {
         "mediapipe": mp_ok,
         "face_id": face_id.is_available(),
         "people": face_id.list_people(),
+        "object_tracking": tracker.is_available(),
+        "track_fps": plasma_config.TRACK_FPS,
         "default_fps": plasma_config.PERCEPTION_FPS,
         "enabled_at_boot": plasma_config.PERCEPTION_ENABLED,
     }
@@ -839,6 +842,11 @@ async def websocket_perception_input(ws: WebSocket):
     # Running identify() as a fire-and-forget task keeps frames flowing
     # while TF initialises; we collect the result on the next iteration.
     _identify_task: asyncio.Task | None = None
+
+    # ── object tracking state ─────────────────────────────────────────────
+    last_track_t = 0.0
+    cached_objects: list = []          # last reported tracks (boxes + ids)
+    track_interval = 1.0 / max(0.5, plasma_config.TRACK_FPS)
 
     try:
         from backend.modules.vision.capture import decode_frame_bytes
@@ -911,11 +919,35 @@ async def websocket_perception_input(ws: WebSocket):
                 else:
                     sleepy_frames = 0
 
+                # ── object detection + tracking (opt-in via track:true) ────
+                # Throttled to TRACK_FPS so it never competes with face/hand
+                # work; the tracker keeps stable IDs between detection cycles.
+                if data.get("track") and plasma_config.TRACK_ENABLED:
+                    now = time.monotonic()
+                    if now - last_track_t >= track_interval:
+                        last_track_t = now
+                        try:
+                            from backend.modules.vision.detector import get_detector
+                            from backend.modules.vision.tracker import get_tracker
+                            dets = await asyncio.to_thread(get_detector().detect, frame)
+                            dets = [d for d in dets if d.get("score", 1.0) >= plasma_config.TRACK_CONF]
+                            cached_objects = get_tracker().update(dets)
+                        except Exception as _te:
+                            log.debug("tracking step error: %s", _te)
+
+                try:
+                    fh, fw = int(frame.shape[0]), int(frame.shape[1])
+                except Exception:
+                    fw = fh = 0
+
                 await ws.send_json({
                     "type": "perception",
                     "perception": perception,
                     "summary": summarize(perception, de),
                     "identity": cached_identity,
+                    "objects": cached_objects,
+                    "frame_w": fw,
+                    "frame_h": fh,
                 })
             except WebSocketDisconnect:
                 raise
