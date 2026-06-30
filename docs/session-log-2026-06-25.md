@@ -117,10 +117,23 @@ After the first cold start, identity is instant (TF stays cached in-process).
 | Face identity | ✅ working |
 | Proactive greet + sleepy alert | ✅ shipped (non-blocking identity fix in) |
 
+## 6. Talking avatar (lip-sync)
+
+SVG Plasma face in `frontend/index.html`, above the status bar:
+- **idle** → gentle breathing glow
+- **listening** → brightens (hot accent), eyes widen
+- **thinking** → eyes glance side to side
+- **speaking** → mouth **lip-syncs to the live TTS audio amplitude** via a Web
+  Audio AnalyserNode; works for both spoken replies and proactive alerts.
+
+Respects `prefers-reduced-motion`. Falls back to plain playback if Web Audio
+is unavailable.
+
+---
+
 ## Next (not started)
 
 - **Phone camera page** — backend is camera-agnostic; needs a mobile-friendly UI.
-- **Talking avatar** — animated Plasma icon with lip-sync.
 - **Demo video** for README (PA-86).
 
 ---

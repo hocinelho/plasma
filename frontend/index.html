@@ -76,6 +76,64 @@
             margin-bottom: 20px;
         }
 
+        /* ── Talking avatar ─────────────────────────────────── */
+        #avatar-wrap {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 16px;
+        }
+        #avatar {
+            width: 96px;
+            height: 96px;
+            filter: drop-shadow(0 0 10px var(--accent));
+            transition: filter 0.3s, transform 0.3s;
+        }
+        #avatar .orb {
+            fill: var(--panel);
+            stroke: var(--accent);
+            stroke-width: 2;
+        }
+        #avatar .eye {
+            fill: var(--accent);
+            transition: transform 0.15s;
+            transform-origin: center;
+        }
+        #avatar .mouth {
+            fill: none;
+            stroke: var(--accent);
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            /* scaleY is driven live by audio amplitude during speech */
+            transform-origin: 48px 64px;
+            transform: scaleY(0.12);
+            transition: transform 0.08s ease-out;
+        }
+        /* idle: gentle breathing glow */
+        #avatar.idle { animation: avatar-breathe 3.2s ease-in-out infinite; }
+        @keyframes avatar-breathe {
+            0%, 100% { filter: drop-shadow(0 0 6px var(--accent)); transform: scale(1); }
+            50%      { filter: drop-shadow(0 0 14px var(--accent)); transform: scale(1.03); }
+        }
+        /* listening: brighter, eyes widen */
+        #avatar.listening { filter: drop-shadow(0 0 16px var(--accent-hot)); }
+        #avatar.listening .orb { stroke: var(--accent-hot); }
+        #avatar.listening .eye { fill: var(--accent-hot); transform: scaleY(1.25); }
+        /* thinking: eyes glance side to side */
+        #avatar.thinking .eye { animation: avatar-think 1.1s ease-in-out infinite; }
+        @keyframes avatar-think {
+            0%, 100% { transform: translateX(-2px); }
+            50%      { transform: translateX(2px); }
+        }
+        /* speaking: warm glow (mouth handled live by JS) */
+        #avatar.speaking { filter: drop-shadow(0 0 16px var(--ok)); }
+        #avatar.speaking .orb,
+        #avatar.speaking .mouth { stroke: var(--ok); }
+        #avatar.speaking .eye { fill: var(--ok); }
+
+        @media (prefers-reduced-motion: reduce) {
+            #avatar, #avatar * { animation: none !important; }
+        }
+
         /* PA-71: theme toggle ──────────────────────────────── */
         #theme-btn {
             position: absolute;
@@ -364,6 +422,16 @@
     </div>
     <div class="subtitle">local-first voice assistant</div>
 
+    <!-- Talking avatar — Plasma's face. Mouth lip-syncs to TTS audio. -->
+    <div id="avatar-wrap">
+        <svg id="avatar" class="idle" viewBox="0 0 96 96" aria-hidden="true">
+            <circle class="orb" cx="48" cy="48" r="42"/>
+            <circle class="eye" cx="36" cy="40" r="5"/>
+            <circle class="eye" cx="60" cy="40" r="5"/>
+            <path class="mouth" d="M 34 64 Q 48 64 62 64"/>
+        </svg>
+    </div>
+
     <!-- PA-39: status indicator -->
     <div id="status-bar" class="">
         <span class="dot"></span>
@@ -440,6 +508,9 @@ if (isTouchPrimary) {
 }
 
 // ── PA-39: status ─────────────────────────────────────────
+const avatarEl    = document.getElementById('avatar');
+const avatarMouth = avatarEl.querySelector('.mouth');
+
 function setStatus(state) {
     const map = {
         idle:      { cls: 'idle',      label: 'idle' },
@@ -451,6 +522,8 @@ function setStatus(state) {
     const s = map[state] || map.idle;
     statusBar.className = s.cls;
     statusBar.querySelector('.label').textContent = s.label;
+    // Avatar mirrors the status (error falls back to idle face).
+    avatarEl.className = (state === 'error') ? 'idle' : s.cls;
 }
 
 // ── PA-37: waveform ───────────────────────────────────────
@@ -551,21 +624,60 @@ async function initMic() {
     }
 }
 
+// Lip-sync: route playback audio through a Web Audio analyser and drive the
+// avatar mouth's vertical scale from the live amplitude. Falls back silently
+// to plain playback if Web Audio isn't available.
+let speakRaf = null;
+
+function startLipSync(audioEl) {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const src = audioCtx.createMediaElementSource(audioEl);
+        const lipAnalyser = audioCtx.createAnalyser();
+        lipAnalyser.fftSize = 256;
+        src.connect(lipAnalyser);
+        lipAnalyser.connect(audioCtx.destination);
+        const buf = new Uint8Array(lipAnalyser.frequencyBinCount);
+        const tick = () => {
+            lipAnalyser.getByteFrequencyData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) sum += buf[i];
+            const level = sum / buf.length / 255;           // 0..1 average energy
+            const open = Math.min(1, 0.12 + level * 3.2);   // map to mouth openness
+            avatarMouth.style.transform = `scaleY(${open.toFixed(3)})`;
+            speakRaf = requestAnimationFrame(tick);
+        };
+        tick();
+    } catch (e) {
+        // createMediaElementSource can throw if the element was already routed;
+        // just skip lip-sync, audio still plays via the element itself.
+        console.debug('[lipsync] disabled:', e.message);
+    }
+}
+
+function stopLipSync() {
+    if (speakRaf) { cancelAnimationFrame(speakRaf); speakRaf = null; }
+    avatarMouth.style.transform = 'scaleY(0.12)';
+}
+
 function playBase64Audio(b64) {
     return new Promise((resolve) => {
         if (!b64) { resolve(); return; }
+        const finish = () => { stopLipSync(); resolve(); };
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
-            audio.onended = resolve;
+            audio.crossOrigin = 'anonymous';
+            audio.onended = finish;
             audio.onerror = () => {
                 addTurn('error', 'Audio playback failed (browser blocked autoplay?)');
-                resolve();
+                finish();
             };
-            audio.play().catch(() => {
+            audio.play().then(() => startLipSync(audio)).catch(() => {
                 addTurn('error', 'Audio autoplay blocked — tap the page once, then retry.');
-                resolve();
+                finish();
             });
-        } catch (e) { console.error(e); resolve(); }
+        } catch (e) { console.error(e); finish(); }
     });
 }
 
@@ -695,7 +807,12 @@ function connectAlertSocket() {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'alert') {
                 if (msg.text) showAlertToast(msg.text);
-                if (msg.audio_b64) await playBase64Audio(msg.audio_b64);
+                if (msg.audio_b64 && !isBusy && !isRecording) {
+                    // Proactive speech: show the speaking face, then restore.
+                    avatarEl.className = 'speaking';
+                    await playBase64Audio(msg.audio_b64);
+                    avatarEl.className = 'idle';
+                }
             }
         } catch (e) { console.warn('[alerts] bad message', ev.data); }
     };
