@@ -28,7 +28,23 @@ def _find_project_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _make_console_unicode_safe() -> None:
+    """Stop Windows consoles from raising on Unicode log output.
+
+    Some Windows terminals use a legacy code page; uvicorn's coloured records
+    then trigger '--- Logging error ---'. Reconfiguring the streams to UTF-8 with
+    errors='replace' makes every handler tolerant. No-op on platforms that don't
+    need it.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
 def main() -> None:
+    _make_console_unicode_safe()
     root = _find_project_root()
     os.environ.setdefault("PLASMA_PROJECT_ROOT", str(root))
     if not getattr(sys, "frozen", False):
@@ -59,6 +75,7 @@ def main() -> None:
         port=port,
         log_level="info",
         reload=False,
+        use_colors=False,   # avoid ANSI colour codes that break legacy consoles
         ssl_certfile=str(cert_path),
         ssl_keyfile=str(key_path),
     )
