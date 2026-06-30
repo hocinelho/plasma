@@ -135,6 +135,21 @@ Per-state palette + motion:
 Respects `prefers-reduced-motion` (fewer nodes, no extra motion). Verified by
 headless-Chromium screenshots of all four states.
 
+### 6b. High-quality glow overhaul (reference-inspired)
+
+Upgraded the whole frontend to a premium sci-fi look (from user reference art):
+- **Avatar v2** — pseudo-**3D glass-node sphere**: nodes on a rotating Fibonacci
+  sphere, perspective-projected and depth-sorted; glassy bodies with specular
+  highlights; **fibre-optic light ribbons** (cyan/magenta/orange/violet) flowing
+  through; **bokeh depth orbs** behind. Additive (`lighter`) compositing for glow.
+- **Living backdrop** (`#bg-canvas`) — full-screen drifting bokeh + flowing light
+  streams behind all content; deep-space nebula gradient on `body`.
+- **Glassmorphism chrome** — talk button, waveform, and conversation log get
+  translucent `backdrop-filter` blur, glowing borders, and neon shadows.
+
+All canvas; no libraries. Respects `prefers-reduced-motion`. Verified with
+headless-Chromium full-page + close-up screenshots.
+
 ---
 
 ## Next (not started)
