@@ -51,20 +51,27 @@ def _center(box: list[float]) -> tuple[float, float]:
 
 # ── tracker ──────────────────────────────────────────────────────────────────
 
-class Track:
-    """One tracked object with a stable id, last box, label, and bookkeeping."""
+# Exponential-smoothing weight for the reported box (0..1): higher = snappier,
+# lower = smoother but laggier. 0.5 glides nicely without feeling sluggish.
+_SMOOTH = 0.5
 
-    __slots__ = ("id", "label", "box", "score", "age", "hits", "_cx", "_cy", "vx", "vy")
+
+class Track:
+    """One tracked object: stable id, smoothed box, velocity, and bookkeeping."""
+
+    __slots__ = ("id", "label", "box", "sbox", "score", "age", "hits",
+                 "_cx", "_cy", "vx", "vy")
 
     def __init__(self, tid: int, label: str, box: list[float], score: float):
         self.id = tid
         self.label = label
-        self.box = box
+        self.box = box                 # last raw detection box
+        self.sbox = list(box)          # exponentially-smoothed box (for display)
         self.score = score
-        self.age = 0          # detection cycles since last seen (0 = seen now)
-        self.hits = 1         # total times matched
+        self.age = 0                   # cycles since last seen (0 = seen now)
+        self.hits = 1                  # total times matched
         self._cx, self._cy = _center(box)
-        self.vx = 0.0         # velocity (px/cycle), for direction reporting
+        self.vx = 0.0                  # velocity (px/cycle) of the box origin
         self.vy = 0.0
 
     def update(self, box: list[float], score: float) -> None:
@@ -72,9 +79,17 @@ class Track:
         self.vx, self.vy = cx - self._cx, cy - self._cy
         self._cx, self._cy = cx, cy
         self.box = box
+        # Smooth toward the new box so the drawn rectangle glides, not jumps.
+        self.sbox = [s + (b - s) * _SMOOTH for s, b in zip(self.sbox, box)]
         self.score = score
         self.age = 0
         self.hits += 1
+
+    def predicted_box(self) -> list[float]:
+        """Smoothed box pushed forward by velocity*age — used while coasting
+        (detection briefly missed this object) so the box keeps following it."""
+        x, y, w, h = self.sbox
+        return [x + self.vx * self.age, y + self.vy * self.age, w, h]
 
     def direction(self) -> Optional[str]:
         """Coarse motion label from the last velocity, or None if ~still."""
@@ -84,22 +99,28 @@ class Track:
             return "right" if self.vx > 0 else "left"
         return "down" if self.vy > 0 else "up"
 
-    def as_dict(self) -> dict:
+    def as_dict(self, coast: bool = False) -> dict:
+        box = self.predicted_box() if coast else self.sbox
         return {
             "id": self.id,
             "label": self.label,
-            "box": [round(v, 1) for v in self.box],
+            "box": [round(v, 1) for v in box],
             "score": round(self.score, 3),
             "direction": self.direction(),
+            "coast": coast,
         }
 
 
 class ObjectTracker:
     """SORT-lite: greedy IoU matching of detections to existing tracks."""
 
-    def __init__(self, iou_threshold: float = 0.3, max_age: int = 8):
+    def __init__(self, iou_threshold: float = 0.3, max_age: int = 8,
+                 coast_frames: int = 3):
         self.iou_threshold = iou_threshold
         self.max_age = max_age
+        # Keep reporting a track (via predicted box) for this many missed cycles
+        # so a momentary detection gap doesn't blink the box out.
+        self.coast_frames = coast_frames
         self._tracks: list[Track] = []
         self._next_id = 1
 
@@ -152,8 +173,15 @@ class ObjectTracker:
         # Retire stale tracks.
         self._tracks = [tr for tr in self._tracks if tr.age <= self.max_age]
 
-        # Report only tracks seen recently (age 0 = matched this cycle).
-        return [tr.as_dict() for tr in self._tracks if tr.age == 0]
+        # Report matched tracks AND recently-missed ones (coasting on their
+        # predicted box) so boxes stay put and keep moving without blinking.
+        out = []
+        for tr in self._tracks:
+            if tr.age == 0:
+                out.append(tr.as_dict(coast=False))
+            elif tr.age <= self.coast_frames:
+                out.append(tr.as_dict(coast=True))
+        return out
 
     @property
     def tracks(self) -> list[Track]:
@@ -194,7 +222,11 @@ def get_tracker() -> ObjectTracker:
     global _tracker
     if _tracker is None:
         from backend.core.config import config
-        _tracker = ObjectTracker(iou_threshold=0.3, max_age=config.TRACK_MAX_AGE)
+        _tracker = ObjectTracker(
+            iou_threshold=0.3,
+            max_age=config.TRACK_MAX_AGE,
+            coast_frames=config.TRACK_COAST_FRAMES,
+        )
     return _tracker
 
 

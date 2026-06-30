@@ -195,9 +195,20 @@ spoken reply stays clean text.
 
 ---
 
+## 9. Phone camera page
+
+`GET /camera` → `frontend/camera.html`: a full-screen, touch-first mobile page
+that streams the phone's camera to `/ws/perception-input` (faces, gestures,
+identity, object tracking — no new backend). Front/back camera flip (back by
+default for objects; front mirrors for selfie), a 🎯 Track toggle with the same
+smooth interpolated boxes as desktop, glass status bar, safe-area insets.
+Detects the non-secure-origin gotcha (phones block getUserMedia on plain http)
+and tells the user to use https/tunnel. Linked from the desktop UI.
+
+---
+
 ## Next (not started)
 
-- **Phone camera page** — backend is camera-agnostic; needs a mobile-friendly UI.
 - **Train-your-own-object** — auto-label your specific keys/wallet, track in real time.
 - **Demo video** for README (PA-86).
 

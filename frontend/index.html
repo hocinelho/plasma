@@ -276,6 +276,16 @@
         }
         #track-toggle.show { display: inline-flex; }
         #track-toggle input { accent-color: var(--accent); cursor: pointer; }
+        #phone-cam-link {
+            font-size: 0.82em;
+            color: var(--muted);
+            text-decoration: none;
+            border: 1px solid rgba(120,180,255,0.2);
+            border-radius: 999px;
+            padding: 4px 12px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        #phone-cam-link:hover { color: var(--accent); border-color: var(--accent); }
         .vision-status {
             font-size: 0.85em;
             opacity: 0.75;
@@ -477,6 +487,7 @@
             <video id="vision-video" autoplay playsinline muted></video>
             <canvas id="vision-overlay"></canvas>
         </div>
+        <a id="phone-cam-link" href="/camera" title="Open the camera page on your phone">📱 Use your phone's camera →</a>
     </div>
 
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
@@ -1110,41 +1121,89 @@ function colorFor(id) {
     return trackColors[id];
 }
 
-function drawBoxes(objects, fw, fh) {
+// ── Smooth, no-blink box rendering ────────────────────────────────────────
+// The server sends tracks at ~5 fps (and coasts over missed frames). The client
+// keeps a *target* box per id and glides the *displayed* box toward it every
+// animation frame (~60 fps), so boxes follow moving objects smoothly instead of
+// jumping or blinking. Targets expire after a short grace period when an object
+// truly leaves.
+let trackTargets = {};      // id → {box:[x,y,w,h], label, direction, ts}
+let trackDisplay = {};      // id → {box:[x,y,w,h]} (interpolated)
+let trackFrameW = 0, trackFrameH = 0;
+let trackRaf = null;
+const TRACK_EXPIRE_MS = 700; // hide a box this long after its last update
+const ARROWS = { left:'←', right:'→', up:'↑', down:'↓' };
+
+function updateTrackTargets(objects, fw, fh) {
+    trackFrameW = fw || trackFrameW;
+    trackFrameH = fh || trackFrameH;
+    const now = performance.now();
+    for (const o of (objects || [])) {
+        trackTargets[o.id] = {
+            box: o.box.slice(), label: o.label, direction: o.direction, ts: now,
+        };
+    }
+    if (!trackRaf) trackRaf = requestAnimationFrame(boxFrame);
+}
+
+function drawOneBox(ctx, id, box, label, direction, sx, sy) {
+    const [x, y, w, h] = box;
+    const c = colorFor(id);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = c;
+    ctx.shadowColor = c; ctx.shadowBlur = 8;
+    ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+    ctx.shadowBlur = 0;
+    // The overlay is CSS-mirrored, so flip text back to read correctly.
+    const arrow = direction ? (ARROWS[direction] || '') : '';
+    const text = `${label} #${id} ${arrow}`.trim();
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.font = '600 13px -apple-system, Segoe UI, sans-serif';
+    ctx.textBaseline = 'bottom';
+    const tx = -(x * sx + w * sx);
+    const ty = Math.max(13, y * sy - 3);
+    ctx.fillStyle = c;
+    const tw = ctx.measureText(text).width + 8;
+    ctx.fillRect(tx, ty - 15, tw, 16);
+    ctx.fillStyle = '#000';
+    ctx.fillText(text, tx + 4, ty);
+    ctx.restore();
+}
+
+function boxFrame() {
     const ctx = visionOverlay.getContext('2d');
-    // Size the overlay buffer to the displayed video, once known.
     const dw = visionVideo.clientWidth, dh = visionVideo.clientHeight;
     if (visionOverlay.width !== dw || visionOverlay.height !== dh) {
         visionOverlay.width = dw; visionOverlay.height = dh;
     }
     ctx.clearRect(0, 0, dw, dh);
-    if (!objects || !objects.length || !fw || !fh) return;
-    const sx = dw / fw, sy = dh / fh;
-    ctx.lineWidth = 2;
-    ctx.font = '600 13px -apple-system, Segoe UI, sans-serif';
-    ctx.textBaseline = 'bottom';
-    for (const o of objects) {
-        const [x, y, w, h] = o.box;
-        const c = colorFor(o.id);
-        ctx.strokeStyle = c;
-        ctx.shadowColor = c; ctx.shadowBlur = 8;
-        ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
-        ctx.shadowBlur = 0;
-        // Label is drawn un-mirrored: the overlay is flipped via CSS, so flip
-        // the text back so it reads correctly to the user.
-        const arrow = o.direction ? ({left:'←',right:'→',up:'↑',down:'↓'}[o.direction] || '') : '';
-        const label = `${o.label} #${o.id} ${arrow}`.trim();
-        ctx.save();
-        ctx.scale(-1, 1);
-        const tx = -(x * sx + w * sx);     // mirror the x origin
-        const ty = Math.max(13, y * sy - 3);
-        ctx.fillStyle = c;
-        const tw = ctx.measureText(label).width + 8;
-        ctx.fillRect(tx, ty - 15, tw, 16);
-        ctx.fillStyle = '#000';
-        ctx.fillText(label, tx + 4, ty);
-        ctx.restore();
+    const now = performance.now();
+    const sx = dw / (trackFrameW || dw), sy = dh / (trackFrameH || dh);
+    for (const id of Object.keys(trackTargets)) {
+        const tgt = trackTargets[id];
+        if (now - tgt.ts > TRACK_EXPIRE_MS) {        // object gone → drop it
+            delete trackTargets[id]; delete trackDisplay[id];
+            continue;
+        }
+        let disp = trackDisplay[id];
+        if (!disp) { disp = { box: tgt.box.slice() }; trackDisplay[id] = disp; }
+        for (let i = 0; i < 4; i++) disp.box[i] += (tgt.box[i] - disp.box[i]) * 0.3;
+        drawOneBox(ctx, id, disp.box, tgt.label, tgt.direction, sx, sy);
     }
+    if (visionOn && trackCheck.checked) {
+        trackRaf = requestAnimationFrame(boxFrame);
+    } else {
+        trackRaf = null;
+        ctx.clearRect(0, 0, dw, dh);
+    }
+}
+
+function clearBoxes() {
+    trackTargets = {}; trackDisplay = {};
+    if (trackRaf) { cancelAnimationFrame(trackRaf); trackRaf = null; }
+    const ctx = visionOverlay.getContext('2d');
+    ctx.clearRect(0, 0, visionOverlay.width, visionOverlay.height);
 }
 
 async function startVision() {
@@ -1178,7 +1237,7 @@ async function startVision() {
                     line += ` · 🎯 ${names}`;
                 }
                 visionStatus.textContent = line;
-                if (trackCheck.checked) drawBoxes(msg.objects, msg.frame_w, msg.frame_h);
+                if (trackCheck.checked) updateTrackTargets(msg.objects, msg.frame_w, msg.frame_h);
             } else if (msg.type === 'error') {
                 visionStatus.textContent = '⚠ ' + msg.message;
             }
@@ -1207,17 +1266,13 @@ function stopVision() {
     visionVideo.srcObject = null;
     visionStage.classList.remove('live');
     trackToggle.classList.remove('show');
-    const ctx = visionOverlay.getContext('2d');
-    ctx.clearRect(0, 0, visionOverlay.width, visionOverlay.height);
+    clearBoxes();
     visionStatus.textContent = 'vision off';
 }
 
 // Clear boxes immediately when tracking is switched off mid-stream.
 trackCheck.addEventListener('change', () => {
-    if (!trackCheck.checked) {
-        const ctx = visionOverlay.getContext('2d');
-        ctx.clearRect(0, 0, visionOverlay.width, visionOverlay.height);
-    }
+    if (!trackCheck.checked) clearBoxes();
 });
 
 visionBtn.addEventListener('click', () => {

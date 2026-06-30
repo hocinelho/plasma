@@ -157,11 +157,16 @@ class Config:
     # Opt-in per stream (the browser sends track:true), so zero cost when off.
     TRACK_ENABLED: bool = os.getenv("TRACK_ENABLED", "true").lower() == "true"
     # Detection confidence floor (0..1) — lower = more boxes, more noise.
-    TRACK_CONF: float = float(os.getenv("TRACK_CONF", "0.4"))
+    TRACK_CONF: float = float(os.getenv("TRACK_CONF", "0.35"))
     # Run detection at most this many times/sec in always-on (tracker fills gaps).
-    TRACK_FPS: float = float(os.getenv("TRACK_FPS", "4"))
+    TRACK_FPS: float = float(os.getenv("TRACK_FPS", "5"))
     # Drop a track after it's been unseen for this many detection cycles.
     TRACK_MAX_AGE: int = int(os.getenv("TRACK_MAX_AGE", "8"))
+    # Max objects tracked at once (EfficientDet max_results for the track path).
+    TRACK_MAX_OBJECTS: int = int(os.getenv("TRACK_MAX_OBJECTS", "12"))
+    # Keep drawing a track via velocity prediction for this many missed cycles
+    # before hiding it — stops boxes blinking out when a frame misses.
+    TRACK_COAST_FRAMES: int = int(os.getenv("TRACK_COAST_FRAMES", "3"))
 
     # --- LocateAnything open-vocabulary detection — 3-tier backend ---
     # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.

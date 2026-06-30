@@ -166,7 +166,18 @@ license entanglement**, runs in microseconds, and rides on the detector we
 already ship. Opt-in per stream (`track:true`) → zero cost when off. Throttled to
 `TRACK_FPS`; the tracker keeps IDs stable between detection cycles.
 
-Config: `TRACK_ENABLED` (true), `TRACK_CONF` (0.4), `TRACK_FPS` (4), `TRACK_MAX_AGE` (8).
+**Smooth, no-blink, multi-object.** Three layers keep boxes glued to moving
+objects instead of flickering:
+1. **Server coasting** — a track keeps reporting via a velocity-predicted box for
+   `TRACK_COAST_FRAMES` missed detections, so one weak frame never blinks it out.
+2. **Server smoothing** — the reported box is exponentially smoothed (no jitter).
+3. **Client interpolation** — the browser glides each box toward its latest target
+   at ~60 fps (server sends ~5 fps), so motion looks fluid.
+Multi-object: a dedicated lower-threshold detector (`TRACK_CONF`, up to
+`TRACK_MAX_OBJECTS`) feeds the tracker, which already handles any number at once.
+
+Config: `TRACK_ENABLED` (true), `TRACK_CONF` (0.35), `TRACK_FPS` (5),
+`TRACK_MAX_AGE` (8), `TRACK_MAX_OBJECTS` (12), `TRACK_COAST_FRAMES` (3).
 
 ### Where the forked repos fit
 - **locate-anything.cpp** (NVIDIA LocateAnything-3B → C++/ggml): the *accurate,
@@ -197,11 +208,20 @@ Files: `backend/modules/vision/perception.py` (MediaPipe face+hand),
 
 ---
 
-## 📋 Not started (next features)
+## 📱 Phone camera page (NEW)
 
-- **Phone camera** — ✅ groundwork done: `/ws/perception-input` + `/vision/perceive`
-  are camera-source agnostic; a phone hitting the browser UI already streams its
-  own camera. Still to do: a dedicated mobile-friendly page.
+`GET /camera` (`frontend/camera.html`) — a dedicated **mobile-friendly** page:
+full-screen camera stage, big touch controls, **front/back camera flip** (back by
+default for objects, front mirrors for selfie/face), and a **🎯 Track** toggle
+that draws smooth interpolated boxes. Streams to the same `/ws/perception-input`,
+so it gets faces, gestures, identity *and* object tracking with no extra backend.
+Linked from the desktop UI ("📱 Use your phone's camera →").
+
+> Phones block `getUserMedia` on plain `http://` (non-secure origin). The page
+> detects this and tells the user to use **https://** (or a tunnel). On localhost
+> it works directly.
+
+## 📋 Not started (next features)
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **JARVIS avatar + living UI** — ✅ shipped: a pseudo-**3D glass-node sphere**
   in `frontend/index.html`. Nodes sit on a rotating Fibonacci sphere
