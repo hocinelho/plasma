@@ -437,6 +437,86 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
     )
 
 
+# ── Open-vocabulary recognition ("what is this / what do you see") ────────────
+# Same VLM as locate, but a free-form describe prompt so Plasma can name ANY
+# object — not just the 80 classes the on-board detector knows.
+
+_RECOGNIZE_PROMPT_EN = (
+    "Look at this image and say what you see. Name the main objects and any "
+    "people or animals, briefly, in one or two sentences."
+)
+_RECOGNIZE_PROMPT_DE = (
+    "Sieh dir dieses Bild an und sag, was du siehst. Nenne die wichtigsten "
+    "Objekte und Personen oder Tiere kurz, in ein bis zwei Sätzen."
+)
+
+
+def _cloud_describe(image_path: str, prompt: str) -> str | None:
+    """Free-form image description via the cloud VLM (no object parsing)."""
+    from backend.core.config import config
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    url = _cloud_chat_completions_url()
+    headers = {
+        "Authorization": f"Bearer {config.CLOUD_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    locate_model = getattr(config, "LOCATE_CLOUD_MODEL", "").strip()
+    models = [m for m in [locate_model, config.CLOUD_MODEL] if m]
+    seen: set[str] = set()
+    models = [m for m in models if not (m in seen or seen.add(m))]  # type: ignore[func-returns-value]
+    for model in models:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": prompt},
+            ]}],
+            "max_tokens": 150,
+            "temperature": 0.2,
+        }
+        resp = http_post(url, json=payload, headers=headers, timeout=20.0)
+        if resp.status_code >= 400:
+            continue
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    return None
+
+
+def describe_scene(image_path: str, de: bool = False) -> str | None:
+    """Open-vocabulary description of whatever the camera sees.
+
+    Recognizes ANY object/person/animal via the vision LLM. Ollama (offline)
+    first, then cloud. Returns None if no VLM is configured (caller falls back to
+    the on-board 80-class detector).
+    """
+    prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
+
+    if _ollama_vision_available():
+        try:
+            from backend.core.config import config
+            with open(image_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            base = config.OLLAMA_BASE_URL.rstrip("/")
+            model = config.LOCATE_VISION_OLLAMA_MODEL
+            for p in (prompt, _DESCRIBE_PROMPT_DE if de else _DESCRIBE_PROMPT_EN):
+                text = _ollama_generate(base, model, p, b64)
+                if text:
+                    return text
+        except Exception as e:
+            log.warning("recognize: ollama describe failed: %s", e)
+
+    if _cloud_vision_available():
+        try:
+            text = _cloud_describe(image_path, prompt)
+            if text:
+                return text
+        except Exception as e:
+            log.warning("recognize: cloud describe failed: %s", e)
+
+    return None
+
+
 # ── Backend 3: locate-anything CLI ───────────────────────────────────────────
 
 def _cli_available() -> bool:

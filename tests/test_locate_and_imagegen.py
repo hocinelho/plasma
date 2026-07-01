@@ -524,3 +524,37 @@ def test_annotate_object_no_match_returns_none(monkeypatch):
     monkeypatch.setitem(sys.modules, "cv2", MagicMock())
 
     assert loc._annotate_object(object(), "banana") is None
+
+
+# ── Open-vocabulary recognition (describe_scene) ──────────────────────────────
+
+def test_describe_scene_uses_ollama(monkeypatch, tmp_path):
+    from backend.skills import locate as loc
+
+    img = tmp_path / "f.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0jpegdata")
+    monkeypatch.setattr(loc, "_ollama_vision_available", lambda: True)
+    monkeypatch.setattr(loc, "_cloud_vision_available", lambda: False)
+    monkeypatch.setattr(loc, "_ollama_generate",
+                        lambda base, model, prompt, b64: "A red apple on a wooden table.")
+    cfg = _ec(LOCATE_VISION_OLLAMA_MODEL="moondream", OLLAMA_BASE_URL="http://x")
+    monkeypatch.setattr("backend.core.config.config", cfg)
+
+    out = loc.describe_scene(str(img), de=False)
+    assert "apple" in out.lower()
+
+
+def test_describe_scene_none_without_vlm(monkeypatch, tmp_path):
+    from backend.skills import locate as loc
+
+    img = tmp_path / "f.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0jpegdata")
+    monkeypatch.setattr(loc, "_ollama_vision_available", lambda: False)
+    monkeypatch.setattr(loc, "_cloud_vision_available", lambda: False)
+    assert loc.describe_scene(str(img)) is None
+
+
+def test_vision_skill_has_recognition_triggers():
+    from backend.skills.vision import META
+    for t in ["what is this", "what am i holding", "was ist das"]:
+        assert t in META["triggers"]

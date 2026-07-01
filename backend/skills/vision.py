@@ -31,6 +31,15 @@ META = {
         "scan the room",
         "look at the camera",
         "take a look",
+        # Open-vocabulary recognition — "what IS this" (any object)
+        "what is this",
+        "what's this",
+        "what am i holding",
+        "what's in my hand",
+        "what is in my hand",
+        "recognize this",
+        "identify this",
+        "what object is this",
         # Monitor — English
         "watch for",
         "monitor for",
@@ -49,6 +58,10 @@ META = {
         "schau dich um",
         "was ist da",
         "beschreibe was du siehst",
+        "was ist das",
+        "was halte ich",
+        "was ist das hier",
+        "erkenne das",
         # Monitor — German
         "halte ausschau nach",
         "beobachte",
@@ -122,9 +135,13 @@ def run(args: dict | None = None) -> str:
                 else f"Camera not available: {e}"
             )
 
-    # Snapshot: "what do you see?"
+    # Snapshot: "what do you see / what is this?"
+    # Capture one frame, then RECOGNISE open-vocabulary via the vision LLM
+    # (names ANY object), falling back to the on-board 80-class detector.
     try:
-        detections = _detect_from_local_camera()
+        from backend.core.config import config
+        from backend.modules.vision.capture import snapshot
+        frame = snapshot(config.CAMERA_DEVICE)
     except ImportError as e:
         install_hint = "pip install mediapipe opencv-python"
         return (
@@ -133,17 +150,30 @@ def run(args: dict | None = None) -> str:
             else f"Vision packages missing ({e}). Install: {install_hint}"
         )
     except RuntimeError as e:
-        return (
-            f"Kamera nicht verfügbar: {e}"
-            if de
-            else f"Camera not available: {e}"
-        )
+        return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
     except Exception as e:
-        return (
-            f"Kamera-Fehler: {e}"
-            if de
-            else f"Camera error: {e}"
-        )
+        return f"Kamera-Fehler: {e}" if de else f"Camera error: {e}"
+
+    # 1) Open-vocabulary recognition via the vision LLM (moondream / cloud).
+    try:
+        import cv2
+        import tempfile
+        from backend.skills import locate as _locate
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+            _p = tf.name
+        cv2.imwrite(_p, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        description = _locate.describe_scene(_p, de)
+        if description:
+            return description
+    except Exception as e:
+        log.debug("vision: open-vocab recognition unavailable, using detector: %s", e)
+
+    # 2) Fallback: on-board 80-class detector.
+    try:
+        from backend.modules.vision.detector import get_detector
+        detections = get_detector().detect(frame)
+    except Exception as e:
+        return f"Kamera-Fehler: {e}" if de else f"Camera error: {e}"
 
     if not detections:
         return "Ich erkenne nichts Bestimmtes." if de else "I don't see anything recognizable."

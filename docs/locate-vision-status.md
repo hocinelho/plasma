@@ -234,6 +234,22 @@ On the phone (same Wi-Fi) open that URL and tap **Advanced → Proceed** once to
 accept the self-signed cert — then the camera works. The desktop UI fetches
 `GET /api/network-info` and shows the URL on the "📱 Use your phone's camera" link.
 
+## 🧠 Find anything + recognize anything (open-vocabulary)
+
+Two different jobs, both now open-vocabulary via the vision LLM (moondream
+offline, or a cloud VLM) — not limited to the 80-class detector:
+
+| Ask | Skill | How |
+|-----|-------|-----|
+| **Find** "find the baby", "where is the remote" | `locate` | VLM locates ANY described object; draws a box when the on-board detector knows the class (locate-anything.cpp adds boxes for anything). |
+| **Recognize** "what is this?", "what am I holding?", "what do you see?" | `vision` | `locate.describe_scene()` asks the VLM to name whatever is in frame — ANY object/person/animal — with the 80-class detector as fallback. |
+
+So finding and recognizing arbitrary objects works today with **moondream**
+(offline) or a cloud key — no per-object training. For **real-time tracking of
+arbitrary** objects (not just the 80 classes) and precise boxes for anything, set
+up **locate-anything.cpp** (tier 3) or train a small model (VLM-AutoYOLO path,
+task #3).
+
 ## 📋 Not started (next features)
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **JARVIS avatar + living UI** — ✅ shipped: a pseudo-**3D glass-node sphere**
