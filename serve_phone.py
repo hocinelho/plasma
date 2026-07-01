@@ -58,14 +58,21 @@ def main() -> None:
     cert_path, key_path = ensure_cert(cert_dir, regenerate=regen)
 
     ips = local_ips() or ["<this-computer-ip>"]
-    bar = "─" * 56
+    bar = "-" * 60
     print(f"\n{bar}")
-    print("  Plasma is serving over HTTPS — open this on your phone:")
-    for ip in ips:
-        print(f"      https://{ip}:{port}/camera")
+    print("  Plasma is serving over HTTPS. On your phone (SAME Wi-Fi), open:")
     print()
-    print("  First time: your phone will warn about the certificate.")
-    print("  Tap 'Advanced' → 'Proceed' (it's your own computer).")
+    print(f"      >>> https://{ips[0]}:{port}/camera   <-- try this one first")
+    for ip in ips[1:]:
+        print(f"          https://{ip}:{port}/camera")
+    print()
+    print("  1) Phone warns about the certificate -> Advanced -> Proceed.")
+    print("  2) If it just spins / times out, Windows Firewall is blocking it.")
+    print("     Open PowerShell AS ADMINISTRATOR and run:")
+    print(f'       New-NetFirewallRule -DisplayName "Plasma" -Direction Inbound '
+          f"-LocalPort {port} -Protocol TCP -Action Allow -Profile Private,Public")
+    print("  3) Still nothing? Your Wi-Fi may isolate devices (common on work/")
+    print("     campus networks). Use a phone hotspot for both PC and phone.")
     print(f"{bar}\n")
 
     import uvicorn

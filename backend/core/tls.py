@@ -41,7 +41,23 @@ def local_ips() -> list[str]:
     except Exception:
         pass
     ips.discard("127.0.0.1")
-    return sorted(ip for ip in ips if not ip.startswith("169.254."))
+    cleaned = [ip for ip in ips if not ip.startswith("169.254.")]
+    return sorted(cleaned, key=_ip_rank)
+
+
+def _ip_rank(ip: str) -> tuple:
+    """Sort so the address a phone most likely uses comes first.
+
+    Home Wi-Fi networks are usually 192.168.x or 10.x; 172.16–31.x is most often
+    a virtual adapter (Hyper-V/WSL/Docker), so it's ranked last.
+    """
+    if ip.startswith("192.168."):
+        return (0, ip)
+    if ip.startswith("10."):
+        return (1, ip)
+    if ip.startswith("172."):
+        return (3, ip)   # likely virtual — least likely to be the phone's route
+    return (2, ip)
 
 
 def _san_signature(ips: list[str]) -> str:
