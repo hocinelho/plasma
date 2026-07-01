@@ -81,6 +81,27 @@ def test_locate_extract_object_de():
     assert _extract_object("wo ist mein handy") == "handy"
 
 
+def test_locate_extract_object_the_and_a():
+    from backend.skills.locate import _extract_object
+    # Natural phrasings without "my" must still work (regression: "find the X").
+    assert _extract_object("find the baby") == "baby"
+    assert _extract_object("then find the phone.") == "phone"
+    assert _extract_object("find a phone") == "phone"
+    assert _extract_object("find an apple") == "apple"
+    assert _extract_object("where is the remote") == "remote"
+    assert _extract_object("finde die brille") == "brille"
+    assert _extract_object("wo ist das handy") == "handy"
+
+
+def test_locate_triggers_match_natural_phrasings():
+    # These phrases previously fell through to the chat LLM instead of locate.
+    from backend.skills.locate import META
+    for phrase in ["find the baby", "then find the phone", "find a phone",
+                   "where is the remote", "finde die brille"]:
+        lo = phrase.lower()
+        assert any(t.lower() in lo for t in META["triggers"]), phrase
+
+
 def test_locate_extract_object_none():
     from backend.skills.locate import _extract_object
     assert _extract_object("find") is None or _extract_object("find") == ""

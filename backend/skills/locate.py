@@ -104,39 +104,63 @@ META = {
     "name": "locate",
     "description": "Find any object by description using the camera (open-vocabulary).",
     "triggers": [
-        # English
+        # English — "my"
         "find my",
         "where is my",
+        "where's my",
         "where are my",
-        "can you find",
         "can you see my",
         "locate my",
         "look for my",
-        "help me find",
         "have you seen my",
+        # English — "the" / "a" / bare (e.g. "find the baby", "find a phone")
+        "find the",
+        "find a ",
+        "find an ",
+        "where is the",
+        "where's the",
+        "where are the",
+        "can you find",
+        "help me find",
+        "look for the",
+        "look for a ",
+        "locate the",
+        "have you seen the",
         # German
         "finde mein",
         "finde meine",
+        "finde das",
+        "finde die",
+        "finde den",
         "wo ist mein",
         "wo ist meine",
+        "wo ist das",
+        "wo ist die",
+        "wo ist der",
         "wo sind meine",
+        "wo sind die",
         "kannst du mein",
         "such mein",
         "suche mein",
+        "such das",
+        "such die",
+        "such den",
     ],
     "example_utterances": [
         "Find my keys",
+        "Find the baby",
         "Where is my phone?",
         "Can you see my coffee mug?",
         "Wo ist mein Schlüssel?",
-        "Finde meine Brille",
+        "Finde die Brille",
     ],
 }
 
 _OBJ_RE = re.compile(
     r"(?:find|locate|look for|where (?:is|are)|can you (?:find|see)|help me find|have you seen"
     r"|finde|wo (?:ist|sind)|such(?:e)?|kannst du)\s+"
-    r"(?:my\s+|mein(?:e|en|em|er)?\s+|the\s+)?(.+?)(?:\s*[.?!]|$)",
+    r"(?:my\s+|mein(?:e|en|em|er)?\s+|the\s+|an?\s+"
+    r"|das\s+|die\s+|der\s+|den\s+|eine[nm]?\s+)?(.+?)(?:\s*[.?!]|$)",
     re.I,
 )
 
@@ -158,12 +182,22 @@ _VISION_PROMPT_OLLAMA_EN = "Where is the {obj}?"
 _VISION_PROMPT_OLLAMA_DE = "Wo ist {obj}?"
 
 
+# Words that are never a real object on their own — usually a cut-off utterance
+# ("find my …") where the actual noun never got spoken.
+_NON_OBJECTS = {
+    "my", "the", "a", "an", "it", "them", "that", "this",
+    "mein", "meine", "meinen", "das", "die", "der", "den", "es",
+}
+
+
 def _extract_object(utterance: str) -> str | None:
     m = _OBJ_RE.search(utterance)
     if not m:
         return None
     obj = m.group(1).strip().rstrip(".,!?").lower()
-    return obj or None
+    if not obj or obj in _NON_OBJECTS:
+        return None
+    return obj
 
 
 def _describe_location(box: list, img_w: int, img_h: int, de: bool) -> str:
