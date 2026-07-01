@@ -47,6 +47,9 @@ class Config:
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)
     # For German: use 'small' (multilingual, not small.en)
     WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "small.en")
+    # ASR decoding beam. 1 (greedy) is ~2x faster than 5 with tiny accuracy loss
+    # on short commands — the default for snappy responses. Raise for dictation.
+    WHISPER_BEAM_SIZE: int = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
     # "auto" = detect language per utterance | "en" = English only | "de" = German only
     WHISPER_LANGUAGE: str = os.getenv("WHISPER_LANGUAGE", "en")
     # When WHISPER_LANGUAGE=auto, restrict detection to these languages so short,
@@ -167,6 +170,11 @@ class Config:
     # Keep drawing a track via velocity prediction for this many missed cycles
     # before hiding it — stops boxes blinking out when a frame misses.
     TRACK_COAST_FRAMES: int = int(os.getenv("TRACK_COAST_FRAMES", "3"))
+
+    # Keep the local webcam warm for this many seconds after a "find X" so the
+    # next one is instant (opening a webcam is slow). Released when idle so other
+    # apps can use the camera. Set 0 to always open fresh (slowest, most polite).
+    CAMERA_KEEPALIVE_S: float = float(os.getenv("CAMERA_KEEPALIVE_S", "60"))
 
     # --- LocateAnything open-vocabulary detection — 3-tier backend ---
     # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.

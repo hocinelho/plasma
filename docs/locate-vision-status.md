@@ -250,6 +250,28 @@ arbitrary** objects (not just the 80 classes) and precise boxes for anything, se
 up **locate-anything.cpp** (tier 3) or train a small model (VLM-AutoYOLO path,
 task #3).
 
+## ⚡ Speed / latency
+
+Biggest wins, from real-run profiling:
+
+| Bottleneck | Was | Fix |
+|-----------|-----|-----|
+| **"Find X" camera open** | ~15 s every time (webcam re-opened per call) | **Warm camera cache** — open once, reuse; released after `CAMERA_KEEPALIVE_S` (60s) idle. First find is slow, the rest are ~instant. |
+| **ASR (Whisper)** | ~3 s (beam 5) | `WHISPER_BEAM_SIZE=1` (greedy) default — ~2× faster, negligible loss on commands. |
+| **Chat LLM** | ~5 s to first sentence | Already streams "first sentence" then stops. Use a smaller local model for more speed (below). |
+
+**Config knobs for speed** (`.env`):
+```ini
+WHISPER_MODEL=base.en        # base is ~2x faster than small (tiny.en faster still)
+WHISPER_BEAM_SIZE=1          # greedy decoding (default)
+CAMERA_KEEPALIVE_S=60        # keep webcam warm between "find X"
+OLLAMA_MODEL=llama3.2:3b     # a 3B model answers much faster than mistral 7B
+LOCATE_VISION_OLLAMA_MODEL=moondream   # keep the small/fast vision model
+```
+
+For the fastest chat, a 3B model (`llama3.2:3b`, `qwen2.5:3b`, `phi3:mini`) roughly
+halves LLM latency vs a 7B like mistral, with fine quality for an assistant.
+
 ## 📋 Not started (next features)
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **JARVIS avatar + living UI** — ✅ shipped: a pseudo-**3D glass-node sphere**

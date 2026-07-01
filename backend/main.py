@@ -94,6 +94,11 @@ async def lifespan(app: FastAPI):
 
     await wake_monitor.stop()
     await proactive_tts.stop()
+    try:
+        from backend.modules.vision.capture import release_camera
+        release_camera()
+    except Exception:
+        pass
     log.info("Plasma backend shutting down...")
 
 
