@@ -54,6 +54,26 @@ def pop_last_annotated(max_age_s: float = 30.0) -> str | None:
     return None
 
 
+def _draw_and_save(frame, box, label: str) -> str | None:
+    """Draw a labelled box on the frame and save it as locate_last.jpg."""
+    try:
+        import cv2
+        x, y, w, h = (int(v) for v in box)
+        color = (138, 230, 74)  # BGR — Plasma green
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
+        cv2.putText(frame, label, (x, max(20, y - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
+        from backend.core.config import config
+        out = Path(config.PLASMA_DIR) / "locate_last.jpg"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(out), frame)
+        log.info("locate: annotated '%s' at [%d,%d,%d,%d] → %s", label, x, y, w, h, out)
+        return str(out)
+    except Exception as e:
+        log.debug("locate annotate: draw/save failed: %s", e)
+        return None
+
+
 def _annotate_object(frame, obj: str) -> str | None:
     """Detect ``obj`` in ``frame`` and, if found, draw its box and save a JPEG.
 
@@ -62,7 +82,6 @@ def _annotate_object(frame, obj: str) -> str | None:
     (the text answer from the vision tiers still stands).
     """
     try:
-        import cv2
         from backend.modules.vision.detector import get_detector
         dets = get_detector().detect(frame)
     except Exception as e:  # detector/opencv missing → just skip the box
@@ -81,24 +100,39 @@ def _annotate_object(frame, obj: str) -> str | None:
     match = next((d for d in dets if _matches(d.get("label", ""))), None)
     if not match:
         return None
+    cap = f"{match['label']} {int(match.get('score', 0) * 100)}%"
+    return _draw_and_save(frame, match["box"], cap)
 
+
+def _try_enrolled_object(frame, obj: str, img_w: int, img_h: int, de: bool) -> str | None:
+    """If ``obj`` is a personally-enrolled item, pin the exact one with a box.
+
+    Returns a finished user-facing reply (and stashes the annotated frame), or
+    None to let the normal vision tiers handle it.
+    """
     try:
-        x, y, w, h = (int(v) for v in match["box"])
-        color = (138, 230, 74)  # BGR — Plasma green
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
-        cap = f"{match['label']} {int(match.get('score', 0) * 100)}%"
-        cv2.putText(frame, cap, (x, max(20, y - 8)),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
-        from backend.core.config import config
-        out = Path(config.PLASMA_DIR) / "locate_last.jpg"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(out), frame)
-        log.info("locate: annotated %s at [%d,%d,%d,%d] → %s",
-                 match["label"], x, y, w, h, out)
-        return str(out)
-    except Exception as e:
-        log.debug("locate annotate: draw/save failed: %s", e)
+        from backend.modules.vision import object_memory
+        from backend.modules.vision.detector import get_detector
+    except Exception:
         return None
+    if not (object_memory.is_available() and object_memory.is_enrolled(obj)):
+        return None
+    try:
+        dets = get_detector().detect(frame)
+        match = object_memory.find_in_frame(obj, frame, dets)
+    except Exception as e:
+        log.debug("locate: enrolled match failed: %s", e)
+        return None
+    if not match:
+        return None  # your item isn't in view → fall back to the VLM
+
+    annotated = _draw_and_save(frame.copy(), match["box"], f"your {obj}")
+    if annotated:
+        _set_last_annotated(annotated)
+    loc = _describe_location(match["box"], img_w, img_h, de)
+    if de:
+        return f"Ich sehe {obj} {loc}." if loc else f"Ich sehe {obj}."
+    return f"I found your {obj} {loc}." if loc else f"I found your {obj}."
 
 META = {
     "name": "locate",
@@ -483,14 +517,16 @@ def _cloud_describe(image_path: str, prompt: str) -> str | None:
     return None
 
 
-def describe_scene(image_path: str, de: bool = False) -> str | None:
+def describe_scene(image_path: str, de: bool = False, prompt: str | None = None) -> str | None:
     """Open-vocabulary description of whatever the camera sees.
 
     Recognizes ANY object/person/animal via the vision LLM. Ollama (offline)
     first, then cloud. Returns None if no VLM is configured (caller falls back to
-    the on-board 80-class detector).
+    the on-board 80-class detector). ``prompt`` overrides the default (e.g. an
+    appearance-focused prompt for "what am I wearing").
     """
-    prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
+    if prompt is None:
+        prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
 
     if _ollama_vision_available():
         try:
@@ -585,7 +621,14 @@ def _locate_via_cli(image_path: str, obj: str, img_w: int, img_h: int, de: bool)
 
 
 def _is_available() -> bool:
-    return _cloud_vision_available() or _ollama_vision_available() or _cli_available()
+    if _cloud_vision_available() or _ollama_vision_available() or _cli_available():
+        return True
+    # Object memory alone (no VLM) can still find items you've taught Plasma.
+    try:
+        from backend.modules.vision import object_memory
+        return object_memory.is_available() and bool(object_memory.list_objects())
+    except Exception:
+        return False
 
 
 # ── Main skill entry point ────────────────────────────────────────────────────
@@ -653,7 +696,17 @@ def run(args: dict | None = None) -> str:
     except Exception as e:
         return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
 
-    # Try to pin the object to a box on the captured frame (offline detector).
+    # Personal object memory: if this is an item you taught Plasma ("remember
+    # this as my keys"), pin the EXACT one by embedding match and answer directly
+    # — faster and specific, no VLM round-trip.
+    try:
+        enrolled_reply = _try_enrolled_object(frame.copy(), obj, img_w, img_h, de)
+        if enrolled_reply:
+            return enrolled_reply
+    except Exception as e:
+        log.debug("locate: enrolled-object step skipped: %s", e)
+
+    # Otherwise, try to pin the object to a box via the class detector (80 classes).
     # Draw on a copy so the JPEG already written for the vision tiers is untouched.
     try:
         annotated = _annotate_object(frame.copy(), obj)
@@ -693,6 +746,17 @@ def run(args: dict | None = None) -> str:
                 log.warning("locate tier 3 (CLI) failed: %s", e)
                 last_err = e
 
+        # No vision model configured — object memory is the only backend, and
+        # this item either isn't taught yet or wasn't in view.
+        if not (_cloud_vision_available() or _ollama_vision_available() or _cli_available()):
+            return (
+                f"Ich kann {obj} gerade nicht sehen. Zeig es mir und sag "
+                f"'Merke dir das als {obj}', dann finde ich es wieder."
+                if de else
+                f"I can't see your {obj} right now. Show it to me and say "
+                f"'remember this as {obj}', then I'll find it. (For finding anything, "
+                f"set LOCATE_VISION_OLLAMA_MODEL=moondream.)"
+            )
         err_str = str(last_err) if last_err else "no backend available"
         return f"Suche fehlgeschlagen: {err_str}" if de else f"Search failed: {err_str}"
     finally:

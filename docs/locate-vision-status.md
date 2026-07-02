@@ -272,6 +272,22 @@ LOCATE_VISION_OLLAMA_MODEL=moondream   # keep the small/fast vision model
 For the fastest chat, a 3B model (`llama3.2:3b`, `qwen2.5:3b`, `phi3:mini`) roughly
 halves LLM latency vs a 7B like mistral, with fine quality for an assistant.
 
+## 🧷 Train-your-own-object (personal object memory)
+
+Teach Plasma YOUR specific things — no training, offline, license-clean:
+
+1. Hold the item up and say **"remember this as my keys"** (`remember_object`
+   skill). Plasma crops to the item and stores it under `.plasma/objects/keys/`.
+2. Later **"find my keys"** pins that *exact* item: it runs the detector for
+   candidate boxes, embeds each with **MediaPipe ImageEmbedder** (Apache 2.0),
+   and picks the one closest to your enrolled "keys" — draws the box and answers
+   with the location. Falls back to the open-vocab VLM if your item isn't in view.
+
+The VLM-AutoYOLO idea kept lightweight: **embeddings, not a trained YOLO** —
+instant enrollment, no GPU, no AGPL. `backend/modules/vision/object_memory.py`.
+Config: `OBJECT_MEMORY_ENABLED`, `OBJECT_MATCH_THRESHOLD` (0.55). Enrolled items
+appear in `GET /api/perception/status`.
+
 ## 📋 Not started (next features)
 - **Proactive reactions** — ✅ shipped: greets you by name when first seen, alerts "you look tired" after ~1.7 s of sleepy expression. Toast in the UI + TTS spoken alert.
 - **JARVIS avatar + living UI** — ✅ shipped: a pseudo-**3D glass-node sphere**

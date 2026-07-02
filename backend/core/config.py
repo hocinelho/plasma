@@ -176,6 +176,13 @@ class Config:
     # apps can use the camera. Set 0 to always open fresh (slowest, most polite).
     CAMERA_KEEPALIVE_S: float = float(os.getenv("CAMERA_KEEPALIVE_S", "60"))
 
+    # --- Personal object memory ("remember this as my keys") ---
+    # Teach Plasma YOUR specific items via MediaPipe ImageEmbedder (Apache 2.0).
+    # Enrolled crops live in .plasma/objects/<name>/. No training, offline.
+    OBJECT_MEMORY_ENABLED: bool = os.getenv("OBJECT_MEMORY_ENABLED", "true").lower() == "true"
+    # Cosine similarity (0..1) a candidate crop must reach to count as "your X".
+    OBJECT_MATCH_THRESHOLD: float = float(os.getenv("OBJECT_MATCH_THRESHOLD", "0.55"))
+
     # --- LocateAnything open-vocabulary detection — 3-tier backend ---
     # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.
     #   Uses CLOUD_MODEL by default. Override with LOCATE_CLOUD_MODEL to pick a

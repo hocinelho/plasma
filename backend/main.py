@@ -837,12 +837,14 @@ async def perception_status():
         import mediapipe  # noqa: F401
     except Exception:
         mp_ok = False
-    from backend.modules.vision import tracker
+    from backend.modules.vision import tracker, object_memory
     return {
         "mediapipe": mp_ok,
         "face_id": face_id.is_available(),
         "people": face_id.list_people(),
         "object_tracking": tracker.is_available(),
+        "object_memory": object_memory.is_available(),
+        "objects": object_memory.list_objects(),
         "track_fps": plasma_config.TRACK_FPS,
         "default_fps": plasma_config.PERCEPTION_FPS,
         "enabled_at_boot": plasma_config.PERCEPTION_ENABLED,
