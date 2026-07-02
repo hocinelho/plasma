@@ -477,11 +477,15 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
 
 _RECOGNIZE_PROMPT_EN = (
     "Look at this image and say what you see. Name the main objects and any "
-    "people or animals, briefly, in one or two sentences."
+    "people or animals, with their real colours, in one or two sentences. "
+    "Describe ONLY what is clearly visible — do not guess or invent colours, "
+    "details, or the hidden contents of any container."
 )
 _RECOGNIZE_PROMPT_DE = (
     "Sieh dir dieses Bild an und sag, was du siehst. Nenne die wichtigsten "
-    "Objekte und Personen oder Tiere kurz, in ein bis zwei Sätzen."
+    "Objekte und Personen oder Tiere mit ihren echten Farben, in ein bis zwei "
+    "Sätzen. Beschreibe NUR, was klar sichtbar ist — rate oder erfinde keine "
+    "Farben, Details oder verborgenen Inhalte von Behältern."
 )
 
 

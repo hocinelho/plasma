@@ -84,9 +84,18 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             log.warning(f"Piper warmup skipped: {e}")
 
+    async def _check_models():
+        try:
+            from backend.modules.router.ollama_client import check_configured_models
+            for w in await asyncio.to_thread(check_configured_models):
+                log.warning("⚠ %s", w)
+        except Exception as e:
+            log.debug("Model check skipped: %s", e)
+
     asyncio.create_task(_warm_ollama())
     asyncio.create_task(_warm_whisper())
     asyncio.create_task(_warm_tts())
+    asyncio.create_task(_check_models())
     await wake_monitor.start()
     await proactive_tts.start()
 
