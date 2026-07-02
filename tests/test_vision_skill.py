@@ -448,3 +448,25 @@ def test_vision_vlm_error_gives_helpful_message():
          patch.object(vision_mod, "_vlm_configured", return_value=True):
         result = vision_mod.run({"utterance": "describe me"})
     assert "llava" in result.lower() or "lighter" in result.lower() or "too large" in result.lower()
+
+
+def test_augment_adds_held_object(monkeypatch):
+    from backend.skills import vision as vm
+    det = MagicMock()
+    det.detect.return_value = [
+        {"label": "person", "score": 0.99, "box": [0, 0, 1, 1]},
+        {"label": "bottle", "score": 0.8, "box": [0, 0, 1, 1]},  # the Red Bull
+    ]
+    monkeypatch.setattr("backend.modules.vision.detector.get_detector", lambda: det)
+    out = vm._augment_with_detected_objects(object(), "A person in a white shirt.", de=False)
+    assert "bottle" in out.lower() and "also see" in out.lower()
+
+
+def test_augment_skips_when_already_mentioned(monkeypatch):
+    from backend.skills import vision as vm
+    det = MagicMock()
+    det.detect.return_value = [{"label": "cup", "score": 0.8, "box": [0, 0, 1, 1]}]
+    monkeypatch.setattr("backend.modules.vision.detector.get_detector", lambda: det)
+    # Description already mentions a can/drink → don't append "cup".
+    out = vm._augment_with_detected_objects(object(), "Holding a can of energy drink.", de=False)
+    assert "also see" not in out.lower()
