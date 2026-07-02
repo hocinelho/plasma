@@ -192,6 +192,10 @@ class Config:
     # Tier 2 (offline, fast): Ollama vision model (moondream ~1.9 GB).
     #   Enable: ollama pull moondream  then set:
     LOCATE_VISION_OLLAMA_MODEL: str = os.getenv("LOCATE_VISION_OLLAMA_MODEL", "")
+    # If the model above errors (e.g. too big → Ollama 500) or blanks, Plasma
+    # auto-tries these lighter models in order so recognition still answers.
+    # Comma-separated; set blank to disable auto-fallback.
+    LOCATE_VISION_OLLAMA_FALLBACKS: str = os.getenv("LOCATE_VISION_OLLAMA_FALLBACKS", "moondream")
     # Tier 3 (offline, heavy): locate-anything.cpp CLI (6 GB GGUF, C++ build).
     #   See external/locate-anything/README.md for build instructions.
     LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")

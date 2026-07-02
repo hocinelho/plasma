@@ -558,3 +558,34 @@ def test_vision_skill_has_recognition_triggers():
     from backend.skills.vision import META
     for t in ["what is this", "what am i holding", "was ist das"]:
         assert t in META["triggers"]
+
+
+# ── Vision model fallback chain ───────────────────────────────────────────────
+
+def test_vision_model_chain_dedup(monkeypatch):
+    from backend.skills import locate as loc
+    cfg = _ec(LOCATE_VISION_OLLAMA_MODEL="llama3.2-vision:latest",
+              LOCATE_VISION_OLLAMA_FALLBACKS="llava, moondream, llava")
+    monkeypatch.setattr("backend.core.config.config", cfg)
+    assert loc._ollama_vision_models() == ["llama3.2-vision:latest", "llava", "moondream"]
+
+
+def test_describe_scene_falls_back_when_primary_errors(monkeypatch, tmp_path):
+    from backend.skills import locate as loc
+    img = tmp_path / "f.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0jpeg")
+
+    cfg = _ec(CLOUD_API_KEY="", LOCATE_VISION_OLLAMA_MODEL="bigmodel",
+              LOCATE_VISION_OLLAMA_FALLBACKS="moondream", OLLAMA_BASE_URL="http://x")
+    monkeypatch.setattr("backend.core.config.config", cfg)
+    monkeypatch.setattr(loc, "_ollama_vision_available", lambda: True)
+    monkeypatch.setattr(loc, "_cloud_vision_available", lambda: False)
+
+    def fake_gen(base, model, prompt, b64):
+        if model == "bigmodel":
+            raise Exception("500 Server Error: out of memory")
+        return "A person in a white shirt."   # moondream fallback succeeds
+
+    monkeypatch.setattr(loc, "_ollama_generate", fake_gen)
+    out = loc.describe_scene(str(img))
+    assert out is not None and "white shirt" in out.lower()

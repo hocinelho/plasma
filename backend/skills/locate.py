@@ -435,38 +435,61 @@ def _interpret_description(description: str, obj: str, de: bool) -> str:
     return f"Ich sehe {obj} im Bild." if de else f"I can see your {obj} in the image."
 
 
-def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
-    """Send image to Ollama moondream (or any vision model) for object location."""
+def _ollama_vision_models() -> list[str]:
+    """The vision model to try first, then configured fallbacks (deduped)."""
     from backend.core.config import config
+    primary = getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "").strip()
+    fallbacks = [
+        m.strip() for m in getattr(config, "LOCATE_VISION_OLLAMA_FALLBACKS", "").split(",")
+        if m.strip()
+    ]
+    models: list[str] = []
+    for m in [primary] + fallbacks:
+        if m and m not in models:
+            models.append(m)
+    return models
 
-    with open(image_path, "rb") as f:
-        b64 = base64.b64encode(f.read()).decode()
 
-    model = config.LOCATE_VISION_OLLAMA_MODEL
-    base = config.OLLAMA_BASE_URL.rstrip("/")
-
-    # Strategy 1 — direct question. Minimal prompt that moondream was trained on;
-    # complex prompts make small vision models return empty. Retry the transient
-    # blanks that moondream produces on first load.
+def _locate_one_model(base: str, model: str, obj: str, b64: str, de: bool) -> str | None:
+    """Run the question→describe strategy for a single model. None if it blanks."""
     q_prompt = (_VISION_PROMPT_OLLAMA_DE if de else _VISION_PROMPT_OLLAMA_EN).format(obj=obj)
     for attempt in range(3):
         text = _ollama_generate(base, model, q_prompt, b64)
         if text:
             return _parse_vision_response(text, obj, de)
-        log.warning("locate: moondream empty on direct question (attempt %d/3)", attempt + 1)
+        log.warning("locate: %s empty on direct question (attempt %d/3)", model, attempt + 1)
 
-    # Strategy 2 — moondream blanks on questions but describes images reliably.
-    # Ask it to describe the whole scene, then search the description ourselves.
     log.info("locate: question returned empty, falling back to scene description")
     desc_prompt = _DESCRIBE_PROMPT_DE if de else _DESCRIBE_PROMPT_EN
     for attempt in range(2):
         description = _ollama_generate(base, model, desc_prompt, b64)
         if description:
-            log.info("locate: moondream description: %s", description[:200])
+            log.info("locate: %s description: %s", model, description[:200])
             return _interpret_description(description, obj, de)
-        log.warning("locate: moondream empty on describe (attempt %d/2)", attempt + 1)
+        log.warning("locate: %s empty on describe (attempt %d/2)", model, attempt + 1)
+    return None
 
-    # Both strategies blanked — be honest rather than surfacing a raw error.
+
+def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
+    """Locate via Ollama, trying the primary vision model then lighter fallbacks
+    (so a model that errors — e.g. too big → 500 — doesn't kill the request)."""
+    from backend.core.config import config
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    base = config.OLLAMA_BASE_URL.rstrip("/")
+
+    for i, model in enumerate(_ollama_vision_models()):
+        try:
+            result = _locate_one_model(base, model, obj, b64, de)
+        except Exception as e:
+            log.warning("locate: model %s failed (%s) — trying fallback", model, e)
+            continue
+        if result is not None:
+            if i > 0:
+                log.info("locate: used fallback vision model %s", model)
+            return result
+
     return (
         f"Ich konnte {obj} nicht klar erkennen. Versuch es nochmal."
         if de
@@ -541,11 +564,18 @@ def describe_scene(image_path: str, de: bool = False, prompt: str | None = None)
             with open(image_path, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
             base = config.OLLAMA_BASE_URL.rstrip("/")
-            model = config.LOCATE_VISION_OLLAMA_MODEL
-            for p in (prompt, _DESCRIBE_PROMPT_DE if de else _DESCRIBE_PROMPT_EN):
-                text = _ollama_generate(base, model, p, b64)
-                if text:
-                    return text
+            # Try the chosen model, then lighter fallbacks if it errors/blanks.
+            for i, model in enumerate(_ollama_vision_models()):
+                try:
+                    for p in (prompt, _DESCRIBE_PROMPT_DE if de else _DESCRIBE_PROMPT_EN):
+                        text = _ollama_generate(base, model, p, b64)
+                        if text:
+                            if i > 0:
+                                log.info("recognize: used fallback vision model %s", model)
+                            return text
+                except Exception as e:
+                    log.warning("recognize: model %s failed (%s) — trying fallback", model, e)
+                    continue
         except Exception as e:
             log.warning("recognize: ollama describe failed: %s", e)
 
