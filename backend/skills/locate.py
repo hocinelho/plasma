@@ -104,39 +104,63 @@ META = {
     "name": "locate",
     "description": "Find any object by description using the camera (open-vocabulary).",
     "triggers": [
-        # English
+        # English — "my"
         "find my",
         "where is my",
+        "where's my",
         "where are my",
-        "can you find",
         "can you see my",
         "locate my",
         "look for my",
-        "help me find",
         "have you seen my",
+        # English — "the" / "a" / bare (e.g. "find the baby", "find a phone")
+        "find the",
+        "find a ",
+        "find an ",
+        "where is the",
+        "where's the",
+        "where are the",
+        "can you find",
+        "help me find",
+        "look for the",
+        "look for a ",
+        "locate the",
+        "have you seen the",
         # German
         "finde mein",
         "finde meine",
+        "finde das",
+        "finde die",
+        "finde den",
         "wo ist mein",
         "wo ist meine",
+        "wo ist das",
+        "wo ist die",
+        "wo ist der",
         "wo sind meine",
+        "wo sind die",
         "kannst du mein",
         "such mein",
         "suche mein",
+        "such das",
+        "such die",
+        "such den",
     ],
     "example_utterances": [
         "Find my keys",
+        "Find the baby",
         "Where is my phone?",
         "Can you see my coffee mug?",
         "Wo ist mein Schlüssel?",
-        "Finde meine Brille",
+        "Finde die Brille",
     ],
 }
 
 _OBJ_RE = re.compile(
     r"(?:find|locate|look for|where (?:is|are)|can you (?:find|see)|help me find|have you seen"
     r"|finde|wo (?:ist|sind)|such(?:e)?|kannst du)\s+"
-    r"(?:my\s+|mein(?:e|en|em|er)?\s+|the\s+)?(.+?)(?:\s*[.?!]|$)",
+    r"(?:my\s+|mein(?:e|en|em|er)?\s+|the\s+|an?\s+"
+    r"|das\s+|die\s+|der\s+|den\s+|eine[nm]?\s+)?(.+?)(?:\s*[.?!]|$)",
     re.I,
 )
 
@@ -158,12 +182,22 @@ _VISION_PROMPT_OLLAMA_EN = "Where is the {obj}?"
 _VISION_PROMPT_OLLAMA_DE = "Wo ist {obj}?"
 
 
+# Words that are never a real object on their own — usually a cut-off utterance
+# ("find my …") where the actual noun never got spoken.
+_NON_OBJECTS = {
+    "my", "the", "a", "an", "it", "them", "that", "this",
+    "mein", "meine", "meinen", "das", "die", "der", "den", "es",
+}
+
+
 def _extract_object(utterance: str) -> str | None:
     m = _OBJ_RE.search(utterance)
     if not m:
         return None
     obj = m.group(1).strip().rstrip(".,!?").lower()
-    return obj or None
+    if not obj or obj in _NON_OBJECTS:
+        return None
+    return obj
 
 
 def _describe_location(box: list, img_w: int, img_h: int, de: bool) -> str:
@@ -401,6 +435,86 @@ def _locate_via_ollama(image_path: str, obj: str, de: bool) -> str:
         if de
         else f"I couldn't get a clear look at your {obj}. Please try again."
     )
+
+
+# ── Open-vocabulary recognition ("what is this / what do you see") ────────────
+# Same VLM as locate, but a free-form describe prompt so Plasma can name ANY
+# object — not just the 80 classes the on-board detector knows.
+
+_RECOGNIZE_PROMPT_EN = (
+    "Look at this image and say what you see. Name the main objects and any "
+    "people or animals, briefly, in one or two sentences."
+)
+_RECOGNIZE_PROMPT_DE = (
+    "Sieh dir dieses Bild an und sag, was du siehst. Nenne die wichtigsten "
+    "Objekte und Personen oder Tiere kurz, in ein bis zwei Sätzen."
+)
+
+
+def _cloud_describe(image_path: str, prompt: str) -> str | None:
+    """Free-form image description via the cloud VLM (no object parsing)."""
+    from backend.core.config import config
+
+    with open(image_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    url = _cloud_chat_completions_url()
+    headers = {
+        "Authorization": f"Bearer {config.CLOUD_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    locate_model = getattr(config, "LOCATE_CLOUD_MODEL", "").strip()
+    models = [m for m in [locate_model, config.CLOUD_MODEL] if m]
+    seen: set[str] = set()
+    models = [m for m in models if not (m in seen or seen.add(m))]  # type: ignore[func-returns-value]
+    for model in models:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                {"type": "text", "text": prompt},
+            ]}],
+            "max_tokens": 150,
+            "temperature": 0.2,
+        }
+        resp = http_post(url, json=payload, headers=headers, timeout=20.0)
+        if resp.status_code >= 400:
+            continue
+        return resp.json()["choices"][0]["message"]["content"].strip()
+    return None
+
+
+def describe_scene(image_path: str, de: bool = False) -> str | None:
+    """Open-vocabulary description of whatever the camera sees.
+
+    Recognizes ANY object/person/animal via the vision LLM. Ollama (offline)
+    first, then cloud. Returns None if no VLM is configured (caller falls back to
+    the on-board 80-class detector).
+    """
+    prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
+
+    if _ollama_vision_available():
+        try:
+            from backend.core.config import config
+            with open(image_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            base = config.OLLAMA_BASE_URL.rstrip("/")
+            model = config.LOCATE_VISION_OLLAMA_MODEL
+            for p in (prompt, _DESCRIBE_PROMPT_DE if de else _DESCRIBE_PROMPT_EN):
+                text = _ollama_generate(base, model, p, b64)
+                if text:
+                    return text
+        except Exception as e:
+            log.warning("recognize: ollama describe failed: %s", e)
+
+    if _cloud_vision_available():
+        try:
+            text = _cloud_describe(image_path, prompt)
+            if text:
+                return text
+        except Exception as e:
+            log.warning("recognize: cloud describe failed: %s", e)
+
+    return None
 
 
 # ── Backend 3: locate-anything CLI ───────────────────────────────────────────

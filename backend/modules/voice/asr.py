@@ -50,7 +50,7 @@ class WhisperASR:
         audio: np.ndarray,
         sample_rate: int = DEFAULT_SAMPLE_RATE,
         language: Optional[str] = "en",
-        beam_size: int = 5,
+        beam_size: Optional[int] = None,
         allowed_languages: Optional[list[str]] = None,
     ) -> dict:
         """Transcribe a numpy audio array and return text + metadata.
@@ -79,6 +79,12 @@ class WhisperASR:
         # Clamp auto-detect to the languages we actually support.
         if language is None and allowed_languages:
             language = self._detect_clamped(float_audio, allowed_languages)
+
+        # Default beam_size from config — greedy (1) is ~2x faster than beam 5
+        # with negligible accuracy loss on short voice commands.
+        if beam_size is None:
+            from backend.core.config import config as _cfg
+            beam_size = getattr(_cfg, "WHISPER_BEAM_SIZE", 1)
 
         t0 = time.time()
         segments, info = self.model.transcribe(

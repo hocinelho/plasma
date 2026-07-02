@@ -17,6 +17,7 @@ Webcam reliability notes:
 from __future__ import annotations
 import logging
 import sys
+import threading
 import time
 
 import numpy as np
@@ -78,14 +79,18 @@ class LocalCameraCapture:
             f"and that no other app is using the webcam. ({last_err})"
         )
 
-    def capture_frame(self) -> np.ndarray | None:
-        """Capture a single BGR frame, with warmup + retry. None on failure."""
+    def capture_frame(self, warmup: int = _WARMUP_FRAMES) -> np.ndarray | None:
+        """Capture a single BGR frame, with warmup + retry. None on failure.
+
+        ``warmup`` frames are read-and-discarded so auto-exposure settles. A
+        camera that's already been running needs far fewer (or none), which is
+        the main speed win for a kept-warm capture.
+        """
         if self._cap is None:
             return None
         import cv2  # noqa: F401 — already verified in open()
 
-        # Discard warmup frames so auto-exposure settles (ignore read result).
-        for _ in range(_WARMUP_FRAMES):
+        for _ in range(max(0, warmup)):
             self._cap.read()
             time.sleep(_READ_DELAY_S)
 
@@ -96,6 +101,9 @@ class LocalCameraCapture:
                 return frame
             time.sleep(_READ_DELAY_S)
         return None
+
+    def is_open(self) -> bool:
+        return self._cap is not None
 
     def close(self) -> None:
         if self._cap is not None:
@@ -110,10 +118,96 @@ class LocalCameraCapture:
         self.close()
 
 
+# ── Warm camera cache — the big "find X" speed win ────────────────────────────
+# Opening a webcam (esp. DirectShow on Windows) can take many seconds, and full
+# warmup adds more. So we keep ONE camera open between snapshots: the first
+# "find X" pays the cold-open cost, every one after is near-instant. A daemon
+# timer releases the camera after CAMERA_KEEPALIVE_S of no use, so the webcam is
+# freed for other apps when you're not actively using it.
+_cache_lock = threading.Lock()
+_cached_cam: "LocalCameraCapture | None" = None
+_cached_device: int | None = None
+_release_timer: "threading.Timer | None" = None
+
+
+def _keepalive_seconds() -> float:
+    try:
+        from backend.core.config import config
+        return float(getattr(config, "CAMERA_KEEPALIVE_S", 60.0))
+    except Exception:
+        return 60.0
+
+
+def _schedule_release() -> None:
+    global _release_timer
+    if _release_timer is not None:
+        _release_timer.cancel()
+    _release_timer = threading.Timer(_keepalive_seconds(), release_camera)
+    _release_timer.daemon = True
+    _release_timer.start()
+
+
+def release_camera() -> None:
+    """Release the cached camera (called on idle timeout or shutdown)."""
+    global _cached_cam, _cached_device, _release_timer
+    with _cache_lock:
+        if _release_timer is not None:
+            _release_timer.cancel()
+            _release_timer = None
+        if _cached_cam is not None:
+            try:
+                _cached_cam.close()
+            except Exception:
+                pass
+            log.info("Warm camera released (idle)")
+        _cached_cam = None
+        _cached_device = None
+
+
 def snapshot(device_index: int = 0) -> np.ndarray:
-    """Open camera, grab one frame, close. Raises RuntimeError if unavailable."""
-    with LocalCameraCapture(device_index) as cam:
-        frame = cam.capture_frame()
+    """Grab one frame, reusing a kept-warm camera. Raises if unavailable.
+
+    First call opens the camera (slow) with full warmup; later calls reuse the
+    open handle with minimal warmup, so repeated "find X" is fast.
+    """
+    global _cached_cam, _cached_device
+    with _cache_lock:
+        cold = (
+            _cached_cam is None
+            or _cached_device != device_index
+            or not _cached_cam.is_open()
+        )
+        if cold:
+            if _cached_cam is not None:
+                try:
+                    _cached_cam.close()
+                except Exception:
+                    pass
+            cam = LocalCameraCapture(device_index)
+            cam.open()                       # slow, but only on the cold path
+            _cached_cam = cam
+            _cached_device = device_index
+            warmup = _WARMUP_FRAMES           # settle sensor on cold open
+        else:
+            cam = _cached_cam
+            warmup = 1                        # already running → barely any
+
+        frame = cam.capture_frame(warmup=warmup)
+
+        # A warm handle can go stale (device slept / unplugged). Reopen once.
+        if frame is None and not cold:
+            try:
+                cam.close()
+            except Exception:
+                pass
+            cam = LocalCameraCapture(device_index)
+            cam.open()
+            _cached_cam = cam
+            _cached_device = device_index
+            frame = cam.capture_frame(warmup=_WARMUP_FRAMES)
+
+        _schedule_release()
+
     if frame is None:
         raise RuntimeError(
             "Camera returned no frame. The webcam opened but produced no image — "

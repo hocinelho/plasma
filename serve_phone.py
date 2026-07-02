@@ -28,7 +28,23 @@ def _find_project_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _make_console_unicode_safe() -> None:
+    """Stop Windows consoles from raising on Unicode log output.
+
+    Some Windows terminals use a legacy code page; uvicorn's coloured records
+    then trigger '--- Logging error ---'. Reconfiguring the streams to UTF-8 with
+    errors='replace' makes every handler tolerant. No-op on platforms that don't
+    need it.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
 def main() -> None:
+    _make_console_unicode_safe()
     root = _find_project_root()
     os.environ.setdefault("PLASMA_PROJECT_ROOT", str(root))
     if not getattr(sys, "frozen", False):
@@ -42,14 +58,21 @@ def main() -> None:
     cert_path, key_path = ensure_cert(cert_dir, regenerate=regen)
 
     ips = local_ips() or ["<this-computer-ip>"]
-    bar = "─" * 56
+    bar = "-" * 60
     print(f"\n{bar}")
-    print("  Plasma is serving over HTTPS — open this on your phone:")
-    for ip in ips:
-        print(f"      https://{ip}:{port}/camera")
+    print("  Plasma is serving over HTTPS. On your phone (SAME Wi-Fi), open:")
     print()
-    print("  First time: your phone will warn about the certificate.")
-    print("  Tap 'Advanced' → 'Proceed' (it's your own computer).")
+    print(f"      >>> https://{ips[0]}:{port}/camera   <-- try this one first")
+    for ip in ips[1:]:
+        print(f"          https://{ip}:{port}/camera")
+    print()
+    print("  1) Phone warns about the certificate -> Advanced -> Proceed.")
+    print("  2) If it just spins / times out, Windows Firewall is blocking it.")
+    print("     Open PowerShell AS ADMINISTRATOR and run:")
+    print(f'       New-NetFirewallRule -DisplayName "Plasma" -Direction Inbound '
+          f"-LocalPort {port} -Protocol TCP -Action Allow -Profile Private,Public")
+    print("  3) Still nothing? Your Wi-Fi may isolate devices (common on work/")
+    print("     campus networks). Use a phone hotspot for both PC and phone.")
     print(f"{bar}\n")
 
     import uvicorn
@@ -59,6 +82,7 @@ def main() -> None:
         port=port,
         log_level="info",
         reload=False,
+        use_colors=False,   # avoid ANSI colour codes that break legacy consoles
         ssl_certfile=str(cert_path),
         ssl_keyfile=str(key_path),
     )
