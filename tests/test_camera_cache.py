@@ -93,3 +93,21 @@ def test_gray_world_safe_on_black():
     black = np.zeros((8, 8, 3), dtype=np.uint8)
     out = apply_gray_world(black)
     assert out.shape == black.shape
+
+
+def test_looks_corrupt_flags_green_glitch():
+    from backend.modules.vision.capture import _looks_corrupt
+    green = np.zeros((16, 16, 3), dtype=np.uint8)
+    green[:, :, 1] = 180  # heavy green (glitch)
+    green[:, :, 0] = 40
+    green[:, :, 2] = 40
+    assert _looks_corrupt(green) is True
+
+
+def test_looks_corrupt_passes_normal_frame():
+    from backend.modules.vision.capture import _looks_corrupt
+    normal = np.zeros((16, 16, 3), dtype=np.uint8)
+    normal[:, :, 0] = 120
+    normal[:, :, 1] = 130
+    normal[:, :, 2] = 150
+    assert _looks_corrupt(normal) is False
