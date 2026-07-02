@@ -7,6 +7,13 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Quiet MediaPipe / TensorFlow-Lite console spam (oneDNN, XNNPACK, and the
+# harmless "Failed to send to clearcut" telemetry errors). Set before those
+# libraries import. Users can override in the environment if debugging.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+os.environ.setdefault("GLOG_minloglevel", "2")
+
 # Use the OS certificate store for TLS so corporate MITM proxies (whose CA is
 # trusted by Windows but absent from certifi's bundle) don't break outbound
 # HTTPS. This is why some hosts (e.g. Wikipedia) hit

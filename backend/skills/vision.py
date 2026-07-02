@@ -210,6 +210,12 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
         cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        # Surface the exact frame the model saw in the UI — so you can verify
+        # the description against the real snapshot (and spot a bad capture).
+        try:
+            _locate._set_last_annotated(path)
+        except Exception:
+            pass
         description = _locate.describe_scene(path, de, prompt=prompt)
         if description:
             # Cross-check with the object detector: it reliably spots a held can/
