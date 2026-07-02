@@ -117,19 +117,23 @@ _APPEARANCE_RE = re.compile(
     re.IGNORECASE,
 )
 _APPEARANCE_PROMPT_EN = (
-    "Look at the person in this webcam image. Describe ONLY what is clearly "
-    "visible: their clothing and its real colours, and any accessories they are "
-    "wearing such as a watch, glasses, hat, or jewellery, plus anything held in "
-    "the hand. Do not guess colours you cannot clearly see, and do not describe "
-    "the inside or contents of any cup or container. If unsure about something, "
-    "leave it out. One or two sentences."
+    "Look at the person in this webcam image and describe them in one or two "
+    "sentences, covering: (1) their clothing and its real colours; (2) any "
+    "accessories they are wearing (watch, glasses, hat, jewellery) — count them "
+    "accurately, do NOT double-count a single watch; (3) IMPORTANT: look at "
+    "their hands and name anything they are holding, such as a can, bottle, cup, "
+    "or phone, including the brand if the label is legible. Describe ONLY what is "
+    "clearly visible — do not guess colours you can't see or the hidden contents "
+    "of a container. If unsure about something, leave it out."
 )
 _APPEARANCE_PROMPT_DE = (
-    "Sieh dir die Person im Webcam-Bild an. Beschreibe NUR, was klar sichtbar "
-    "ist: Kleidung und ihre echten Farben sowie Accessoires wie Uhr, Brille, "
-    "Hut oder Schmuck und was in der Hand gehalten wird. Rate keine Farben, die "
-    "du nicht klar siehst, und beschreibe nicht den Inhalt von Tassen oder "
-    "Behältern. Bei Unsicherheit weglassen. Ein bis zwei Sätze."
+    "Sieh dir die Person im Webcam-Bild an und beschreibe sie in ein bis zwei "
+    "Sätzen: (1) Kleidung und ihre echten Farben; (2) getragene Accessoires "
+    "(Uhr, Brille, Hut, Schmuck) — zähle sie genau, zähle EINE Uhr nicht doppelt; "
+    "(3) WICHTIG: schau auf die Hände und nenne, was gehalten wird, z.B. Dose, "
+    "Flasche, Tasse oder Handy, mit Marke falls lesbar. Beschreibe NUR klar "
+    "Sichtbares — rate keine Farben oder verborgenen Inhalte. Bei Unsicherheit "
+    "weglassen."
 )
 
 
@@ -140,6 +144,44 @@ def _vlm_configured() -> bool:
         return _locate._ollama_vision_available() or _locate._cloud_vision_available()
     except Exception:
         return False
+
+
+# Common held/handheld objects EfficientDet detects — worth surfacing if the
+# VLM description didn't mention them (e.g. a Red Bull can → "bottle"/"cup").
+_HELD_CLASSES = {
+    "bottle", "cup", "wine glass", "cell phone", "book", "remote", "laptop",
+    "banana", "apple", "orange", "donut", "sandwich", "mouse", "keyboard",
+    "scissors", "toothbrush", "fork", "knife", "spoon", "bowl",
+}
+# Words that mean "already mentioned a drink container" so we don't double-report.
+_DRINK_SYNONYMS = ("can", "drink", "soda", "beverage", "red bull", "redbull", "coke", "energy")
+
+
+def _augment_with_detected_objects(frame, description: str, de: bool) -> str:
+    """Append held objects the detector saw but the description didn't mention."""
+    try:
+        from backend.modules.vision.detector import get_detector
+        dets = get_detector().detect(frame)
+    except Exception:
+        return description
+
+    desc_l = description.lower()
+    extras: list[str] = []
+    for d in sorted(dets, key=lambda x: -x.get("score", 0)):
+        label = d.get("label", "").lower()
+        if label not in _HELD_CLASSES or label in extras:
+            continue
+        if label in desc_l:
+            continue
+        # A cup/bottle is often a "can/drink" already named in prose — skip then.
+        if label in ("cup", "bottle", "wine glass") and any(s in desc_l for s in _DRINK_SYNONYMS):
+            continue
+        extras.append(label)
+    if not extras:
+        return description
+    listed = ", ".join(extras[:3])
+    add = f" Ich sehe außerdem in der Hand/Nähe: {listed}." if de else f" I can also see: {listed}."
+    return description.rstrip() + add
 
 
 def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
@@ -168,7 +210,12 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
         cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return _locate.describe_scene(path, de, prompt=prompt)
+        description = _locate.describe_scene(path, de, prompt=prompt)
+        if description:
+            # Cross-check with the object detector: it reliably spots a held can/
+            # bottle/cup/phone the VLM sometimes overlooks. Add what it missed.
+            description = _augment_with_detected_objects(frame, description, de)
+        return description
     except Exception as e:
         log.debug("vision: open-vocab recognition unavailable: %s", e)
         return None
