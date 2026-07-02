@@ -133,6 +133,15 @@ _APPEARANCE_PROMPT_DE = (
 )
 
 
+def _vlm_configured() -> bool:
+    """True if a vision LLM (Ollama or cloud) is set up for recognition."""
+    try:
+        from backend.skills import locate as _locate
+        return _locate._ollama_vision_available() or _locate._cloud_vision_available()
+    except Exception:
+        return False
+
+
 def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
     """Open-vocabulary recognition via the vision LLM (names ANY object).
 
@@ -202,6 +211,20 @@ def run(args: dict | None = None) -> str:
     description = _recognize_open_vocab(de, utterance)
     if description:
         return description
+
+    # If a vision LLM IS configured but returned nothing, it errored (often the
+    # model is too big for this machine → Ollama 500). Say so instead of the
+    # misleading "I don't see anything".
+    if _vlm_configured():
+        return (
+            "Mein Bildmodell hat nicht geantwortet — es ist evtl. zu groß für "
+            "diesen Rechner. Versuch ein kleineres: setze "
+            "LOCATE_VISION_OLLAMA_MODEL=llava oder moondream."
+            if de else
+            "My vision model didn't respond — it may be too large for this "
+            "machine. Try a lighter one: set LOCATE_VISION_OLLAMA_MODEL=llava "
+            "(or moondream) and restart."
+        )
 
     # 2) Fallback: on-board 80-class detector (the mockable I/O seam).
     try:
