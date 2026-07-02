@@ -24,8 +24,9 @@ import numpy as np
 
 log = logging.getLogger("plasma.vision.capture")
 
-# How many initial frames to read-and-discard so the sensor settles.
-_WARMUP_FRAMES = 5
+# How many initial frames to read-and-discard so the sensor's auto-exposure and
+# auto-white-balance settle (too few → dark or colour-cast frames).
+_WARMUP_FRAMES = 8
 # How many times to retry the real read before declaring failure.
 _READ_RETRIES = 10
 # Pause between warmup/retry reads.
@@ -214,6 +215,27 @@ def snapshot(device_index: int = 0) -> np.ndarray:
             "another app may be using it, or it needs a moment to start. Try again."
         )
     return frame
+
+
+def apply_gray_world(frame: np.ndarray) -> np.ndarray:
+    """Gray-world auto white-balance — removes a colour cast (e.g. a blue tint
+    from a webcam whose auto white-balance hasn't settled).
+
+    Scales each BGR channel so their means match the overall grey level. Scaling
+    is clamped so a genuinely colourful scene isn't over-corrected. Cheap and
+    deterministic — good enough to stop "your face is blue" descriptions.
+    """
+    try:
+        f = frame.astype(np.float32)
+        means = f.reshape(-1, 3).mean(axis=0)          # B, G, R means
+        gray = float(means.mean())
+        if gray <= 1e-6:
+            return frame
+        scale = np.clip(gray / np.clip(means, 1e-6, None), 0.6, 1.6)
+        f *= scale
+        return np.clip(f, 0, 255).astype(np.uint8)
+    except Exception:
+        return frame
 
 
 def decode_frame_bytes(data: bytes) -> np.ndarray:

@@ -74,3 +74,22 @@ def test_switching_device_reopens(fake_cv2):
     cap.snapshot(1)      # different device → must open a new capture
     assert fake_cv2.instances == n0 + 1
     assert cap._cached_device == 1
+
+
+def test_gray_world_removes_blue_cast():
+    from backend.modules.vision.capture import apply_gray_world
+    img = np.zeros((16, 16, 3), dtype=np.uint8)
+    img[:, :, 0] = 200  # strong blue cast
+    img[:, :, 1] = 120
+    img[:, :, 2] = 100
+    out = apply_gray_world(img)
+    b, g, r = out.reshape(-1, 3).mean(axis=0)
+    # channels should be much closer after balancing
+    assert abs(b - r) < 30
+
+
+def test_gray_world_safe_on_black():
+    from backend.modules.vision.capture import apply_gray_world
+    black = np.zeros((8, 8, 3), dtype=np.uint8)
+    out = apply_gray_world(black)
+    assert out.shape == black.shape

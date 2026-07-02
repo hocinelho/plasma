@@ -153,7 +153,7 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
         import cv2
         import tempfile
         from backend.core.config import config
-        from backend.modules.vision.capture import snapshot
+        from backend.modules.vision.capture import snapshot, apply_gray_world
         from backend.skills import locate as _locate
 
         prompt = None
@@ -161,6 +161,8 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
             prompt = _APPEARANCE_PROMPT_DE if de else _APPEARANCE_PROMPT_EN
 
         frame = snapshot(config.CAMERA_DEVICE)
+        # Correct any webcam colour cast so the model doesn't report a blue face.
+        frame = apply_gray_world(frame)
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
         cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
