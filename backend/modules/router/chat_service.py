@@ -73,13 +73,38 @@ def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> st
         except Exception as e:
             log.warning(f"Cloud LLM failed, falling back to Ollama: {e}")
 
-    reply = _ollama_chat(
-        user_message=user_message,
-        history=history,
-        system_prompt=system_prompt,
-    )
-    log.info("LLM source: Ollama local")
-    return reply
+    try:
+        reply = _ollama_chat(
+            user_message=user_message,
+            history=history,
+            system_prompt=system_prompt,
+        )
+        log.info("LLM source: Ollama local")
+        return reply
+    except Exception as e:
+        return _ollama_error_reply(e)
+
+
+def _ollama_error_reply(e: Exception) -> str:
+    """Turn an Ollama failure into a spoken, actionable message (never a 500)."""
+    from backend.core.config import config
+    model = config.OLLAMA_MODEL
+    msg = str(e)
+    # 404 = model not pulled; connection error = Ollama not running.
+    if "404" in msg or "not found" in msg.lower():
+        log.warning("Ollama model '%s' not found: %s", model, e)
+        return (
+            f"The model {model} isn't installed. On your computer run: "
+            f"ollama pull {model} — then try again."
+        )
+    if "connect" in msg.lower() or "refused" in msg.lower() or "timed out" in msg.lower():
+        log.warning("Ollama unreachable: %s", e)
+        return (
+            "I can't reach the local model server. Make sure Ollama is running "
+            "(start the Ollama app), then try again."
+        )
+    log.warning("Ollama chat failed: %s", e)
+    return "Sorry, I hit a problem reaching the language model. Please try again."
 
 
 def handle_chat(
