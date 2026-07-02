@@ -117,12 +117,19 @@ _APPEARANCE_RE = re.compile(
     re.IGNORECASE,
 )
 _APPEARANCE_PROMPT_EN = (
-    "Look at the person in this image and describe their appearance: clothing "
-    "and colours, and anything they're holding. One or two sentences."
+    "Look at the person in this webcam image. Describe ONLY what is clearly "
+    "visible: their clothing and its real colours, and any accessories they are "
+    "wearing such as a watch, glasses, hat, or jewellery, plus anything held in "
+    "the hand. Do not guess colours you cannot clearly see, and do not describe "
+    "the inside or contents of any cup or container. If unsure about something, "
+    "leave it out. One or two sentences."
 )
 _APPEARANCE_PROMPT_DE = (
-    "Sieh dir die Person im Bild an und beschreibe ihr Aussehen: Kleidung und "
-    "Farben und was sie in der Hand hält. Ein bis zwei Sätze."
+    "Sieh dir die Person im Webcam-Bild an. Beschreibe NUR, was klar sichtbar "
+    "ist: Kleidung und ihre echten Farben sowie Accessoires wie Uhr, Brille, "
+    "Hut oder Schmuck und was in der Hand gehalten wird. Rate keine Farben, die "
+    "du nicht klar siehst, und beschreibe nicht den Inhalt von Tassen oder "
+    "Behältern. Bei Unsicherheit weglassen. Ein bis zwei Sätze."
 )
 
 
