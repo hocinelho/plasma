@@ -400,3 +400,42 @@ def test_vision_meta():
     assert any("what do you see" in t for t in META["triggers"])
     assert any("watch for" in t for t in META["triggers"])
     assert any("stop watching" in t for t in META["triggers"])
+
+
+# ---------------------------------------------------------------------------
+# Open-vocabulary recognition + appearance ("what am I wearing")
+# ---------------------------------------------------------------------------
+
+def test_vision_appearance_triggers_present():
+    from backend.skills.vision import META
+    for t in ["what am i wearing", "what is this", "was trage ich"]:
+        assert t in META["triggers"]
+
+
+def test_appearance_regex_matches():
+    from backend.skills.vision import _APPEARANCE_RE
+    assert _APPEARANCE_RE.search("what am i wearing")
+    assert _APPEARANCE_RE.search("what color is my shirt")
+    assert _APPEARANCE_RE.search("was trage ich heute")
+    assert not _APPEARANCE_RE.search("what do you see")
+
+
+def test_vision_uses_open_vocab_first():
+    from backend.skills import vision as vision_mod
+    with patch.object(vision_mod, "_recognize_open_vocab", return_value="I see a red mug and a laptop."):
+        result = vision_mod.run({"utterance": "what do you see"})
+    assert "red mug" in result.lower()
+
+
+def test_vision_appearance_passes_utterance():
+    from backend.skills import vision as vision_mod
+    seen = {}
+
+    def fake_reco(de, utterance=""):
+        seen["utterance"] = utterance
+        return "You're wearing a blue jacket."
+
+    with patch.object(vision_mod, "_recognize_open_vocab", side_effect=fake_reco):
+        result = vision_mod.run({"utterance": "what am I wearing"})
+    assert "blue jacket" in result.lower()
+    assert "wearing" in seen["utterance"].lower()

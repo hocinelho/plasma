@@ -40,6 +40,13 @@ META = {
         "recognize this",
         "identify this",
         "what object is this",
+        # Appearance — "what am I wearing", describe the person
+        "what am i wearing",
+        "what color is my",
+        "what colour is my",
+        "describe me",
+        "what do i look like",
+        "how many people",
         # Monitor — English
         "watch for",
         "monitor for",
@@ -62,6 +69,9 @@ META = {
         "was halte ich",
         "was ist das hier",
         "erkenne das",
+        "was trage ich",
+        "was habe ich an",
+        "welche farbe hat mein",
         # Monitor — German
         "halte ausschau nach",
         "beobachte",
@@ -100,11 +110,28 @@ def _detect_from_local_camera() -> list[dict]:
     return get_detector().detect(frame)
 
 
-def _recognize_open_vocab(de: bool) -> str | None:
+# Utterances about the user's appearance get a person-focused prompt.
+_APPEARANCE_RE = re.compile(
+    r"\b(wear|wearing|what do i look|describe me|colou?r is my|"
+    r"trage|anhabe|habe ich an|farbe hat mein|wie sehe ich)\b",
+    re.IGNORECASE,
+)
+_APPEARANCE_PROMPT_EN = (
+    "Look at the person in this image and describe their appearance: clothing "
+    "and colours, and anything they're holding. One or two sentences."
+)
+_APPEARANCE_PROMPT_DE = (
+    "Sieh dir die Person im Bild an und beschreibe ihr Aussehen: Kleidung und "
+    "Farben und was sie in der Hand hält. Ein bis zwei Sätze."
+)
+
+
+def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
     """Open-vocabulary recognition via the vision LLM (names ANY object).
 
     Best-effort: returns None on any failure (no VLM, no camera, no cv2) so the
-    caller falls back to the on-board 80-class detector.
+    caller falls back to the on-board 80-class detector. Appearance questions
+    ("what am I wearing") get a person-focused prompt.
     """
     try:
         import cv2
@@ -113,11 +140,15 @@ def _recognize_open_vocab(de: bool) -> str | None:
         from backend.modules.vision.capture import snapshot
         from backend.skills import locate as _locate
 
+        prompt = None
+        if _APPEARANCE_RE.search(utterance or ""):
+            prompt = _APPEARANCE_PROMPT_DE if de else _APPEARANCE_PROMPT_EN
+
         frame = snapshot(config.CAMERA_DEVICE)
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
         cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        return _locate.describe_scene(path, de)
+        return _locate.describe_scene(path, de, prompt=prompt)
     except Exception as e:
         log.debug("vision: open-vocab recognition unavailable: %s", e)
         return None
@@ -158,10 +189,10 @@ def run(args: dict | None = None) -> str:
                 else f"Camera not available: {e}"
             )
 
-    # Snapshot: "what do you see / what is this?"
+    # Snapshot: "what do you see / what is this / what am I wearing?"
     # 1) Try open-vocabulary recognition via the vision LLM — names ANY object.
     #    Best-effort; falls through to the detector if no VLM is configured.
-    description = _recognize_open_vocab(de)
+    description = _recognize_open_vocab(de, utterance)
     if description:
         return description
 

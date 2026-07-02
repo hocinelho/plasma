@@ -517,14 +517,16 @@ def _cloud_describe(image_path: str, prompt: str) -> str | None:
     return None
 
 
-def describe_scene(image_path: str, de: bool = False) -> str | None:
+def describe_scene(image_path: str, de: bool = False, prompt: str | None = None) -> str | None:
     """Open-vocabulary description of whatever the camera sees.
 
     Recognizes ANY object/person/animal via the vision LLM. Ollama (offline)
     first, then cloud. Returns None if no VLM is configured (caller falls back to
-    the on-board 80-class detector).
+    the on-board 80-class detector). ``prompt`` overrides the default (e.g. an
+    appearance-focused prompt for "what am I wearing").
     """
-    prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
+    if prompt is None:
+        prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
 
     if _ollama_vision_available():
         try:
