@@ -110,6 +110,53 @@ def chat_first_sentence(
     return collected.strip()
 
 
+def list_installed_models() -> list[str]:
+    """Names of models installed in Ollama (empty list if unreachable)."""
+    url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
+            return [m.get("name", "") for m in resp.json().get("models", [])]
+    except Exception:
+        return []
+
+
+def _model_installed(name: str, installed: list[str]) -> bool:
+    """Match a configured model against installed names, tolerating :latest."""
+    if not name:
+        return True  # nothing configured → nothing to warn about
+    name = name.strip()
+    bare = name.split(":")[0]
+    for m in installed:
+        if m == name or m.split(":")[0] == bare:
+            return True
+    return False
+
+
+def check_configured_models() -> list[str]:
+    """Return human-readable warnings for configured models that aren't pulled.
+
+    Empty list means all good (or Ollama unreachable → we stay quiet, the chat
+    path already surfaces connection errors).
+    """
+    installed = list_installed_models()
+    if not installed:
+        return []
+    warnings: list[str] = []
+    checks = [
+        ("OLLAMA_MODEL", config.OLLAMA_MODEL),
+        ("LOCATE_VISION_OLLAMA_MODEL", getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "")),
+    ]
+    for var, model in checks:
+        if model and not _model_installed(model, installed):
+            warnings.append(
+                f"{var}='{model}' is not installed in Ollama. "
+                f"Run: ollama pull {model}   (installed: {', '.join(installed) or 'none'})"
+            )
+    return warnings
+
+
 def health_check() -> dict:
     """Quick probe: is Ollama reachable and is our model available?"""
     url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
