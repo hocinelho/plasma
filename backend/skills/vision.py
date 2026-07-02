@@ -100,6 +100,29 @@ def _detect_from_local_camera() -> list[dict]:
     return get_detector().detect(frame)
 
 
+def _recognize_open_vocab(de: bool) -> str | None:
+    """Open-vocabulary recognition via the vision LLM (names ANY object).
+
+    Best-effort: returns None on any failure (no VLM, no camera, no cv2) so the
+    caller falls back to the on-board 80-class detector.
+    """
+    try:
+        import cv2
+        import tempfile
+        from backend.core.config import config
+        from backend.modules.vision.capture import snapshot
+        from backend.skills import locate as _locate
+
+        frame = snapshot(config.CAMERA_DEVICE)
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+            path = tf.name
+        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return _locate.describe_scene(path, de)
+    except Exception as e:
+        log.debug("vision: open-vocab recognition unavailable: %s", e)
+        return None
+
+
 def run(args: dict | None = None) -> str:
     utterance = ((args or {}).get("utterance") or "").strip()
     language = (args or {}).get("language", "en")
@@ -136,12 +159,15 @@ def run(args: dict | None = None) -> str:
             )
 
     # Snapshot: "what do you see / what is this?"
-    # Capture one frame, then RECOGNISE open-vocabulary via the vision LLM
-    # (names ANY object), falling back to the on-board 80-class detector.
+    # 1) Try open-vocabulary recognition via the vision LLM — names ANY object.
+    #    Best-effort; falls through to the detector if no VLM is configured.
+    description = _recognize_open_vocab(de)
+    if description:
+        return description
+
+    # 2) Fallback: on-board 80-class detector (the mockable I/O seam).
     try:
-        from backend.core.config import config
-        from backend.modules.vision.capture import snapshot
-        frame = snapshot(config.CAMERA_DEVICE)
+        detections = _detect_from_local_camera()
     except ImportError as e:
         install_hint = "pip install mediapipe opencv-python"
         return (
@@ -151,27 +177,6 @@ def run(args: dict | None = None) -> str:
         )
     except RuntimeError as e:
         return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
-    except Exception as e:
-        return f"Kamera-Fehler: {e}" if de else f"Camera error: {e}"
-
-    # 1) Open-vocabulary recognition via the vision LLM (moondream / cloud).
-    try:
-        import cv2
-        import tempfile
-        from backend.skills import locate as _locate
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
-            _p = tf.name
-        cv2.imwrite(_p, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        description = _locate.describe_scene(_p, de)
-        if description:
-            return description
-    except Exception as e:
-        log.debug("vision: open-vocab recognition unavailable, using detector: %s", e)
-
-    # 2) Fallback: on-board 80-class detector.
-    try:
-        from backend.modules.vision.detector import get_detector
-        detections = get_detector().detect(frame)
     except Exception as e:
         return f"Kamera-Fehler: {e}" if de else f"Camera error: {e}"
 
