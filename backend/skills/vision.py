@@ -161,8 +161,10 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
             prompt = _APPEARANCE_PROMPT_DE if de else _APPEARANCE_PROMPT_EN
 
         frame = snapshot(config.CAMERA_DEVICE)
-        # Correct any webcam colour cast so the model doesn't report a blue face.
-        frame = apply_gray_world(frame)
+        # Camera settling handles colour at the source; only apply software
+        # white-balance if the user explicitly enabled it (it can over-correct).
+        if getattr(config, "CAMERA_AUTO_WHITE_BALANCE", False):
+            frame = apply_gray_world(frame)
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
         cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])

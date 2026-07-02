@@ -175,6 +175,14 @@ class Config:
     # next one is instant (opening a webcam is slow). Released when idle so other
     # apps can use the camera. Set 0 to always open fresh (slowest, most polite).
     CAMERA_KEEPALIVE_S: float = float(os.getenv("CAMERA_KEEPALIVE_S", "60"))
+    # Seconds to let the webcam run before the first shot so its auto
+    # white-balance/exposure converge (fixes blue/green colour casts at the
+    # source). Only paid on a cold open; warm re-use is instant.
+    CAMERA_SETTLE_S: float = float(os.getenv("CAMERA_SETTLE_S", "1.2"))
+    # Software gray-world white-balance AFTER capture. Off by default — the camera
+    # settling above is the real fix; gray-world can over-correct (blue→green) on
+    # close-up faces. Turn on only if your camera still casts a colour.
+    CAMERA_AUTO_WHITE_BALANCE: bool = os.getenv("CAMERA_AUTO_WHITE_BALANCE", "false").lower() == "true"
 
     # --- Personal object memory ("remember this as my keys") ---
     # Teach Plasma YOUR specific items via MediaPipe ImageEmbedder (Apache 2.0).
@@ -192,6 +200,10 @@ class Config:
     # Tier 2 (offline, fast): Ollama vision model (moondream ~1.9 GB).
     #   Enable: ollama pull moondream  then set:
     LOCATE_VISION_OLLAMA_MODEL: str = os.getenv("LOCATE_VISION_OLLAMA_MODEL", "")
+    # If the model above errors (e.g. too big → Ollama 500) or blanks, Plasma
+    # auto-tries these lighter models in order so recognition still answers.
+    # Comma-separated; set blank to disable auto-fallback.
+    LOCATE_VISION_OLLAMA_FALLBACKS: str = os.getenv("LOCATE_VISION_OLLAMA_FALLBACKS", "moondream")
     # Tier 3 (offline, heavy): locate-anything.cpp CLI (6 GB GGUF, C++ build).
     #   See external/locate-anything/README.md for build instructions.
     LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")
