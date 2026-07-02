@@ -698,8 +698,9 @@ def run(args: dict | None = None) -> str:
         import cv2
 
         frame = snapshot(config.CAMERA_DEVICE)
-        from backend.modules.vision.capture import apply_gray_world
-        frame = apply_gray_world(frame)   # correct webcam colour cast
+        if getattr(config, "CAMERA_AUTO_WHITE_BALANCE", False):
+            from backend.modules.vision.capture import apply_gray_world
+            frame = apply_gray_world(frame)   # opt-in software colour correction
         img_h, img_w = frame.shape[0], frame.shape[1]
         # Downscale to max 1024px on the long edge before sending to a cloud
         # vision model: smaller payloads upload faster and avoid 400 errors from

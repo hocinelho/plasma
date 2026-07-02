@@ -69,6 +69,13 @@ class LocalCameraCapture:
                 continue
             if cap is not None and cap.isOpened():
                 self._cap = cap
+                # Turn ON the camera's own auto white-balance + auto-exposure so
+                # colours come out natural (some webcams default these off, giving
+                # a blue/green cast). Best-effort — ignored if unsupported.
+                try:
+                    cap.set(cv2.CAP_PROP_AUTO_WB, 1)
+                except Exception:
+                    pass
                 log.info("Camera %s opened (backend=%s)", self._device, backend)
                 return
             if cap is not None:
@@ -102,6 +109,19 @@ class LocalCameraCapture:
                 return frame
             time.sleep(_READ_DELAY_S)
         return None
+
+    def settle(self, seconds: float) -> None:
+        """Read frames for `seconds` so auto white-balance/exposure converge.
+
+        Webcams need ~1–2 s of running before colours and brightness stabilise;
+        grabbing a frame too soon gives a blue/green cast or a dark image.
+        """
+        if self._cap is None or seconds <= 0:
+            return
+        t_end = time.monotonic() + seconds
+        while time.monotonic() < t_end:
+            self._cap.read()
+            time.sleep(_READ_DELAY_S)
 
     def is_open(self) -> bool:
         return self._cap is not None
@@ -186,9 +206,14 @@ def snapshot(device_index: int = 0) -> np.ndarray:
                     pass
             cam = LocalCameraCapture(device_index)
             cam.open()                       # slow, but only on the cold path
+            try:
+                from backend.core.config import config
+                cam.settle(float(getattr(config, "CAMERA_SETTLE_S", 1.2)))
+            except Exception:
+                cam.settle(1.2)
             _cached_cam = cam
             _cached_device = device_index
-            warmup = _WARMUP_FRAMES           # settle sensor on cold open
+            warmup = _WARMUP_FRAMES           # a few more frames just before capture
         else:
             cam = _cached_cam
             warmup = 1                        # already running → barely any
