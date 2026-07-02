@@ -439,3 +439,12 @@ def test_vision_appearance_passes_utterance():
         result = vision_mod.run({"utterance": "what am I wearing"})
     assert "blue jacket" in result.lower()
     assert "wearing" in seen["utterance"].lower()
+
+
+def test_vision_vlm_error_gives_helpful_message():
+    from backend.skills import vision as vision_mod
+    # VLM is configured but recognition returned nothing (model errored/500).
+    with patch.object(vision_mod, "_recognize_open_vocab", return_value=None), \
+         patch.object(vision_mod, "_vlm_configured", return_value=True):
+        result = vision_mod.run({"utterance": "describe me"})
+    assert "llava" in result.lower() or "lighter" in result.lower() or "too large" in result.lower()

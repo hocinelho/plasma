@@ -408,7 +408,10 @@ def _ollama_generate(base: str, model: str, prompt: str, b64: str) -> str:
         # 0.1 is near-deterministic while avoiding blank responses.
         "options": {"temperature": 0.1},
     }
-    resp = http_post(f"{base}/api/generate", json=payload, timeout=60.0)
+    resp = http_post(f"{base}/api/generate", json=payload, timeout=120.0)
+    if resp.status_code >= 400:
+        # Surface Ollama's real reason (e.g. "requires more system memory…").
+        log.warning("ollama generate %s -> %s: %s", model, resp.status_code, resp.text[:300])
     resp.raise_for_status()
     return resp.json().get("response", "").strip().strip("'\"")
 
