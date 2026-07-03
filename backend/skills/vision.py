@@ -208,9 +208,16 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
         if getattr(config, "CAMERA_AUTO_WHITE_BALANCE", False):
             frame = apply_gray_world(frame)
         log.info("recognize: captured frame %dx%d", frame.shape[1], frame.shape[0])
+        # Downscale to ~1024px long edge: plenty of detail for recognition, but
+        # far fewer image tokens → faster uploads and lighter on free-tier limits.
+        h, w = frame.shape[:2]
+        long_edge = max(h, w)
+        if long_edge > 1024:
+            s = 1024 / long_edge
+            frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
-        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
+        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
         # Surface the exact frame the model saw in the UI — so you can verify
         # the description against the real snapshot (and spot a bad capture).
         try:
