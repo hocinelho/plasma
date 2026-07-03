@@ -12,6 +12,7 @@ Actions:
 from __future__ import annotations
 import logging
 import re
+from pathlib import Path
 
 log = logging.getLogger("plasma.skill.vision")
 
@@ -207,19 +208,28 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
         # white-balance if the user explicitly enabled it (it can over-correct).
         if getattr(config, "CAMERA_AUTO_WHITE_BALANCE", False):
             frame = apply_gray_world(frame)
-        log.info("recognize: captured frame %dx%d", frame.shape[1], frame.shape[0])
-        # Downscale to ~1024px long edge: plenty of detail for recognition, but
-        # far fewer image tokens → faster uploads and lighter on free-tier limits.
         h, w = frame.shape[:2]
-        long_edge = max(h, w)
-        if long_edge > 1024:
-            s = 1024 / long_edge
-            frame = cv2.resize(frame, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
-            path = tf.name
-        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 88])
-        # Surface the exact frame the model saw in the UI — so you can verify
-        # the description against the real snapshot (and spot a bad capture).
+        # Average brightness — a very dark frame is why some models say
+        # "dark / no person". Log it so we can see if it's an exposure problem.
+        try:
+            import numpy as _np
+            brightness = float(_np.asarray(frame).mean())
+        except Exception:
+            brightness = -1.0
+        log.info("recognize: captured frame %dx%d, brightness=%.0f/255", w, h, brightness)
+
+        # Save the EXACT image sent to the model to a stable path you can open,
+        # so we can finally see what it's working with.
+        try:
+            stable = Path(config.PLASMA_DIR) / "describe_last.jpg"
+            stable.parent.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(stable), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            path = str(stable)
+        except Exception:
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
+                path = tf.name
+            cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        # Surface it in the UI too.
         try:
             _locate._set_last_annotated(path)
         except Exception:
