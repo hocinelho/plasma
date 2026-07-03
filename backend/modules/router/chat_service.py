@@ -56,12 +56,15 @@ def _build_system_prompt(memory: MemoryStore, speaker: str | None = None) -> str
 
 def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> str:
     """Try cloud LLM first (PA-29, provider-agnostic), fall back to Ollama (PA-31)."""
+    from backend.core.config import config
     from backend.modules.router.cloud_client import (
         chat_first_sentence as _cloud_chat,
         is_available as cloud_available,
     )
 
-    if cloud_available():
+    # CLOUD_CHAT_ENABLED=false keeps CHAT on the local model even when a cloud key
+    # is set — so the cloud quota is saved for vision (avoids 429 rate limits).
+    if cloud_available() and getattr(config, "CLOUD_CHAT_ENABLED", True):
         try:
             reply = _cloud_chat(
                 user_message=user_message,
