@@ -540,10 +540,19 @@ def _cloud_describe(image_path: str, prompt: str) -> str | None:
             "max_tokens": 150,
             "temperature": 0.2,
         }
-        resp = http_post(url, json=payload, headers=headers, timeout=20.0)
-        if resp.status_code >= 400:
-            continue
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        # Retry on 429 (free-tier per-minute rate limit) with a short backoff
+        # before giving up on this model and falling to local.
+        for attempt in range(3):
+            resp = http_post(url, json=payload, headers=headers, timeout=20.0)
+            if resp.status_code == 429:
+                wait = 3.0 * (attempt + 1)
+                log.warning("recognize: cloud 429 rate-limited (%s), retrying in %.0fs", model, wait)
+                time.sleep(wait)
+                continue
+            if resp.status_code >= 400:
+                log.warning("recognize: cloud %s -> %s: %s", model, resp.status_code, resp.text[:200])
+                break
+            return resp.json()["choices"][0]["message"]["content"].strip()
     return None
 
 
