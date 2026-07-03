@@ -558,6 +558,17 @@ def describe_scene(image_path: str, de: bool = False, prompt: str | None = None)
     if prompt is None:
         prompt = _RECOGNIZE_PROMPT_DE if de else _RECOGNIZE_PROMPT_EN
 
+    # Cloud vision FIRST when available — a hosted VL model (e.g. qwen2.5-VL-72B)
+    # is far more accurate and faster than a small local model on CPU. Falls back
+    # to local Ollama if the cloud call fails, so you stay offline-capable.
+    if _cloud_vision_available():
+        try:
+            text = _cloud_describe(image_path, prompt)
+            if text:
+                return text
+        except Exception as e:
+            log.warning("recognize: cloud describe failed (%s) — trying local", e)
+
     if _ollama_vision_available():
         try:
             from backend.core.config import config
@@ -578,14 +589,6 @@ def describe_scene(image_path: str, de: bool = False, prompt: str | None = None)
                     continue
         except Exception as e:
             log.warning("recognize: ollama describe failed: %s", e)
-
-    if _cloud_vision_available():
-        try:
-            text = _cloud_describe(image_path, prompt)
-            if text:
-                return text
-        except Exception as e:
-            log.warning("recognize: cloud describe failed: %s", e)
 
     return None
 
