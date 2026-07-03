@@ -41,6 +41,13 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+# Don't dump a traceback when the Windows console rejects a write (uvicorn
+# --reload pipes stdout and occasionally raises WinError 1); the app is fine.
+logging.raiseExceptions = False
+# httpx logs every HTTP request at INFO — noisy and it's what trips the console
+# write error most often. Quiet it (Plasma's own logs still show what matters).
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 log = logging.getLogger("plasma")
 
 
