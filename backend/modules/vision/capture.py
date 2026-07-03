@@ -47,11 +47,22 @@ def _candidate_backends():
     return backends
 
 
+def _is_black(frame: np.ndarray) -> bool:
+    """A near-black frame = no real signal (camera held by another app, privacy
+    shutter, or the browser 'Watch me' is streaming the same webcam)."""
+    try:
+        return float(np.asarray(frame).mean()) < 8.0
+    except Exception:
+        return False
+
+
 def _looks_corrupt(frame: np.ndarray) -> bool:
-    """Detect the green/torn 'glitch' frames some webcams emit (esp. via
-    DirectShow with a raw pixel format). Such frames are strongly green-dominant.
+    """Detect bad frames: near-black (no signal) or the green/torn 'glitch'
+    frames some webcams emit via DirectShow with a raw pixel format.
     """
     try:
+        if _is_black(frame):
+            return True
         b = float(frame[:, :, 0].mean())
         g = float(frame[:, :, 1].mean())
         r = float(frame[:, :, 2].mean())
@@ -270,6 +281,13 @@ def snapshot(device_index: int = 0) -> np.ndarray:
         raise RuntimeError(
             "Camera returned no frame. The webcam opened but produced no image — "
             "another app may be using it, or it needs a moment to start. Try again."
+        )
+    if _is_black(frame):
+        raise RuntimeError(
+            "Camera returned a black image. The webcam is being held by another "
+            "app — most likely the browser '👁 Watch me' feature or a video call "
+            "(Zoom/Teams). One app can use the webcam at a time: turn off 'Watch "
+            "me' (and close other camera apps), then try again."
         )
     return frame
 
