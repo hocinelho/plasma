@@ -98,7 +98,12 @@ class LocalCameraCapture:
                     cap.set(cv2.CAP_PROP_AUTO_WB, 1)
                 except Exception:
                     pass
-                log.info("Camera %s opened (backend=%s)", self._device, backend)
+                try:
+                    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                except Exception:
+                    w = h = 0
+                log.info("Camera %s opened (backend=%s, %dx%d)", self._device, backend, w, h)
                 return
             if cap is not None:
                 cap.release()

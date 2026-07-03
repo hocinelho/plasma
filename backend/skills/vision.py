@@ -207,9 +207,10 @@ def _recognize_open_vocab(de: bool, utterance: str = "") -> str | None:
         # white-balance if the user explicitly enabled it (it can over-correct).
         if getattr(config, "CAMERA_AUTO_WHITE_BALANCE", False):
             frame = apply_gray_world(frame)
+        log.info("recognize: captured frame %dx%d", frame.shape[1], frame.shape[0])
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tf:
             path = tf.name
-        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 92])
         # Surface the exact frame the model saw in the UI — so you can verify
         # the description against the real snapshot (and spot a bad capture).
         try:
