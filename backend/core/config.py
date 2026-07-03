@@ -45,6 +45,10 @@ class Config:
     # to Claude's native Messages API (PA-32) — different endpoint/auth/response
     # shape, so it can't be reached by just pointing CLOUD_BASE_URL at Anthropic.
     CLOUD_PROVIDER: str = os.getenv("CLOUD_PROVIDER", "openai").strip().lower()
+    # Keep CHAT on the local Ollama model even when a cloud key is set, so the
+    # cloud free-tier quota is reserved for vision (describe/find) and doesn't
+    # hit per-minute 429 rate limits. Vision still uses the cloud when configured.
+    CLOUD_CHAT_ENABLED: bool = os.getenv("CLOUD_CHAT_ENABLED", "true").lower() == "true"
 
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
