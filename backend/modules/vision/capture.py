@@ -47,6 +47,20 @@ def _candidate_backends():
     return backends
 
 
+def _looks_corrupt(frame: np.ndarray) -> bool:
+    """Detect the green/torn 'glitch' frames some webcams emit (esp. via
+    DirectShow with a raw pixel format). Such frames are strongly green-dominant.
+    """
+    try:
+        b = float(frame[:, :, 0].mean())
+        g = float(frame[:, :, 1].mean())
+        r = float(frame[:, :, 2].mean())
+        # Heavy green cast that no natural scene produces → corruption.
+        return g > 70 and g > 1.7 * max(b, r, 1.0)
+    except Exception:
+        return False
+
+
 class LocalCameraCapture:
     """OpenCV webcam capture — single-shot or continuous."""
 
@@ -69,9 +83,17 @@ class LocalCameraCapture:
                 continue
             if cap is not None and cap.isOpened():
                 self._cap = cap
-                # Turn ON the camera's own auto white-balance + auto-exposure so
-                # colours come out natural (some webcams default these off, giving
-                # a blue/green cast). Best-effort — ignored if unsupported.
+                # Force MJPG: many webcams default to a raw format (YUY2) that
+                # DirectShow mis-decodes into green/torn "glitch" frames. MJPG is
+                # decoded reliably and fixes the green-face corruption.
+                try:
+                    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+                    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                except Exception:
+                    pass
+                # Turn ON the camera's own auto white-balance so colours are
+                # natural (some webcams default it off). Best-effort.
                 try:
                     cap.set(cv2.CAP_PROP_AUTO_WB, 1)
                 except Exception:
@@ -102,13 +124,18 @@ class LocalCameraCapture:
             self._cap.read()
             time.sleep(_READ_DELAY_S)
 
-        # Now try to get a real, non-empty frame.
+        # Now try to get a real, non-empty, non-corrupt frame.
+        last_ok = None
         for _ in range(_READ_RETRIES):
             ret, frame = self._cap.read()
             if ret and frame is not None and frame.size > 0:
-                return frame
+                last_ok = frame
+                if not _looks_corrupt(frame):
+                    return frame
             time.sleep(_READ_DELAY_S)
-        return None
+        # All reads looked corrupt (or none succeeded) — return the last real
+        # frame if we got one, so we degrade instead of failing outright.
+        return last_ok
 
     def settle(self, seconds: float) -> None:
         """Read frames for `seconds` so auto white-balance/exposure converge.
