@@ -52,6 +52,10 @@ class Config:
     # cloud free-tier quota is reserved for vision (describe/find) and doesn't
     # hit per-minute 429 rate limits. Vision still uses the cloud when configured.
     CLOUD_CHAT_ENABLED: bool = os.getenv("CLOUD_CHAT_ENABLED", "true").lower() == "true"
+    # Stream only the first sentence of a reply (faster TTS start) vs. the full
+    # answer. Default OFF: the first-sentence cutoff truncated real answers when
+    # the model opened with a greeting, so full answers are the safe default.
+    CHAT_FIRST_SENTENCE_ONLY: bool = os.getenv("CHAT_FIRST_SENTENCE_ONLY", "false").lower() == "true"
 
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

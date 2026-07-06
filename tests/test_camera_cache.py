@@ -24,7 +24,8 @@ def fake_cv2(monkeypatch):
             return self._open
 
         def read(self):
-            return True, np.zeros((4, 4, 3), dtype=np.uint8)
+            # A mid-grey frame (not black) so it passes the black-frame guard.
+            return True, np.full((4, 4, 3), 120, dtype=np.uint8)
 
         def release(self):
             self._open = False
@@ -111,3 +112,32 @@ def test_looks_corrupt_passes_normal_frame():
     normal[:, :, 1] = 130
     normal[:, :, 2] = 150
     assert _looks_corrupt(normal) is False
+
+
+def test_snapshot_raises_on_black_frame(monkeypatch):
+    """A camera that only yields black frames → a clear 'held by another app' error."""
+    import types
+    cv2 = types.ModuleType("cv2")
+    cv2.CAP_DSHOW = 700
+    cv2.CAP_ANY = 0
+    cv2.CAP_PROP_FOURCC = 6
+    cv2.CAP_PROP_FRAME_WIDTH = 3
+    cv2.CAP_PROP_FRAME_HEIGHT = 4
+    cv2.CAP_PROP_AUTO_WB = 44
+    cv2.VideoWriter_fourcc = lambda *a: 0
+
+    class BlackCap:
+        def __init__(self, *a): self._open = True
+        def isOpened(self): return True
+        def set(self, *a): return True
+        def get(self, *a): return 0
+        def read(self): return True, np.zeros((8, 8, 3), dtype=np.uint8)  # always black
+        def release(self): self._open = False
+
+    cv2.VideoCapture = lambda *a: BlackCap()
+    monkeypatch.setitem(sys.modules, "cv2", cv2)
+    import backend.modules.vision.capture as cap
+    cap.release_camera()
+    with pytest.raises(RuntimeError, match="black"):
+        cap.snapshot(0)
+    cap.release_camera()

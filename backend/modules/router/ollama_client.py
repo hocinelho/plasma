@@ -97,7 +97,9 @@ def chat_first_sentence(
                 token = (chunk.get("message") or {}).get("content", "")
                 collected += token
 
-                if len(collected.split()) >= min_words:
+                # Only cut off at the first sentence if explicitly enabled — it
+                # truncates real answers when the model opens with a greeting.
+                if getattr(config, "CHAT_FIRST_SENTENCE_ONLY", False) and len(collected.split()) >= min_words:
                     m = _SENTENCE_END.search(collected)
                     if m:
                         first = collected[: m.end()].strip()

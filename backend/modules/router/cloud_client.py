@@ -245,7 +245,7 @@ def chat_first_sentence(
                         continue
                     collected += token
 
-                    if len(collected.split()) >= min_words:
+                    if getattr(config, "CHAT_FIRST_SENTENCE_ONLY", False) and len(collected.split()) >= min_words:
                         m = _SENTENCE_END.search(collected)
                         if m:
                             first = collected[: m.end()].strip()
@@ -316,7 +316,7 @@ def _anthropic_chat_first_sentence(
                         continue
                     collected += token
 
-                    if len(collected.split()) >= min_words:
+                    if getattr(config, "CHAT_FIRST_SENTENCE_ONLY", False) and len(collected.split()) >= min_words:
                         m = _SENTENCE_END.search(collected)
                         if m:
                             first = collected[: m.end()].strip()

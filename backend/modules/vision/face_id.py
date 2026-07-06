@@ -27,10 +27,17 @@ log = logging.getLogger("plasma.vision.face_id")
 
 FACES_DIR = config.PLASMA_DIR / "faces"
 
-# "remember/enroll/register/learn my face as <name>" + German variant
+# "remember/memorize/save/register/learn my face as <name>" (+ German)
 _ENROLL_RE = re.compile(
-    r"(?:remember|enroll|register|learn|this\s+is)\s+my\s+face\s+(?:as\s+)?([a-zA-ZÀ-ÿ]+)"
+    r"(?:remember|memorize|memorise|save|enroll|register|learn|this\s+is)\s+my\s+face\s+as\s+([a-zA-ZÀ-ÿ]+)"
     r"|merke?\s*(?:dir)?\s*mein\s+gesicht\s+als\s+([a-zA-ZÀ-ÿ]+)",
+    re.IGNORECASE,
+)
+# Enrollment INTENT even without a name ("memorize my face", "save my face to
+# your memory", "remember me").
+_ENROLL_INTENT_RE = re.compile(
+    r"\b(remember|memorize|memorise|save|register|learn)\s+(my\s+face|me)\b"
+    r"|\bmerke?\s*(dir)?\s*mein\s+gesicht\b",
     re.IGNORECASE,
 )
 
@@ -38,12 +45,17 @@ _lock = threading.Lock()
 
 
 def parse_enroll_command(text: str) -> Optional[str]:
-    """Return the person's name if the utterance is a face-enrollment command."""
+    """Return the person's name if the utterance names one for face enrollment."""
     m = _ENROLL_RE.search((text or "").strip())
     if not m:
         return None
     name = m.group(1) or m.group(2)
     return name.strip().capitalize() if name else None
+
+
+def is_enroll_intent(text: str) -> bool:
+    """True if the utterance asks to save the face, even without naming a person."""
+    return bool(_ENROLL_INTENT_RE.search((text or "").strip()))
 
 
 def is_available() -> bool:

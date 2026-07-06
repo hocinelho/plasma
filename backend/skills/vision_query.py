@@ -41,6 +41,11 @@ META = {
         "do you recognise my face",
         "remember my face",
         "learn my face",
+        "memorize my face",
+        "memorise my face",
+        "save my face",
+        "register my face",
+        "remember me",
         # German
         "wie viele finger",
         "zähl meine finger",
@@ -78,6 +83,15 @@ def run(args: dict | None = None) -> str:
     from backend.modules.vision import face_id
 
     enroll_name = face_id.parse_enroll_command(utterance)
+    # "memorize my face" with no name → use the identified speaker, else ask.
+    if not enroll_name and face_id.is_enroll_intent(utterance):
+        enroll_name = (args or {}).get("speaker")
+        if not enroll_name:
+            return (
+                "Wie soll ich dein Gesicht nennen? Sag z.B. 'Merke dir mein Gesicht als Hocine'."
+                if de
+                else "What name should I save your face under? Say 'remember my face as <your name>'."
+            )
     if enroll_name:
         try:
             frame = _capture()
