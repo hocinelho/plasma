@@ -34,22 +34,31 @@ def _build_system_prompt(memory: MemoryStore, speaker: str | None = None) -> str
     from backend.modules.user.user_md import read_user_md
 
     base = (
-        "You are Plasma, a local-first voice assistant. "
-        "Keep replies SHORT — usually 1 to 2 sentences, max 40 words. "
-        "Be direct and friendly. No preamble, no apologies, no emoji. "
-        "If the user asks a simple question, answer in one sentence."
+        "You are Plasma, a helpful voice assistant. "
+        "Answer the user's question directly and correctly. "
+        "Do NOT greet the user or say their name, and do NOT recite facts about "
+        "them, unless they explicitly ask. No preamble, no apologies, no emoji. "
+        "Be concise for simple questions, but give COMPLETE answers when needed: "
+        "if asked for an equation, formula, definition, list, or explanation, "
+        "provide the actual content — e.g. write out the equations, not just a "
+        "description of them. If you don't know, say so briefly."
     )
     if speaker:
-        base += f" You are currently talking to {speaker}."
+        base += f" (You are talking to {speaker}, but only use their name if asked.)"
 
     user_md = read_user_md(user=speaker)
     if user_md:
-        return f"{base}\n\n--- About the user (from USER.md) ---\n{user_md}"
+        return (
+            f"{base}\n\n--- Background on the user (use ONLY when relevant; "
+            f"never greet with it) ---\n{user_md}"
+        )
 
     facts = memory.get_facts(limit=20, user=speaker)
     if facts:
         fact_lines = "\n".join(f"- ({f['category']}) {f['content']}" for f in facts)
-        return f"{base}\n\nKnown facts about the user:\n{fact_lines}"
+        return (
+            f"{base}\n\nBackground facts (use ONLY when relevant, never recite):\n{fact_lines}"
+        )
 
     return base
 
