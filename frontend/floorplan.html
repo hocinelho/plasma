@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plasma — Floor Plan Editor</title>
+    <style>
+        :root { --ok:#6fd48a; --accent:#4a9eff; --text:#e6edf7; --muted:#8a94a7; }
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:-apple-system,'Segoe UI',sans-serif; color:var(--text);
+            background:radial-gradient(1000px 700px at 50% -10%,rgba(74,158,255,0.15),transparent 60%),#05070f;
+            min-height:100dvh; padding:18px; }
+        h1 { font-weight:300; letter-spacing:0.12em; font-size:20px; margin-bottom:4px; }
+        .sub { color:var(--muted); font-size:13px; margin-bottom:14px; }
+        .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+        button, select { background:rgba(20,27,46,0.6); color:var(--text); border:1px solid rgba(120,180,255,0.3);
+            border-radius:8px; padding:7px 12px; cursor:pointer; font-size:14px; }
+        button.primary { border-color:var(--ok); color:var(--ok); }
+        button.primary.saved { background:var(--ok); color:#04120a; }
+        #stage { position:relative; width:100%; max-width:640px; }
+        #plan { width:100%; background:#04120a; border:1px solid rgba(111,212,138,0.3);
+            border-radius:12px; touch-action:none; cursor:crosshair; }
+        .hint { color:var(--muted); font-size:12px; margin-top:8px; }
+        #rooms { margin-top:12px; max-width:640px; }
+        .rm { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid rgba(120,180,255,0.12); font-size:13px; }
+        .rm .sw { width:12px; height:12px; border-radius:3px; background:var(--ok); }
+        .rm button { padding:3px 8px; font-size:12px; }
+        a { color:var(--muted); font-size:13px; }
+    </style>
+</head>
+<body>
+    <h1>🏠 Floor Plan Editor</h1>
+    <div class="sub">Draw each room by dragging a box, then name it. Rooms are used to place people in the see-through view. <a href="/">← back to Plasma</a></div>
+
+    <div class="row">
+        <label>Floor:
+            <select id="floor-sel"></select>
+        </label>
+        <button id="add-floor">+ Add floor</button>
+        <button id="rename-floor">Rename floor</button>
+        <button id="clear-floor">Clear this floor</button>
+        <button id="save" class="primary">💾 Save</button>
+    </div>
+
+    <div id="stage"><canvas id="plan" width="640" height="440"></canvas></div>
+    <div class="hint">Drag on the plan to add a room. Rooms are stored as fractions of the plan, so they scale to any home.</div>
+
+    <div id="rooms"></div>
+
+<script>
+const canvas = document.getElementById('plan');
+const ctx = canvas.getContext('2d');
+const floorSel = document.getElementById('floor-sel');
+const roomsEl = document.getElementById('rooms');
+let plan = { floors: [] };
+let curLevel = 0;
+let drag = null;
+
+function curFloor() { return plan.floors.find(f => f.level === curLevel) || plan.floors[0]; }
+
+async function load() {
+    try { plan = await (await fetch('/api/wifi/floorplan')).json(); } catch (e) {}
+    if (!plan.floors || !plan.floors.length) plan = { floors: [{ name: 'Ground floor', level: 0, rooms: [] }] };
+    curLevel = plan.floors[0].level;
+    refreshFloors(); draw(); listRooms();
+}
+
+function refreshFloors() {
+    floorSel.innerHTML = '';
+    for (const f of plan.floors) {
+        const o = document.createElement('option');
+        o.value = f.level; o.textContent = `${f.name} (level ${f.level})`;
+        if (f.level === curLevel) o.selected = true;
+        floorSel.appendChild(o);
+    }
+}
+
+function draw() {
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(111,212,138,0.10)'; ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    const f = curFloor(); if (!f) return;
+    ctx.lineWidth = 2;
+    for (const r of f.rooms) {
+        ctx.strokeStyle = 'rgba(111,212,138,0.7)';
+        ctx.fillStyle = 'rgba(111,212,138,0.08)';
+        ctx.fillRect(r.x * W, r.y * H, r.w * W, r.h * H);
+        ctx.strokeRect(r.x * W, r.y * H, r.w * W, r.h * H);
+        ctx.fillStyle = '#8affb0'; ctx.font = '13px sans-serif';
+        ctx.fillText(r.name, r.x * W + 6, r.y * H + 16);
+    }
+    if (drag) {
+        ctx.strokeStyle = 'rgba(74,158,255,0.9)';
+        ctx.strokeRect(drag.x0, drag.y0, drag.x1 - drag.x0, drag.y1 - drag.y0);
+    }
+}
+
+function listRooms() {
+    const f = curFloor();
+    roomsEl.innerHTML = '';
+    (f ? f.rooms : []).forEach((r, i) => {
+        const d = document.createElement('div'); d.className = 'rm';
+        d.innerHTML = `<span class="sw"></span><b>${r.name}</b> <span style="color:var(--muted)">${(r.w*100|0)}%×${(r.h*100|0)}%</span>`;
+        const del = document.createElement('button'); del.textContent = '✕';
+        del.onclick = () => { f.rooms.splice(i, 1); draw(); listRooms(); };
+        d.appendChild(del); roomsEl.appendChild(d);
+    });
+}
+
+function pos(e) {
+    const r = canvas.getBoundingClientRect();
+    const cx = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    const cy = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    return [cx * canvas.width / r.width, cy * canvas.height / r.height];
+}
+canvas.addEventListener('pointerdown', e => { const [x, y] = pos(e); drag = { x0: x, y0: y, x1: x, y1: y }; });
+canvas.addEventListener('pointermove', e => { if (!drag) return; const [x, y] = pos(e); drag.x1 = x; drag.y1 = y; draw(); });
+canvas.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const W = canvas.width, H = canvas.height;
+    const x = Math.min(drag.x0, drag.x1) / W, y = Math.min(drag.y0, drag.y1) / H;
+    const w = Math.abs(drag.x1 - drag.x0) / W, h = Math.abs(drag.y1 - drag.y0) / H;
+    drag = null;
+    if (w < 0.03 || h < 0.03) { draw(); return; }   // ignore tiny drags
+    const name = prompt('Room name (e.g. living room, kitchen, bedroom):');
+    if (name) { curFloor().rooms.push({ name: name.trim(), x: +x.toFixed(3), y: +y.toFixed(3), w: +w.toFixed(3), h: +h.toFixed(3) }); }
+    draw(); listRooms();
+});
+
+floorSel.onchange = () => { curLevel = +floorSel.value; draw(); listRooms(); };
+document.getElementById('add-floor').onclick = () => {
+    const lvl = Math.max(...plan.floors.map(f => f.level)) + 1;
+    const name = prompt('Floor name:', lvl === 1 ? 'Upstairs' : `Floor ${lvl}`) || `Floor ${lvl}`;
+    plan.floors.push({ name, level: lvl, rooms: [] }); curLevel = lvl;
+    refreshFloors(); draw(); listRooms();
+};
+document.getElementById('rename-floor').onclick = () => {
+    const f = curFloor(); const n = prompt('Floor name:', f.name); if (n) { f.name = n.trim(); refreshFloors(); }
+};
+document.getElementById('clear-floor').onclick = () => { if (confirm('Clear all rooms on this floor?')) { curFloor().rooms = []; draw(); listRooms(); } };
+document.getElementById('save').onclick = async () => {
+    const btn = document.getElementById('save');
+    try {
+        const r = await fetch('/api/wifi/floorplan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ floors: plan.floors }) });
+        const j = await r.json();
+        btn.classList.add('saved'); btn.textContent = j.ok ? '✓ Saved' : '⚠ ' + (j.error || 'error');
+        setTimeout(() => { btn.classList.remove('saved'); btn.textContent = '💾 Save'; }, 1800);
+    } catch (e) { btn.textContent = '⚠ save failed'; }
+};
+
+load();
+</script>
+</body>
+</html>

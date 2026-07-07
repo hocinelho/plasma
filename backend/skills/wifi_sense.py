@@ -180,11 +180,16 @@ def fetch_scene() -> dict:
             py = sum(k[1] for k in kps) / len(kps)
         if px is not None and py is not None:
             p["pos"] = [round(px, 4), round(py, 4)]
+            loc = room_for(px, py, level=p.get("level"), plan=plan)
             if not p.get("room"):
-                loc = room_for(px, py, level=p.get("level"), plan=plan)
                 p["room"] = loc["room"]
                 p["floor"] = loc["floor"]
+            # Always pin a numeric floor level so a person can't leak onto every
+            # floor in the view (default to ground floor / 0).
+            if p.get("level") is None:
                 p["level"] = loc["level"]
+        if p.get("level") is None:
+            p["level"] = 0
 
     return {
         "ok": True,

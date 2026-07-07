@@ -316,6 +316,9 @@
             box-shadow: 0 0 26px rgba(111,212,138,0.18);
         }
         #seethrough-canvas.live { display: block; }
+        #floorplan-link { font-size: 0.82em; color: var(--muted); text-decoration: none;
+            border: 1px solid rgba(111,212,138,0.25); border-radius: 999px; padding: 4px 12px; }
+        #floorplan-link:hover { color: var(--ok); border-color: var(--ok); }
         .vision-status {
             font-size: 0.85em;
             opacity: 0.75;
@@ -532,6 +535,7 @@
         <button id="seethrough-btn" title="See people through walls via WiFi sensing (RuView)">🫥 See-through (WiFi)</button>
         <div id="seethrough-status" class="vision-status"></div>
         <canvas id="seethrough-canvas" width="360" height="240"></canvas>
+        <a id="floorplan-link" href="/floorplan" title="Draw your home's rooms">✏️ Edit floor plan</a>
     </div>
 
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
@@ -1436,7 +1440,8 @@ function drawFloorPlan(ctx, W, H, scene) {
     // people on this floor
     ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 10;
     for (const p of (scene.people || [])) {
-        if (p.level != null && p.level !== floor.level) continue;
+        const lvl = (p.level != null) ? p.level : 0;   // default ground floor
+        if (lvl !== floor.level) continue;
         const pos = p.pos || (p.x != null ? [p.x, p.y] : null);
         if (!pos) continue;
         const cx = pos[0] * W, cy = pos[1] * H;

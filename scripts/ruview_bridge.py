@@ -45,6 +45,7 @@ _TEMPLATE = [
 _ROOMS = ["living room", "kitchen", "hallway", "bedroom"]
 
 DEMO = True
+N_PEOPLE = 3
 _START = time.time()
 
 
@@ -84,17 +85,35 @@ def _skeleton(cx: float, swing: float) -> list:
     return kp
 
 
-def _demo_people() -> list[dict]:
-    """A person walking a path through the rooms; a second still in the kitchen."""
+# Second-floor path (level 1) for the upstairs person.
+_PATH_UP = [(0.27, 0.30), (0.50, 0.80), (0.77, 0.30), (0.50, 0.80)]
+
+
+def _walk_path(path, t, period):
+    n = len(path)
+    u = (t % period) / period * n
+    i = int(u) % n
+    f = u - int(u)
+    ax, ay = path[i]
+    bx, by = path[(i + 1) % n]
+    return ax + (bx - ax) * f, ay + (by - ay) * f
+
+
+def _demo_people(n_people: int = 3) -> list[dict]:
+    """`n_people` simulated occupants spread across floors, some walking."""
     t = time.time() - _START
     people: list[dict] = []
-    px, py = _walk(t)
-    people.append({
-        "keypoints": _skeleton(px, 0.06 * math.sin(t * 3.0)),
-        "x": round(px, 4), "y": round(py, 4), "level": 0,
-    })
-    if math.sin(t * 0.2) > 0.3:  # second person appears part of the time
+    # Ground floor: one walking the main path, one still in the kitchen.
+    px, py = _walk_path(_PATH, t, 32.0)
+    people.append({"keypoints": _skeleton(px, 0.06 * math.sin(t * 3.0)),
+                   "x": round(px, 4), "y": round(py, 4), "level": 0})
+    if n_people >= 2:
         people.append({"keypoints": _skeleton(0.77, 0.0), "x": 0.77, "y": 0.20, "level": 0})
+    # Upstairs: person(s) pacing on level 1 — proves the floor switch works.
+    for k in range(3, n_people + 1):
+        ux, uy = _walk_path(_PATH_UP, t + k * 7.0, 24.0)
+        people.append({"keypoints": _skeleton(ux, 0.05 * math.sin(t * 2.5 + k)),
+                       "x": round(ux, 4), "y": round(uy, 4), "level": 1})
     return people
 
 
@@ -111,7 +130,7 @@ def real_scene() -> dict:
 
 
 def scene() -> dict:
-    people = _demo_people() if DEMO else real_scene().get("people", [])
+    people = _demo_people(N_PEOPLE) if DEMO else real_scene().get("people", [])
     rooms: dict[str, int] = {}
     for p in people:
         r = p.get("room")
@@ -157,8 +176,11 @@ def main():
     ap = argparse.ArgumentParser(description="RuView → Plasma bridge server")
     ap.add_argument("--port", type=int, default=3000)
     ap.add_argument("--real", action="store_true", help="use real_scene() instead of the demo")
+    ap.add_argument("--people", type=int, default=3, help="how many demo occupants to simulate")
     args = ap.parse_args()
     DEMO = not args.real
+    global N_PEOPLE
+    N_PEOPLE = max(0, args.people)
 
     srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
     mode = "DEMO (simulated walking skeleton)" if DEMO else "REAL (ruview/ESP32)"
