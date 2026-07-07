@@ -127,6 +127,15 @@ class Config:
     TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
     TWILIO_WHATSAPP_FROM: str = os.getenv("TWILIO_WHATSAPP_FROM", "")
 
+    # --- WiFi sensing via RuView (CSI presence/room detection) ---
+    # RuView senses people through walls from WiFi CSI. Needs its own hardware
+    # (ESP32-S3 ~$9 / RPi+nexmon_csi) OR the no-hardware Docker demo, running its
+    # HTTP API. Plasma is the voice layer: "is anyone home?", "who's in the
+    # living room?". Disabled unless RUVIEW_ENABLED=true.
+    RUVIEW_ENABLED: bool = os.getenv("RUVIEW_ENABLED", "false").lower() == "true"
+    RUVIEW_URL: str = os.getenv("RUVIEW_URL", "http://localhost:3000")
+    RUVIEW_API_KEY: str = os.getenv("RUVIEW_API_KEY", "")
+
     # --- Home Assistant smart home integration ---
     # Run Home Assistant locally (https://www.home-assistant.io/) or on a Pi.
     # Generate a Long-Lived Access Token: Profile → Long-Lived Access Tokens.

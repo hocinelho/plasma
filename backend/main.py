@@ -134,6 +134,29 @@ app.add_middleware(
 )
 
 
+import re as _re
+
+
+def _speakable(text: str) -> str:
+    """Strip LaTeX/markdown so TTS doesn't read '$$ backslash nabla' aloud.
+
+    The chat UI still shows the rendered equation; this only affects the audio.
+    """
+    if not text:
+        return text
+    t = text
+    # Displayed equations → a short spoken placeholder.
+    t = _re.sub(r"\$\$.*?\$\$", " (equation shown on screen) ", t, flags=_re.S)
+    t = _re.sub(r"\\\[.*?\\\]", " (equation shown on screen) ", t, flags=_re.S)
+    # Inline math: drop the $ / \( \) delimiters and LaTeX commands, keep symbols.
+    t = _re.sub(r"\$(.+?)\$", lambda m: _re.sub(r"\\[a-zA-Z]+", " ", m.group(1)), t)
+    t = _re.sub(r"\\\((.+?)\\\)", lambda m: _re.sub(r"\\[a-zA-Z]+", " ", m.group(1)), t)
+    # Markdown emphasis / code fences / headings.
+    t = t.replace("**", "").replace("`", "").replace("#", "")
+    t = _re.sub(r"[ \t]+", " ", t).strip()
+    return t or text
+
+
 # ---------------------------------------------------------------------------
 # Helper: refresh USER.md every N turns
 # ---------------------------------------------------------------------------
@@ -518,7 +541,7 @@ async def voice_chat(
     if plasma_config.TTS_ENABLED:
         try:
             tts_t0 = time.monotonic()
-            wav_bytes = await asyncio.to_thread(tts_synthesize, reply, detected_language)
+            wav_bytes = await asyncio.to_thread(tts_synthesize, _speakable(reply), detected_language)
             tts_ms = (time.monotonic() - tts_t0) * 1000.0
             if wav_bytes:
                 audio_b64 = base64.b64encode(wav_bytes).decode("ascii")
