@@ -48,31 +48,53 @@ DEMO = True
 _START = time.time()
 
 
-def _demo_people() -> list[dict]:
-    """A person (sometimes two) walking back and forth, arms swinging."""
-    t = time.time() - _START
-    people: list[dict] = []
-    # Person 1 walks left↔right across the width.
-    cx = 0.5 + 0.32 * math.sin(t * 0.5)
-    cy = 0.25 + 0.02 * math.sin(t * 2.0)
-    swing = 0.06 * math.sin(t * 3.0)
+# Floor positions (x,y in 0..1) a demo person walks through — matches the
+# default floor plan's rooms so they show up in the right room.
+_PATH = [
+    (0.50, 0.88),  # entrance
+    (0.50, 0.65),  # hallway
+    (0.27, 0.27),  # living room
+    (0.50, 0.65),  # hallway
+    (0.77, 0.20),  # kitchen
+    (0.50, 0.65),  # hallway
+]
+
+
+def _walk(t: float, period: float = 32.0) -> tuple[float, float]:
+    """Position along the looping path at time t."""
+    n = len(_PATH)
+    u = (t % period) / period * n
+    i = int(u) % n
+    f = u - int(u)
+    ax, ay = _PATH[i]
+    bx, by = _PATH[(i + 1) % n]
+    return ax + (bx - ax) * f, ay + (by - ay) * f
+
+
+def _skeleton(cx: float, swing: float) -> list:
     kp = []
     for i, (ox, oy) in enumerate(_TEMPLATE):
         x = cx + ox
-        y = cy + oy * 0.7
-        if i in (7, 9):   # left arm swings
+        y = 0.25 + oy * 0.7
+        if i in (7, 9):
             x += swing
-        if i in (8, 10):  # right arm opposite
+        if i in (8, 10):
             x -= swing
         kp.append([round(x, 4), round(y, 4)])
-    room = _ROOMS[int((cx * len(_ROOMS))) % len(_ROOMS)]
-    people.append({"keypoints": kp, "room": room})
+    return kp
 
-    # A second, still person appears for part of the cycle.
-    if math.sin(t * 0.2) > 0.3:
-        cx2 = 0.75
-        kp2 = [[round(cx2 + ox, 4), round(0.3 + oy * 0.7, 4)] for ox, oy in _TEMPLATE]
-        people.append({"keypoints": kp2, "room": "kitchen"})
+
+def _demo_people() -> list[dict]:
+    """A person walking a path through the rooms; a second still in the kitchen."""
+    t = time.time() - _START
+    people: list[dict] = []
+    px, py = _walk(t)
+    people.append({
+        "keypoints": _skeleton(px, 0.06 * math.sin(t * 3.0)),
+        "x": round(px, 4), "y": round(py, 4), "level": 0,
+    })
+    if math.sin(t * 0.2) > 0.3:  # second person appears part of the time
+        people.append({"keypoints": _skeleton(0.77, 0.0), "x": 0.77, "y": 0.20, "level": 0})
     return people
 
 

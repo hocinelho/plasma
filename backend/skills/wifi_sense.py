@@ -167,6 +167,25 @@ def fetch_scene() -> dict:
         count = len(people) if people else (1 if data.get("present") else 0)
     rooms = data.get("rooms") or data.get("areas") or {}
     has_pose = any("keypoints" in p for p in people)
+
+    # Map each person to a room/floor from their position (a real multi-node
+    # deployment supplies x/y by trilateration; else use the pose centroid).
+    from backend.modules.sense.floorplan import load_floorplan, room_for
+    plan = load_floorplan()
+    for p in people:
+        px, py = p.get("x"), p.get("y")
+        if (px is None or py is None) and p.get("keypoints"):
+            kps = p["keypoints"]
+            px = sum(k[0] for k in kps) / len(kps)
+            py = sum(k[1] for k in kps) / len(kps)
+        if px is not None and py is not None:
+            p["pos"] = [round(px, 4), round(py, 4)]
+            if not p.get("room"):
+                loc = room_for(px, py, level=p.get("level"), plan=plan)
+                p["room"] = loc["room"]
+                p["floor"] = loc["floor"]
+                p["level"] = loc["level"]
+
     return {
         "ok": True,
         "present": count > 0,
@@ -174,6 +193,7 @@ def fetch_scene() -> dict:
         "rooms": rooms if isinstance(rooms, dict) else {},
         "people": people,
         "has_pose": has_pose,
+        "floorplan": plan,
     }
 
 _ROOM_RE = re.compile(r"in the ([a-zA-Zà-ÿ ]+?)(?:[.?!]|$)|im ([a-zA-Zà-ÿ ]+?)(?:[.?!]|$)", re.I)
