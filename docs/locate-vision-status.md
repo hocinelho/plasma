@@ -315,3 +315,26 @@ appear in `GET /api/perception/status`.
 | `tests/test_locate_and_imagegen.py` | Locate + image-gen tests |
 | `tests/test_vision_skill.py` | Camera capture tests |
 | `tests/test_pa89_wake_word.py` | Wake-word + debounce tests |
+
+---
+
+## 📡 WiFi presence sensing (RuView integration)
+
+`backend/skills/wifi_sense.py` — voice layer over **RuView** (WiFi CSI sensing:
+detects people through walls, counts occupants, maps rooms — no camera).
+
+- Ask: "is anyone home?", "who's in the living room?", "how many people are home?"
+  (+ German). Falls back to clear setup guidance when RuView isn't running.
+- **Hardware reality:** a laptop's WiFi only gives coarse RSSI. True CSI sensing
+  needs an **ESP32-S3 (~$9)**, RPi + `nexmon_csi`, or a research NIC — OR run
+  RuView's no-hardware **Docker demo**. RuView does the sensing and exposes an
+  HTTP API; Plasma queries it.
+- Config: `RUVIEW_ENABLED`, `RUVIEW_URL` (http://localhost:3000), `RUVIEW_API_KEY`.
+- Endpoint-agnostic: probes several common RuView paths and parses presence/
+  count/rooms flexibly. Tests: `tests/test_wifi_sense.py`.
+
+Setup (no hardware):
+```
+docker run -p 3000:3000 ruvnet/wifi-densepose:latest
+# .env:  RUVIEW_ENABLED=true   RUVIEW_URL=http://localhost:3000
+```
