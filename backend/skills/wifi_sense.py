@@ -53,7 +53,18 @@ META = {
         "wifi presence",
         "sense the room",
         "is the house empty",
+        # Proactive alert toggle — English
+        "watch the house",
+        "alert me when someone",
+        "tell me when someone comes home",
+        "tell me when someone enters",
+        "let me know when someone",
+        "stop watching the house",
+        "stop house alerts",
         # German
+        "beobachte das haus",
+        "sag mir wenn jemand kommt",
+        "hör auf das haus zu beobachten",
         "ist jemand zu hause",
         "ist jemand da",
         "wer ist im",
@@ -72,6 +83,98 @@ META = {
 
 # Candidate endpoints across RuView versions (first that returns JSON wins).
 _ENDPOINTS = ("/api/presence", "/presence", "/api/status", "/status", "/api/sensors")
+# Pose/keypoint endpoints tried first for the see-through visualisation.
+_POSE_ENDPOINTS = ("/api/pose", "/pose", "/api/keypoints", "/keypoints", "/api/skeletons")
+
+
+def _as_xy(pt) -> Optional[list]:
+    """Normalise a keypoint of shape [x,y], [x,y,score], or {x,y} to [x,y]."""
+    if isinstance(pt, dict):
+        x, y = pt.get("x"), pt.get("y")
+        return [float(x), float(y)] if x is not None and y is not None else None
+    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+        return [float(pt[0]), float(pt[1])]
+    return None
+
+
+def _extract_people(data: dict) -> list[dict]:
+    """Pull a list of people (with keypoints and/or a position) from any shape."""
+    people: list[dict] = []
+    arr = None
+    for k in ("people", "persons", "poses", "subjects", "detections", "skeletons"):
+        v = data.get(k)
+        if isinstance(v, list):
+            arr = v
+            break
+    for item in (arr or []):
+        if not isinstance(item, dict):
+            # A bare list of points → a pose.
+            kps = [p for p in (_as_xy(q) for q in item) if p] if isinstance(item, list) else []
+            if kps:
+                people.append({"keypoints": kps})
+            continue
+        person: dict = {}
+        raw_kp = item.get("keypoints") or item.get("pose") or item.get("joints") or item.get("skeleton")
+        if isinstance(raw_kp, list):
+            kps = [p for p in (_as_xy(q) for q in raw_kp) if p]
+            if kps:
+                person["keypoints"] = kps
+        pos = item.get("position") or item.get("center")
+        xy = _as_xy(pos) if pos else _as_xy(item)
+        if xy:
+            person["x"], person["y"] = xy[0], xy[1]
+        room = item.get("room") or item.get("area")
+        if room:
+            person["room"] = str(room)
+        if person:
+            people.append(person)
+    return people
+
+
+def fetch_scene() -> dict:
+    """Normalised scene for the see-through view. Never raises.
+
+    Returns {ok, present, count, rooms, people:[{keypoints?, x?, y?, room?}],
+             has_pose, error?}. `people[].keypoints` are [x,y] pairs (pose);
+             otherwise a person has an x/y position and/or a room.
+    """
+    if not is_available():
+        return {"ok": False, "error": "disabled", "people": [], "count": 0, "has_pose": False}
+    base = getattr(config, "RUVIEW_URL", "").rstrip("/")
+    hdr = _headers()
+    data = None
+    for ep in (*_POSE_ENDPOINTS, *_ENDPOINTS):
+        try:
+            resp = http_get(f"{base}{ep}", headers=hdr, timeout=4.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data:
+                    break
+        except Exception:
+            continue
+    if data is None:
+        return {"ok": False, "error": "unreachable", "people": [], "count": 0, "has_pose": False}
+
+    people = _extract_people(data)
+    # Count / rooms fall back to the presence parser if no explicit people list.
+    count = None
+    for k in ("count", "people_count", "occupancy", "persons", "num_people", "total"):
+        v = data.get(k)
+        if isinstance(v, (int, float)):
+            count = int(v)
+            break
+    if count is None:
+        count = len(people) if people else (1 if data.get("present") else 0)
+    rooms = data.get("rooms") or data.get("areas") or {}
+    has_pose = any("keypoints" in p for p in people)
+    return {
+        "ok": True,
+        "present": count > 0,
+        "count": count,
+        "rooms": rooms if isinstance(rooms, dict) else {},
+        "people": people,
+        "has_pose": has_pose,
+    }
 
 _ROOM_RE = re.compile(r"in the ([a-zA-Zà-ÿ ]+?)(?:[.?!]|$)|im ([a-zA-Zà-ÿ ]+?)(?:[.?!]|$)", re.I)
 
@@ -147,9 +250,18 @@ def _interpret(data: dict, room: Optional[str], de: bool) -> str:
     return f"I sense {count} people at home." if count > 1 else "I sense one person at home."
 
 
+_STOP_ALERTS_RE = re.compile(r"\b(stop|hör auf|disable|no more)\b", re.I)
+_START_ALERTS_RE = re.compile(
+    r"\b(watch the house|alert me when|tell me when someone|let me know when someone"
+    r"|beobachte das haus|sag mir wenn jemand)\b",
+    re.I,
+)
+
+
 def run(args: dict | None = None) -> str:
     utterance = ((args or {}).get("utterance") or "").strip()
-    de = (args or {}).get("language", "en") == "de"
+    language = (args or {}).get("language", "en")
+    de = language == "de"
 
     if not is_available():
         return (
@@ -160,6 +272,34 @@ def run(args: dict | None = None) -> str:
             "run RuView (e.g. its Docker demo: docker run -p 3000:3000 "
             "ruvnet/wifi-densepose:latest), then set RUVIEW_ENABLED=true and "
             "RUVIEW_URL in your .env. Real through-wall sensing needs an ESP32-S3 (~$9)."
+        )
+
+    # Proactive alert toggle ("watch the house" / "stop watching the house").
+    if _STOP_ALERTS_RE.search(utterance) and "watch" in utterance.lower() \
+            or ("stop" in utterance.lower() and "house" in utterance.lower()):
+        try:
+            from backend.modules.sense.ruview_monitor import ruview_monitor
+            ruview_monitor.stop_watching()
+        except Exception as e:
+            log.warning("stop alerts failed: %s", e)
+        return "Ich beobachte das Haus nicht mehr." if de else "I'll stop watching the house."
+    if _START_ALERTS_RE.search(utterance):
+        try:
+            from backend.modules.sense.ruview_monitor import ruview_monitor
+            ok = ruview_monitor.start_watching(language)
+        except Exception as e:
+            log.warning("start alerts failed: %s", e)
+            ok = False
+        if ok:
+            return (
+                "Okay, ich beobachte das Haus und sage Bescheid, wenn jemand kommt oder geht."
+                if de else
+                "Okay — I'll watch the house and tell you when someone comes or goes."
+            )
+        return (
+            "Dafür muss RuView laufen (RUVIEW_ENABLED=true)."
+            if de else
+            "I need RuView running for that (set RUVIEW_ENABLED=true)."
         )
 
     data = _query_ruview()

@@ -105,11 +105,18 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_check_models())
     await wake_monitor.start()
     await proactive_tts.start()
+    from backend.modules.sense.ruview_monitor import ruview_monitor
+    await ruview_monitor.start()
 
     yield
 
     await wake_monitor.stop()
     await proactive_tts.stop()
+    try:
+        from backend.modules.sense.ruview_monitor import ruview_monitor
+        await ruview_monitor.stop()
+    except Exception:
+        pass
     try:
         from backend.modules.vision.capture import release_camera
         release_camera()
@@ -223,6 +230,14 @@ async def network_info():
         "https_port": https_port,
         "phone_urls": [f"https://{ip}:{https_port}/camera" for ip in ips],
     }
+
+
+@app.get("/api/wifi/scene")
+async def wifi_scene():
+    """Normalised RuView reading for the see-through view: people (with pose
+    keypoints if available), counts, and rooms. {ok:false} when RuView is off."""
+    from backend.skills.wifi_sense import fetch_scene
+    return await asyncio.to_thread(fetch_scene)
 
 
 # ---------------------------------------------------------------------------

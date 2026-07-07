@@ -286,6 +286,36 @@
             transition: color 0.15s, border-color 0.15s;
         }
         #phone-cam-link:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* ── WiFi see-through view ─────────────────────────── */
+        #seethrough-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        #seethrough-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--ok);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--ok);
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        #seethrough-btn.active { background: var(--ok); color: #04120a; }
+        #seethrough-canvas {
+            display: none;
+            width: 360px;
+            max-width: 90%;
+            border-radius: 12px;
+            background: #04120a;
+            border: 1px solid rgba(111,212,138,0.3);
+            box-shadow: 0 0 26px rgba(111,212,138,0.18);
+        }
+        #seethrough-canvas.live { display: block; }
         .vision-status {
             font-size: 0.85em;
             opacity: 0.75;
@@ -495,6 +525,13 @@
             <canvas id="vision-overlay"></canvas>
         </div>
         <a id="phone-cam-link" href="/camera" title="Open the camera page on your phone">📱 Use your phone's camera →</a>
+    </div>
+
+    <!-- WiFi see-through view (RuView): skeletons / room map from WiFi sensing -->
+    <div id="seethrough-panel">
+        <button id="seethrough-btn" title="See people through walls via WiFi sensing (RuView)">🫥 See-through (WiFi)</button>
+        <div id="seethrough-status" class="vision-status"></div>
+        <canvas id="seethrough-canvas" width="360" height="240"></canvas>
     </div>
 
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
@@ -1319,6 +1356,113 @@ visionBtn.addEventListener('click', () => {
     visionBtn.classList.toggle('active', visionOn);
     visionBtn.textContent = visionOn ? '👁 Stop watching' : '👁 Watch me';
     if (visionOn) startVision(); else stopVision();
+});
+
+// ── WiFi see-through view (RuView) ────────────────────────────
+// Polls /api/wifi/scene and renders whatever RuView provides: real 17-keypoint
+// skeletons if it exposes pose, otherwise glowing dots on a room map. You can't
+// get a photo from WiFi (physics) — this is the reconstructed silhouette/pose.
+const stBtn    = document.getElementById('seethrough-btn');
+const stStatus = document.getElementById('seethrough-status');
+const stCanvas = document.getElementById('seethrough-canvas');
+let stOn = false, stTimer = null;
+// COCO-17 skeleton edges (used when a person has 17 keypoints).
+const COCO_EDGES = [[0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],
+                    [5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+
+async function stPoll() {
+    let scene;
+    try {
+        const r = await fetch('/api/wifi/scene');
+        scene = await r.json();
+    } catch (e) { stStatus.textContent = 'WiFi sensor unreachable'; return; }
+    if (!scene.ok) {
+        stStatus.textContent = scene.error === 'disabled'
+            ? 'RuView off — set RUVIEW_ENABLED=true (needs an ESP32-S3 or the Docker demo)'
+            : 'Can’t reach RuView. Is it running?';
+        drawScene({ people: [] });
+        return;
+    }
+    const n = scene.count || 0;
+    stStatus.textContent = n
+        ? `${n} ${n === 1 ? 'person' : 'people'}${scene.has_pose ? ' · pose' : ''}`
+        : 'no one detected';
+    drawScene(scene);
+}
+
+function _allPoints(scene) {
+    const pts = [];
+    for (const p of (scene.people || [])) {
+        if (p.keypoints) for (const k of p.keypoints) pts.push(k);
+        else if (p.x != null && p.y != null) pts.push([p.x, p.y]);
+    }
+    return pts;
+}
+
+function drawScene(scene) {
+    const ctx = stCanvas.getContext('2d');
+    const W = stCanvas.width, H = stCanvas.height;
+    ctx.clearRect(0, 0, W, H);
+    // subtle grid (room-map feel)
+    ctx.strokeStyle = 'rgba(111,212,138,0.10)'; ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    const people = scene.people || [];
+    // Auto-fit whatever coordinate space RuView uses (0..1, pixels, metres).
+    const pts = _allPoints(scene);
+    let minX = 0, minY = 0, maxX = 1, maxY = 1;
+    if (pts.length) {
+        minX = Math.min(...pts.map(p => p[0])); maxX = Math.max(...pts.map(p => p[0]));
+        minY = Math.min(...pts.map(p => p[1])); maxY = Math.max(...pts.map(p => p[1]));
+    }
+    const pad = 30, spanX = (maxX - minX) || 1, spanY = (maxY - minY) || 1;
+    const map = (p) => [
+        pad + ((p[0] - minX) / spanX) * (W - 2 * pad),
+        pad + ((p[1] - minY) / spanY) * (H - 2 * pad),
+    ];
+
+    ctx.strokeStyle = '#6fd48a'; ctx.fillStyle = '#8affb0';
+    ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 10;
+
+    let drewPerson = false;
+    for (const p of people) {
+        if (p.keypoints && p.keypoints.length) {
+            drewPerson = true;
+            const kp = p.keypoints.map(map);
+            if (kp.length >= 17) {
+                ctx.lineWidth = 3;
+                for (const [a, b] of COCO_EDGES) {
+                    if (kp[a] && kp[b]) { ctx.beginPath(); ctx.moveTo(...kp[a]); ctx.lineTo(...kp[b]); ctx.stroke(); }
+                }
+            }
+            for (const k of kp) { ctx.beginPath(); ctx.arc(k[0], k[1], 3.5, 0, 7); ctx.fill(); }
+        } else if (p.x != null && p.y != null) {
+            drewPerson = true;
+            const [cx, cy] = map([p.x, p.y]);
+            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, 7); ctx.fill();
+            if (p.room) { ctx.shadowBlur = 0; ctx.fillStyle = '#cfeede'; ctx.font = '11px sans-serif';
+                ctx.fillText(p.room, cx + 12, cy + 4); ctx.fillStyle = '#8affb0'; ctx.shadowBlur = 10; }
+        }
+    }
+    // No positions but we know a count → show N blobs in a row.
+    if (!drewPerson && (scene.count || 0) > 0) {
+        const n = scene.count;
+        for (let i = 0; i < n; i++) {
+            const cx = (W / (n + 1)) * (i + 1), cy = H / 2;
+            ctx.beginPath(); ctx.arc(cx, cy, 12, 0, 7); ctx.fill();
+        }
+    }
+    ctx.shadowBlur = 0;
+}
+
+stBtn.addEventListener('click', () => {
+    stOn = !stOn;
+    stBtn.classList.toggle('active', stOn);
+    stCanvas.classList.toggle('live', stOn);
+    stBtn.textContent = stOn ? '🫥 Stop see-through' : '🫥 See-through (WiFi)';
+    if (stOn) { stPoll(); stTimer = setInterval(stPoll, 500); }
+    else { clearInterval(stTimer); stTimer = null; stStatus.textContent = ''; }
 });
 </script>
 </body>
