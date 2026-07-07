@@ -439,7 +439,14 @@
             #waveform-wrap { height: 40px; margin-bottom: 10px; }
             .log-header { margin-bottom: 6px; }
         }
+        /* KaTeX display equations: allow horizontal scroll, don't break layout */
+        .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
     </style>
+    <!-- KaTeX: render LaTeX math in replies. Loads from CDN when online; if
+         offline it degrades gracefully to the raw text. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
 
@@ -838,9 +845,28 @@ function addTurn(role, content) {
             `<span class="ts">${nowStr()}</span>` +
         `</div>` +
         `<div class="content"></div>`;
-    div.querySelector('.content').textContent = content;
+    const contentEl = div.querySelector('.content');
+    contentEl.textContent = content;
+    renderMath(contentEl);
     logEl.appendChild(div);
     logEl.scrollTop = logEl.scrollHeight;
+}
+
+// Render LaTeX math ($...$, $$...$$, \(...\), \[...\]) via KaTeX if it loaded.
+function renderMath(el) {
+    try {
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(el, {
+                delimiters: [
+                    { left: '$$', right: '$$', display: true },
+                    { left: '\\[', right: '\\]', display: true },
+                    { left: '$', right: '$', display: false },
+                    { left: '\\(', right: '\\)', display: false },
+                ],
+                throwOnError: false,
+            });
+        }
+    } catch (e) { /* offline / not loaded → leave raw text */ }
 }
 
 // Render an annotated camera frame (e.g. "find my X" with a box drawn on it).

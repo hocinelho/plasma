@@ -41,7 +41,8 @@ def _build_system_prompt(memory: MemoryStore, speaker: str | None = None) -> str
         "Be concise for simple questions, but give COMPLETE answers when needed: "
         "if asked for an equation, formula, definition, list, or explanation, "
         "provide the actual content — e.g. write out the equations, not just a "
-        "description of them. If you don't know, say so briefly."
+        "description of them. Write mathematics in LaTeX: $$...$$ for a displayed "
+        "equation and $...$ for inline math. If you don't know, say so briefly."
     )
     if speaker:
         base += f" (You are talking to {speaker}, but only use their name if asked.)"
