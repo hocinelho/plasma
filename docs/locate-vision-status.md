@@ -346,3 +346,21 @@ home.", "Someone entered the living room.", "The house is empty now." Off by
 default; enable with `RUVIEW_ALERTS=true`, or toggle by voice ("watch the house"
 / "stop watching the house"). Mirrors WakeMonitor/VisionMonitor (never blocks the
 loop); `RUVIEW_POLL_S`, `RUVIEW_ALERT_COOLDOWN_S`. Tests: `tests/test_ruview_monitor.py`.
+
+### Vitals + pro renderer + wake burst (2026-07)
+- **Vitals from WiFi**: breathing (0.08–0.6 Hz band) + heart rate flow through
+  the pipeline — bridge/RuView emit `breathing_bpm`/`heart_bpm` per person,
+  `fetch_scene` parses them (flexible key names), and the see-through view shows
+  a 🫁/❤ chip per person whose **chest visibly breathes at the sensed rate** and
+  whose glow pulses at the heart rate. Voice: "what's my heart rate / breathing
+  rate / check my vitals" (EN+DE). Research: >95% accuracy single-person on
+  ESP32 (64 subcarriers); needs stillness + calibration in real deployments.
+- **Smooth tracked renderer**: people get stable client-side IDs (nearest-
+  neighbour), positions/keypoints interpolate at 60 fps between 2 Hz polls,
+  motion trails, soft presence glow — no more jumpy redraws.
+- **Wake burst**: "hey plasma" OR a double-clap (CLAP_WAKE_ENABLED=true) fires a
+  whole-background wake-up — neural sphere surges, backdrop accelerates +
+  brightens, shockwave rings expand across the page (~2.5 s).
+- **Perf**: floorplan.json mtime-cached (was re-read at 2 Hz), uvicorn access
+  logs for /api/wifi/scene|favicon|sw.js suppressed (console flood), see-through
+  polling pauses when the tab is hidden.

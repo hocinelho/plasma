@@ -48,6 +48,20 @@ logging.raiseExceptions = False
 # write error most often. Quiet it (Plasma's own logs still show what matters).
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+class _QuietPollingPaths(logging.Filter):
+    """Drop uvicorn access-log lines for high-frequency polling endpoints —
+    the see-through view hits /api/wifi/scene at 2 Hz and floods the console."""
+
+    _NOISY = ("/api/wifi/scene", "/favicon.ico", "/sw.js")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(p in msg for p in self._NOISY)
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietPollingPaths())
 log = logging.getLogger("plasma")
 
 

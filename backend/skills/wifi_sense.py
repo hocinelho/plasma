@@ -53,6 +53,20 @@ META = {
         "wifi presence",
         "sense the room",
         "is the house empty",
+        # Vitals — English
+        "my breathing rate",
+        "breathing rate",
+        "my heart rate",
+        "heart rate",
+        "my pulse",
+        "check my vitals",
+        "vital signs",
+        "am i breathing",
+        # Vitals — German
+        "meine atmung",
+        "atemfrequenz",
+        "mein puls",
+        "herzfrequenz",
         # Proactive alert toggle — English
         "watch the house",
         "alert me when someone",
@@ -126,6 +140,18 @@ def _extract_people(data: dict) -> list[dict]:
         room = item.get("room") or item.get("area")
         if room:
             person["room"] = str(room)
+        if item.get("level") is not None:
+            person["level"] = item["level"]
+        # Vitals — key names vary across RuView versions/extractors.
+        for keys, out in (
+            (("breathing_bpm", "breathing", "respiration_bpm", "respiration", "breath_rate"), "breathing_bpm"),
+            (("heart_bpm", "heart_rate", "heartrate", "hr", "pulse"), "heart_bpm"),
+        ):
+            for k in keys:
+                v = item.get(k)
+                if isinstance(v, (int, float)):
+                    person[out] = round(float(v), 1)
+                    break
         if person:
             people.append(person)
     return people
@@ -275,6 +301,48 @@ def _interpret(data: dict, room: Optional[str], de: bool) -> str:
     return f"I sense {count} people at home." if count > 1 else "I sense one person at home."
 
 
+_VITALS_RE = re.compile(
+    r"\b(breathing|breath|heart\s*rate|pulse|vitals?|vital signs"
+    r"|atmung|atemfrequenz|puls|herzfrequenz)\b",
+    re.I,
+)
+
+
+def _answer_vitals(de: bool) -> str:
+    """Report breathing/heart rate for the sensed person (first with vitals)."""
+    scene = fetch_scene()
+    if not scene.get("ok"):
+        return (
+            "Ich kann den WiFi-Sensor gerade nicht erreichen."
+            if de else
+            "I can't reach the WiFi sensor right now."
+        )
+    person = next((p for p in scene.get("people", [])
+                   if p.get("breathing_bpm") or p.get("heart_bpm")), None)
+    if not person:
+        return (
+            "Ich empfange gerade keine Vitalwerte — dafür muss jemand ruhig im "
+            "Sensorbereich sein."
+            if de else
+            "I'm not picking up vitals right now — someone needs to be fairly "
+            "still inside the sensing area."
+        )
+    parts_en, parts_de = [], []
+    br = person.get("breathing_bpm")
+    hr = person.get("heart_bpm")
+    if br:
+        parts_en.append(f"breathing at {br:g} breaths per minute")
+        parts_de.append(f"eine Atemfrequenz von {br:g} Atemzügen pro Minute")
+    if hr:
+        parts_en.append(f"a heart rate of about {int(hr)} BPM")
+        parts_de.append(f"einen Puls von etwa {int(hr)} Schlägen pro Minute")
+    where = f" in the {person['room']}" if person.get("room") else ""
+    where_de = f" im {person['room']}" if person.get("room") else ""
+    if de:
+        return f"Ich messe{where_de} " + " und ".join(parts_de) + "."
+    return f"I sense someone{where} " + " and ".join(parts_en) + "."
+
+
 _STOP_ALERTS_RE = re.compile(r"\b(stop|hör auf|disable|no more)\b", re.I)
 _START_ALERTS_RE = re.compile(
     r"\b(watch the house|alert me when|tell me when someone|let me know when someone"
@@ -298,6 +366,10 @@ def run(args: dict | None = None) -> str:
             "ruvnet/wifi-densepose:latest), then set RUVIEW_ENABLED=true and "
             "RUVIEW_URL in your .env. Real through-wall sensing needs an ESP32-S3 (~$9)."
         )
+
+    # Vitals: "what's my heart rate / breathing rate?"
+    if _VITALS_RE.search(utterance):
+        return _answer_vitals(de)
 
     # Proactive alert toggle ("watch the house" / "stop watching the house").
     if _STOP_ALERTS_RE.search(utterance) and "watch" in utterance.lower() \

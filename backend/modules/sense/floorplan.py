@@ -58,12 +58,23 @@ def _plan_path():
     return config.PLASMA_DIR / "floorplan.json"
 
 
+# mtime-keyed cache: the see-through view polls at 2 Hz, and re-reading the
+# JSON from disk every poll is wasted I/O. Invalidates automatically on save.
+_cache: dict = {"mtime": None, "plan": None}
+
+
 def load_floorplan() -> dict:
-    """Return the user's floor plan, or the built-in sample if none exists."""
+    """Return the user's floor plan (cached by file mtime), or the sample."""
     try:
         p = _plan_path()
         if p.exists():
-            return json.loads(p.read_text(encoding="utf-8"))
+            mtime = p.stat().st_mtime
+            if _cache["mtime"] == mtime and _cache["plan"] is not None:
+                return _cache["plan"]
+            plan = json.loads(p.read_text(encoding="utf-8"))
+            _cache["mtime"] = mtime
+            _cache["plan"] = plan
+            return plan
     except Exception as e:
         log.warning("floorplan: could not read %s (%s) — using default", _plan_path(), e)
     return DEFAULT_FLOORPLAN
