@@ -338,3 +338,11 @@ Setup (no hardware):
 docker run -p 3000:3000 ruvnet/wifi-densepose:latest
 # .env:  RUVIEW_ENABLED=true   RUVIEW_URL=http://localhost:3000
 ```
+
+### Proactive presence alerts
+`backend/modules/sense/ruview_monitor.py` polls RuView on a daemon thread and
+fires spoken **ProactiveTTS** alerts on presence changes: "Someone just arrived
+home.", "Someone entered the living room.", "The house is empty now." Off by
+default; enable with `RUVIEW_ALERTS=true`, or toggle by voice ("watch the house"
+/ "stop watching the house"). Mirrors WakeMonitor/VisionMonitor (never blocks the
+loop); `RUVIEW_POLL_S`, `RUVIEW_ALERT_COOLDOWN_S`. Tests: `tests/test_ruview_monitor.py`.

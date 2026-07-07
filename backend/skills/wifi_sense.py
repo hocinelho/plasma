@@ -53,7 +53,18 @@ META = {
         "wifi presence",
         "sense the room",
         "is the house empty",
+        # Proactive alert toggle — English
+        "watch the house",
+        "alert me when someone",
+        "tell me when someone comes home",
+        "tell me when someone enters",
+        "let me know when someone",
+        "stop watching the house",
+        "stop house alerts",
         # German
+        "beobachte das haus",
+        "sag mir wenn jemand kommt",
+        "hör auf das haus zu beobachten",
         "ist jemand zu hause",
         "ist jemand da",
         "wer ist im",
@@ -147,9 +158,18 @@ def _interpret(data: dict, room: Optional[str], de: bool) -> str:
     return f"I sense {count} people at home." if count > 1 else "I sense one person at home."
 
 
+_STOP_ALERTS_RE = re.compile(r"\b(stop|hör auf|disable|no more)\b", re.I)
+_START_ALERTS_RE = re.compile(
+    r"\b(watch the house|alert me when|tell me when someone|let me know when someone"
+    r"|beobachte das haus|sag mir wenn jemand)\b",
+    re.I,
+)
+
+
 def run(args: dict | None = None) -> str:
     utterance = ((args or {}).get("utterance") or "").strip()
-    de = (args or {}).get("language", "en") == "de"
+    language = (args or {}).get("language", "en")
+    de = language == "de"
 
     if not is_available():
         return (
@@ -160,6 +180,34 @@ def run(args: dict | None = None) -> str:
             "run RuView (e.g. its Docker demo: docker run -p 3000:3000 "
             "ruvnet/wifi-densepose:latest), then set RUVIEW_ENABLED=true and "
             "RUVIEW_URL in your .env. Real through-wall sensing needs an ESP32-S3 (~$9)."
+        )
+
+    # Proactive alert toggle ("watch the house" / "stop watching the house").
+    if _STOP_ALERTS_RE.search(utterance) and "watch" in utterance.lower() \
+            or ("stop" in utterance.lower() and "house" in utterance.lower()):
+        try:
+            from backend.modules.sense.ruview_monitor import ruview_monitor
+            ruview_monitor.stop_watching()
+        except Exception as e:
+            log.warning("stop alerts failed: %s", e)
+        return "Ich beobachte das Haus nicht mehr." if de else "I'll stop watching the house."
+    if _START_ALERTS_RE.search(utterance):
+        try:
+            from backend.modules.sense.ruview_monitor import ruview_monitor
+            ok = ruview_monitor.start_watching(language)
+        except Exception as e:
+            log.warning("start alerts failed: %s", e)
+            ok = False
+        if ok:
+            return (
+                "Okay, ich beobachte das Haus und sage Bescheid, wenn jemand kommt oder geht."
+                if de else
+                "Okay — I'll watch the house and tell you when someone comes or goes."
+            )
+        return (
+            "Dafür muss RuView laufen (RUVIEW_ENABLED=true)."
+            if de else
+            "I need RuView running for that (set RUVIEW_ENABLED=true)."
         )
 
     data = _query_ruview()

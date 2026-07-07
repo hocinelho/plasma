@@ -135,6 +135,11 @@ class Config:
     RUVIEW_ENABLED: bool = os.getenv("RUVIEW_ENABLED", "false").lower() == "true"
     RUVIEW_URL: str = os.getenv("RUVIEW_URL", "http://localhost:3000")
     RUVIEW_API_KEY: str = os.getenv("RUVIEW_API_KEY", "")
+    # Proactive spoken alerts on presence changes ("someone entered the living
+    # room", "the house is empty now"). Polls RuView in the background.
+    RUVIEW_ALERTS: bool = os.getenv("RUVIEW_ALERTS", "false").lower() == "true"
+    RUVIEW_POLL_S: float = float(os.getenv("RUVIEW_POLL_S", "5.0"))
+    RUVIEW_ALERT_COOLDOWN_S: float = float(os.getenv("RUVIEW_ALERT_COOLDOWN_S", "30.0"))
 
     # --- Home Assistant smart home integration ---
     # Run Home Assistant locally (https://www.home-assistant.io/) or on a Pi.

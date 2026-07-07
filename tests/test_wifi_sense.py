@@ -59,3 +59,33 @@ def test_query_success():
          patch.object(w, "http_get", return_value=_resp({"count": 3})):
         out = w.run({"utterance": "how many people are home"})
     assert "3 people" in out
+
+
+def test_start_alerts_toggle():
+    cfg = MagicMock()
+    cfg.RUVIEW_ENABLED = True
+    cfg.RUVIEW_URL = "http://localhost:3000"
+    fake_mon = MagicMock()
+    fake_mon.start_watching.return_value = True
+    import sys, types
+    mod = types.ModuleType("backend.modules.sense.ruview_monitor")
+    mod.ruview_monitor = fake_mon
+    with patch.object(w, "config", cfg), \
+         patch.dict(sys.modules, {"backend.modules.sense.ruview_monitor": mod}):
+        out = w.run({"utterance": "watch the house", "language": "en"})
+    fake_mon.start_watching.assert_called_once()
+    assert "watch the house" in out.lower()
+
+
+def test_stop_alerts_toggle():
+    cfg = MagicMock()
+    cfg.RUVIEW_ENABLED = True
+    fake_mon = MagicMock()
+    import sys, types
+    mod = types.ModuleType("backend.modules.sense.ruview_monitor")
+    mod.ruview_monitor = fake_mon
+    with patch.object(w, "config", cfg), \
+         patch.dict(sys.modules, {"backend.modules.sense.ruview_monitor": mod}):
+        out = w.run({"utterance": "stop watching the house", "language": "en"})
+    fake_mon.stop_watching.assert_called_once()
+    assert "stop" in out.lower()
