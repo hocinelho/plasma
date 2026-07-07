@@ -1387,6 +1387,7 @@ async function stPoll() {
     stStatus.textContent = n
         ? `${n} ${n === 1 ? 'person' : 'people'}${scene.has_pose ? ' · pose' : ''}`
         : 'no one detected';
+    stLastScene = scene;
     drawScene(scene);
 }
 
@@ -1399,14 +1400,69 @@ function _allPoints(scene) {
     return pts;
 }
 
+let stFloorLevel = 0;   // which floor the see-through map shows
+
+function _grid(ctx, W, H) {
+    ctx.strokeStyle = 'rgba(111,212,138,0.10)'; ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+}
+
+function _miniSkeleton(ctx, kp, cx, cy, h) {
+    // Normalise the pose to a small figure centred at (cx, cy).
+    const xs = kp.map(k => k[0]), ys = kp.map(k => k[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const sy = h / ((maxY - minY) || 1), sx = sy;
+    const P = kp.map(k => [cx + (k[0] - (minX + maxX) / 2) * sx, cy + (k[1] - maxY) * sy]);
+    ctx.lineWidth = 2;
+    for (const [a, b] of COCO_EDGES) if (P[a] && P[b]) { ctx.beginPath(); ctx.moveTo(...P[a]); ctx.lineTo(...P[b]); ctx.stroke(); }
+    for (const p of P) { ctx.beginPath(); ctx.arc(p[0], p[1], 1.8, 0, 7); ctx.fill(); }
+}
+
+function drawFloorPlan(ctx, W, H, scene) {
+    const floors = scene.floorplan.floors || [];
+    const floor = floors.find(f => f.level === stFloorLevel) || floors[0];
+    if (!floor) return;
+    // rooms
+    ctx.lineWidth = 1.5;
+    for (const r of (floor.rooms || [])) {
+        const x = r.x * W, y = r.y * H, w = r.w * W, h = r.h * H;
+        ctx.strokeStyle = 'rgba(111,212,138,0.45)';
+        ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.fillStyle = 'rgba(111,212,138,0.55)'; ctx.font = '10px sans-serif';
+        ctx.fillText(r.name, x + 5, y + 13);
+    }
+    // people on this floor
+    ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 10;
+    for (const p of (scene.people || [])) {
+        if (p.level != null && p.level !== floor.level) continue;
+        const pos = p.pos || (p.x != null ? [p.x, p.y] : null);
+        if (!pos) continue;
+        const cx = pos[0] * W, cy = pos[1] * H;
+        ctx.strokeStyle = '#8affb0'; ctx.fillStyle = '#8affb0';
+        if (p.keypoints && p.keypoints.length >= 17) _miniSkeleton(ctx, p.keypoints, cx, cy, 34);
+        ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 7); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+    // floor label
+    ctx.fillStyle = 'rgba(207,238,222,0.9)'; ctx.font = '11px sans-serif';
+    const label = floors.length > 1 ? `${floor.name} — tap to switch floor` : floor.name;
+    ctx.fillText(label, 6, H - 8);
+}
+
 function drawScene(scene) {
     const ctx = stCanvas.getContext('2d');
     const W = stCanvas.width, H = stCanvas.height;
     ctx.clearRect(0, 0, W, H);
-    // subtle grid (room-map feel)
-    ctx.strokeStyle = 'rgba(111,212,138,0.10)'; ctx.lineWidth = 1;
-    for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-    for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+    _grid(ctx, W, H);
+
+    // Prefer the floor-plan view when we have a plan + positions.
+    if (scene.floorplan && scene.floorplan.floors &&
+        (scene.people || []).some(p => p.pos || p.x != null)) {
+        drawFloorPlan(ctx, W, H, scene);
+        return;
+    }
 
     const people = scene.people || [];
     // Auto-fit whatever coordinate space RuView uses (0..1, pixels, metres).
@@ -1455,6 +1511,17 @@ function drawScene(scene) {
     }
     ctx.shadowBlur = 0;
 }
+
+// Tap the canvas to cycle floors (multi-storey plans).
+let stLastScene = null;
+stCanvas.addEventListener('click', () => {
+    const floors = stLastScene && stLastScene.floorplan && stLastScene.floorplan.floors;
+    if (!floors || floors.length < 2) return;
+    const levels = floors.map(f => f.level);
+    const idx = levels.indexOf(stFloorLevel);
+    stFloorLevel = levels[(idx + 1) % levels.length];
+    drawScene(stLastScene);
+});
 
 stBtn.addEventListener('click', () => {
     stOn = !stOn;
