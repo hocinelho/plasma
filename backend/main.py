@@ -240,6 +240,38 @@ async def wifi_scene():
     return await asyncio.to_thread(fetch_scene)
 
 
+@app.get("/floorplan")
+async def floorplan_page():
+    """Serve the floor-plan editor (draw your home's rooms)."""
+    html_path = Path(__file__).resolve().parents[1] / "frontend" / "floorplan.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    return JSONResponse({"error": "floorplan.html not found"}, status_code=404)
+
+
+@app.get("/api/wifi/floorplan")
+async def get_floorplan():
+    from backend.modules.sense.floorplan import load_floorplan
+    return load_floorplan()
+
+
+class FloorPlanBody(BaseModel):
+    floors: list
+
+
+@app.post("/api/wifi/floorplan")
+async def save_floorplan(body: FloorPlanBody):
+    """Save the user's floor plan to .plasma/floorplan.json."""
+    import json as _json
+    path = plasma_config.PLASMA_DIR / "floorplan.json"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps({"floors": body.floors}, indent=2), encoding="utf-8")
+        return {"ok": True, "saved": str(path)}
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
