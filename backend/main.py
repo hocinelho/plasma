@@ -232,6 +232,14 @@ async def network_info():
     }
 
 
+@app.get("/api/wifi/scene")
+async def wifi_scene():
+    """Normalised RuView reading for the see-through view: people (with pose
+    keypoints if available), counts, and rooms. {ok:false} when RuView is off."""
+    from backend.skills.wifi_sense import fetch_scene
+    return await asyncio.to_thread(fetch_scene)
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
