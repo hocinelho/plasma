@@ -151,10 +151,19 @@ class Config:
 
     # --- Clap-to-wake (double-clap detection, pure numpy, no ML model) ---
     CLAP_WAKE_ENABLED: bool = os.getenv("CLAP_WAKE_ENABLED", "false").lower() == "true"
-    # How many times louder than background the clap peak must be (8 = default)
-    CLAP_THRESHOLD: float = float(os.getenv("CLAP_THRESHOLD", "8.0"))
+    # How many times louder than background the clap peak must be (12 = default;
+    # raised from 8 — 8 was tripping on loud talking and clicks near the mic).
+    CLAP_THRESHOLD: float = float(os.getenv("CLAP_THRESHOLD", "12.0"))
     # Max gap between the two claps in milliseconds
     CLAP_WINDOW_MS: int = int(os.getenv("CLAP_WINDOW_MS", "600"))
+    # Impulsiveness gate (peak/RMS within one ~80ms chunk). A real clap's energy
+    # is concentrated in a few ms, so this ratio is high; sustained talking fills
+    # the whole chunk, so it's much lower even at the same peak volume. This is
+    # the main fix for "voice keeps triggering the clap detector".
+    CLAP_MIN_CREST: float = float(os.getenv("CLAP_MIN_CREST", "5.0"))
+    # Absolute loudness floor (0-32767) so a very quiet room's low baseline
+    # doesn't make faint sounds (e.g. a soft click) count as "relatively loud".
+    CLAP_MIN_PEAK: int = int(os.getenv("CLAP_MIN_PEAK", "1400"))
 
     # --- Camera / vision (MediaPipe, Apache 2.0) ---
     CAMERA_ENABLED: bool = os.getenv("CAMERA_ENABLED", "false").lower() == "true"

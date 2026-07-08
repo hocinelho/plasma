@@ -617,7 +617,12 @@ const TAU = Math.PI * 2;
         listening: { h: 330, spread: 70,  speed: 0.85, glow: '255,90,150'  },
         thinking:  { h: 160, spread: 80,  speed: 0.55, glow: '80,230,180'  },
         speaking:  { h: 195, spread: 160, speed: 0.70, glow: '120,220,255' },
+        // Brief "waking up" flash — bright icy-white/blue, wide spectrum, fast
+        // spin. Overrides avatarState for a couple of seconds on wake events.
+        waking:    { h: 200, spread: 240, speed: 2.4, glow: '200,225,255' },
     };
+    let avatarWakeUntil = 0;   // performance.now() timestamp; sphere flashes until then
+    window.avatarWakeBurst = (ms = 1700) => { avatarWakeUntil = performance.now() + ms; };
 
     // Fibonacci sphere → even 3D node distribution.
     const N = reduce ? 22 : 42;
@@ -678,10 +683,12 @@ const TAU = Math.PI * 2;
 
     function frame(now) {
         const dt = Math.min(0.05, (now-last)/1000); last = now; t += dt;
-        const p = PALETTE[avatarState] || PALETTE.idle;
-        curHue    += (p.h - curHue) * 0.06;
-        curSpread += (p.spread - curSpread) * 0.06;
-        curSpeed  += (p.speed - curSpeed) * 0.06;
+        const waking = now < avatarWakeUntil;
+        const p = waking ? PALETTE.waking : (PALETTE[avatarState] || PALETTE.idle);
+        const blend = waking ? 0.22 : 0.06;   // snap fast into the wake flash
+        curHue    += (p.h - curHue) * blend;
+        curSpread += (p.spread - curSpread) * blend;
+        curSpeed  += (p.speed - curSpeed) * blend;
         avatarLevel *= 0.86;
         const lvl = avatarLevel;
         const ry = t*curSpeed*(1+lvl*1.2), rx = Math.sin(t*0.3)*0.35;
@@ -778,64 +785,103 @@ const TAU = Math.PI * 2;
         build();
     }
 
-    // Wake burst: a whole-background "waking up" surge — expanding neural
-    // shockwave rings + everything brightens and accelerates, then settles.
-    let wake = 0;               // 1 → 0 over ~2.5 s
-    let rings = [];             // expanding rings from the avatar area
+    // Wake burst: a cinematic whole-background "waking up" moment — a bright
+    // flash, a sweep of multi-hued shockwave rings, outward neural sparks, and
+    // everything brightening + accelerating before easing back down over ~3 s.
+    let wake = 0;                // 1 → 0, eased (quadratic) for a sharp jolt + slow settle
+    let flash = 0;               // 1 → 0 over ~0.5 s, the initial "power-on" pop
+    let rings = [];               // expanding, colour-sweeping shockwave rings
+    let sparks = [];              // short-lived particles bursting outward
     window.bgWakeBurst = () => {
         wake = 1;
-        rings = [0, 1, 2].map(i => ({ r: 0, delay: i * 0.18 }));
+        flash = 1;
+        rings = [0, 1, 2, 3, 4].map(i => ({ r: 0, delay: i * 0.14, hue: 190 + i * 32 }));
+        sparks = [];
+        const cx = W / 2, cy = Math.min(H * 0.26, 260);
+        for (let i = 0; i < 46; i++) {
+            const ang = Math.random() * TAU;
+            const speed = 60 + Math.random() * 220;
+            sparks.push({
+                x: cx, y: cy, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+                life: 0.7 + Math.random() * 0.7, age: 0, hue: 185 + Math.random() * 150,
+                sz: 1.2 + Math.random() * 2.2,
+            });
+        }
     };
 
     let t = 0, last = performance.now();
     function frame(now) {
         const dt = Math.min(0.05, (now-last)/1000); last = now; t += dt;
-        if (wake > 0) wake = Math.max(0, wake - dt / 2.5);
-        const boost = 1 + wake * 2.2;                 // speed multiplier
-        const glow  = 1 + wake * 1.8;                 // brightness multiplier
+        if (wake > 0) wake = Math.max(0, wake - dt / 2.8);
+        if (flash > 0) flash = Math.max(0, flash - dt / 0.5);
+        const wakeEase = wake * wake;                    // sharp jolt, gentle tail
+        const boost = 1 + wakeEase * 2.6;                 // speed multiplier
+        const glow  = 1 + wakeEase * 2.0;                 // brightness multiplier
         ctx.clearRect(0, 0, W, H);
         ctx.globalCompositeOperation = 'lighter';
         for (const b of bokeh) {
             b.y -= b.sp * boost; b.x += Math.sin(t*0.2+b.drift)*0.15*boost;
             if (b.y < -b.r) { b.y = H+b.r; b.x = Math.random()*W; }
             const g = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r);
-            g.addColorStop(0, `hsla(${b.hue},80%,60%,${Math.min(0.5, b.o*glow)})`);
+            g.addColorStop(0, `hsla(${b.hue},80%,60%,${Math.min(0.55, b.o*glow)})`);
             g.addColorStop(1, `hsla(${b.hue},80%,55%,0)`);
             ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TAU); ctx.fill();
         }
         for (const s of streams) {
             const ph = t*s.speed*6*boost+s.phase, baseY = H*s.y, steps = 44;
-            ctx.lineWidth = s.w * (1 + wake); ctx.lineCap = 'round';
+            ctx.lineWidth = s.w * (1 + wakeEase * 1.4); ctx.lineCap = 'round';
             for (let i = 0; i < steps; i++) {
                 const u0 = i/steps, u1 = (i+1)/steps;
                 const y0 = baseY+Math.sin(u0*5+ph)*s.amp+Math.sin(u0*13+ph*1.7)*s.amp*0.3;
                 const y1 = baseY+Math.sin(u1*5+ph)*s.amp+Math.sin(u1*13+ph*1.7)*s.amp*0.3;
                 const head = ((u0-(t*s.speed*boost))%1+1)%1;
                 const bright = Math.pow(1-Math.abs(((head+0.5)%1)-0.5)*2, 3);
-                ctx.strokeStyle = `hsla(${s.hue},90%,${55+bright*30}%,${Math.min(0.6,(0.04+bright*0.18)*glow)})`;
+                ctx.strokeStyle = `hsla(${s.hue},90%,${55+bright*30}%,${Math.min(0.65,(0.04+bright*0.18)*glow)})`;
                 ctx.beginPath(); ctx.moveTo(u0*W,y0); ctx.lineTo(u1*W,y1); ctx.stroke();
             }
         }
-        // Shockwave rings expanding from the avatar (upper-centre of the page).
+        // Multi-hued shockwave rings, sweeping outward from the avatar.
         if (rings.length) {
             const cx = W / 2, cy = Math.min(H * 0.26, 260);
-            const maxR = Math.hypot(W, H) * 0.75;
+            const maxR = Math.hypot(W, H) * 0.78;
             let alive = false;
             for (const ring of rings) {
                 if (ring.delay > 0) { ring.delay -= dt; alive = true; continue; }
-                ring.r += dt * maxR * 0.9;
-                const a = Math.max(0, 0.5 * (1 - ring.r / maxR));
+                // Ease-out expansion: fast burst, gentle finish — reads as an impact.
+                ring.r += dt * maxR * (1.5 - Math.min(1, ring.r / maxR)) * 0.85;
+                const a = Math.max(0, 0.55 * (1 - ring.r / maxR));
                 if (a > 0.01) {
                     alive = true;
                     ctx.lineWidth = 2.5;
-                    ctx.strokeStyle = `hsla(195, 95%, 70%, ${a})`;
+                    ctx.strokeStyle = `hsla(${ring.hue}, 95%, 72%, ${a})`;
                     ctx.beginPath(); ctx.arc(cx, cy, ring.r, 0, TAU); ctx.stroke();
-                    ctx.lineWidth = 6;
-                    ctx.strokeStyle = `hsla(195, 95%, 70%, ${a * 0.25})`;
+                    ctx.lineWidth = 7;
+                    ctx.strokeStyle = `hsla(${ring.hue}, 95%, 70%, ${a * 0.28})`;
                     ctx.beginPath(); ctx.arc(cx, cy, ring.r, 0, TAU); ctx.stroke();
                 }
             }
             if (!alive) rings = [];
+        }
+        // Neural sparks — bright particles flung outward, fading + slowing.
+        if (sparks.length) {
+            sparks = sparks.filter(sp => sp.age < sp.life);
+            for (const sp of sparks) {
+                sp.age += dt;
+                sp.x += sp.vx * dt; sp.y += sp.vy * dt;
+                sp.vx *= (1 - dt * 1.1); sp.vy *= (1 - dt * 1.1);
+                const a = Math.max(0, 1 - sp.age / sp.life);
+                ctx.fillStyle = `hsla(${sp.hue}, 95%, 75%, ${a})`;
+                ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.sz * a, 0, TAU); ctx.fill();
+            }
+        }
+        // Initial "power-on" flash — a soft radial pop centred on the avatar.
+        if (flash > 0.01) {
+            const cx = W / 2, cy = Math.min(H * 0.26, 260);
+            const fr = Math.hypot(W, H) * (0.15 + 0.5 * (1 - flash));
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, fr);
+            g.addColorStop(0, `hsla(200, 100%, 85%, ${flash * 0.4})`);
+            g.addColorStop(1, 'hsla(200, 100%, 85%, 0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, fr, 0, TAU); ctx.fill();
         }
         ctx.globalCompositeOperation = 'source-over';
         requestAnimationFrame(frame);
@@ -1138,6 +1184,7 @@ let wakeStopTimer = null;
 let _wakePump = null;
 function wakeBurst() {
     if (window.bgWakeBurst) window.bgWakeBurst();
+    if (window.avatarWakeBurst) window.avatarWakeBurst();
     if (_wakePump) clearInterval(_wakePump);
     let n = 0;
     _wakePump = setInterval(() => {

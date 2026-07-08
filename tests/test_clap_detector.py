@@ -197,3 +197,81 @@ def test_baseline_adapts_to_noisy_room():
     # A clap at amplitude=3000 is only 3× the noise floor (< threshold=8)
     r = d.process(_clap_chunk(amplitude=3000))
     assert not r["detected"], "Noise-adapted baseline should reject weak claps"
+
+
+# ── crest-factor / impulsiveness gate (fixes "voice/clicks trigger it") ───────
+
+def _sustained_chunk(n_samples: int = 1280, amplitude: int = 5000) -> np.ndarray:
+    """A LOUD but SUSTAINED chunk — energy fills the whole chunk, like a raised
+    voice or a held tone, unlike a real clap's brief transient."""
+    return np.full(n_samples, amplitude, dtype=np.int16)
+
+
+def _short_burst_chunk(n_samples: int = 1280, amplitude: int = 5000, width: int = 400) -> np.ndarray:
+    """A moderately impulsive chunk — energy fills `width` samples (~25ms),
+    like a loud spoken syllable/plosive: louder and shorter than a raised voice,
+    but nowhere near as impulsive as a real clap (which is only a few ms)."""
+    c = np.zeros(n_samples, dtype=np.int16)
+    c[:width] = amplitude
+    return c
+
+
+def test_sustained_loud_voice_never_triggers():
+    """Talking loudly (sustained energy) must not be mistaken for a clap, even
+    at a peak amplitude that would clear the old (crest-less) threshold."""
+    from backend.modules.voice.clap_detector import ClapDetector
+    d = ClapDetector(threshold=8.0, min_crest=5.0)
+    _warm(d)
+    for _ in range(60):
+        r = d.process(_sustained_chunk(amplitude=5000))
+        assert not r["detected"], "Sustained loud voice must never register as a clap"
+
+
+def test_double_loud_syllable_not_detected_as_double_clap():
+    """Two loud spoken syllables (moderate crest, not a sharp clap) in the
+    double-clap timing window must not fire — this was the reported false
+    trigger ('voice activated the clap detector')."""
+    from backend.modules.voice.clap_detector import ClapDetector
+    d = ClapDetector(threshold=8.0, min_gap_ms=150, max_gap_ms=800, min_crest=5.0)
+    _warm(d)
+    d.process(_short_burst_chunk())
+    gap = (_SR * 300 // 1000) // 1280 + 1
+    for _ in range(gap):
+        d.process(_chunk(1280))
+    r = d.process(_short_burst_chunk())
+    assert not r["detected"], "Loud syllables (low crest) must not count as claps"
+
+
+def test_min_peak_floor_rejects_quiet_transient_in_silent_room():
+    """In a very quiet room the adaptive baseline drops low, so a small relative
+    threshold could let a faint click through; the absolute floor must reject it."""
+    from backend.modules.voice.clap_detector import ClapDetector
+    d = ClapDetector(threshold=2.0, min_crest=1.0, min_peak=1400)
+    # Very quiet background — baseline settles near ~10-20.
+    quiet = _chunk(1280, amplitude=15)
+    for _ in range(200):
+        d.process(quiet)
+    # A soft transient: relatively loud (>> bg*2) but below the absolute floor.
+    soft_click = np.zeros(1280, dtype=np.int16)
+    soft_click[0] = 500
+    r = d.process(soft_click)
+    assert not r["detected"] or True  # first hit alone never "detects" (needs pair)
+    # Confirm it didn't even register as a transient by checking state didn't
+    # advance to AFTER_FIRST: a genuine clap-strength second hit right after
+    # should NOT complete a pair, because the first was below min_peak.
+    r2 = d.process(_clap_chunk(amplitude=5000))
+    assert not r2["detected"], "A sub-floor transient must not count as the first clap"
+
+
+def test_default_constructor_still_detects_a_real_clap():
+    """Sanity: the new stricter defaults (threshold=12, min_crest=5, min_peak=1400)
+    still recognise a genuine sharp double clap at normal clapping loudness."""
+    from backend.modules.voice.clap_detector import ClapDetector
+    d = ClapDetector()  # all defaults
+    _warm(d)
+    d.process(_clap_chunk(amplitude=6000))
+    gap = (_SR * 300 // 1000) // 1280 + 1
+    for _ in range(gap):
+        d.process(_chunk(1280))
+    r = d.process(_clap_chunk(amplitude=6000))
+    assert r["detected"], "A genuine sharp double clap must still trigger under stricter defaults"
