@@ -778,31 +778,64 @@ const TAU = Math.PI * 2;
         build();
     }
 
+    // Wake burst: a whole-background "waking up" surge — expanding neural
+    // shockwave rings + everything brightens and accelerates, then settles.
+    let wake = 0;               // 1 → 0 over ~2.5 s
+    let rings = [];             // expanding rings from the avatar area
+    window.bgWakeBurst = () => {
+        wake = 1;
+        rings = [0, 1, 2].map(i => ({ r: 0, delay: i * 0.18 }));
+    };
+
     let t = 0, last = performance.now();
     function frame(now) {
         const dt = Math.min(0.05, (now-last)/1000); last = now; t += dt;
+        if (wake > 0) wake = Math.max(0, wake - dt / 2.5);
+        const boost = 1 + wake * 2.2;                 // speed multiplier
+        const glow  = 1 + wake * 1.8;                 // brightness multiplier
         ctx.clearRect(0, 0, W, H);
         ctx.globalCompositeOperation = 'lighter';
         for (const b of bokeh) {
-            b.y -= b.sp; b.x += Math.sin(t*0.2+b.drift)*0.15;
+            b.y -= b.sp * boost; b.x += Math.sin(t*0.2+b.drift)*0.15*boost;
             if (b.y < -b.r) { b.y = H+b.r; b.x = Math.random()*W; }
             const g = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r);
-            g.addColorStop(0, `hsla(${b.hue},80%,60%,${b.o})`);
+            g.addColorStop(0, `hsla(${b.hue},80%,60%,${Math.min(0.5, b.o*glow)})`);
             g.addColorStop(1, `hsla(${b.hue},80%,55%,0)`);
             ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TAU); ctx.fill();
         }
         for (const s of streams) {
-            const ph = t*s.speed*6+s.phase, baseY = H*s.y, steps = 44;
-            ctx.lineWidth = s.w; ctx.lineCap = 'round';
+            const ph = t*s.speed*6*boost+s.phase, baseY = H*s.y, steps = 44;
+            ctx.lineWidth = s.w * (1 + wake); ctx.lineCap = 'round';
             for (let i = 0; i < steps; i++) {
                 const u0 = i/steps, u1 = (i+1)/steps;
                 const y0 = baseY+Math.sin(u0*5+ph)*s.amp+Math.sin(u0*13+ph*1.7)*s.amp*0.3;
                 const y1 = baseY+Math.sin(u1*5+ph)*s.amp+Math.sin(u1*13+ph*1.7)*s.amp*0.3;
-                const head = ((u0-(t*s.speed))%1+1)%1;
+                const head = ((u0-(t*s.speed*boost))%1+1)%1;
                 const bright = Math.pow(1-Math.abs(((head+0.5)%1)-0.5)*2, 3);
-                ctx.strokeStyle = `hsla(${s.hue},90%,${55+bright*30}%,${0.04+bright*0.18})`;
+                ctx.strokeStyle = `hsla(${s.hue},90%,${55+bright*30}%,${Math.min(0.6,(0.04+bright*0.18)*glow)})`;
                 ctx.beginPath(); ctx.moveTo(u0*W,y0); ctx.lineTo(u1*W,y1); ctx.stroke();
             }
+        }
+        // Shockwave rings expanding from the avatar (upper-centre of the page).
+        if (rings.length) {
+            const cx = W / 2, cy = Math.min(H * 0.26, 260);
+            const maxR = Math.hypot(W, H) * 0.75;
+            let alive = false;
+            for (const ring of rings) {
+                if (ring.delay > 0) { ring.delay -= dt; alive = true; continue; }
+                ring.r += dt * maxR * 0.9;
+                const a = Math.max(0, 0.5 * (1 - ring.r / maxR));
+                if (a > 0.01) {
+                    alive = true;
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeStyle = `hsla(195, 95%, 70%, ${a})`;
+                    ctx.beginPath(); ctx.arc(cx, cy, ring.r, 0, TAU); ctx.stroke();
+                    ctx.lineWidth = 6;
+                    ctx.strokeStyle = `hsla(195, 95%, 70%, ${a * 0.25})`;
+                    ctx.beginPath(); ctx.arc(cx, cy, ring.r, 0, TAU); ctx.stroke();
+                }
+            }
+            if (!alive) rings = [];
         }
         ctx.globalCompositeOperation = 'source-over';
         requestAnimationFrame(frame);
@@ -1099,20 +1132,40 @@ initMic();
 const WAKE_AUTO_STOP_MS = 6000;
 let wakeStopTimer = null;
 
+// "Waking up" moment: the neural sphere surges and the whole background fires
+// a shockwave + accelerates for ~2.5 s. Triggered by the wake word ("hey
+// plasma") or a double-clap (CLAP_WAKE_ENABLED=true).
+let _wakePump = null;
+function wakeBurst() {
+    if (window.bgWakeBurst) window.bgWakeBurst();
+    if (_wakePump) clearInterval(_wakePump);
+    let n = 0;
+    _wakePump = setInterval(() => {
+        // Feed the avatar's live-energy level; it decays naturally, so this
+        // keeps the sphere surging for ~2 s then lets it settle.
+        avatarLevel = Math.max(avatarLevel, 0.95 * (1 - n / 20));
+        if (++n >= 20) { clearInterval(_wakePump); _wakePump = null; }
+    }, 100);
+}
+
 function connectWakeSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws/wake`);
 
     ws.onopen = () => console.log('[wake] WebSocket connected');
 
+
     ws.onmessage = (ev) => {
         try {
             const msg = JSON.parse(ev.data);
-            if (msg.type === 'wake' && !isRecording && !isBusy) {
-                console.log(`[wake] detected (score=${msg.score?.toFixed(2)})`);
-                startRecording();
-                clearTimeout(wakeStopTimer);
-                wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
+            if (msg.type === 'wake') {
+                console.log(`[wake] ${msg.source || 'wake_word'} detected (score=${msg.score?.toFixed(2)})`);
+                wakeBurst();   // whole-background "waking up" surge (word OR clap)
+                if (!isRecording && !isBusy) {
+                    startRecording();
+                    clearTimeout(wakeStopTimer);
+                    wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
+                }
             }
         } catch (e) { console.warn('[wake] bad message', ev.data); }
     };
@@ -1363,178 +1416,232 @@ visionBtn.addEventListener('click', () => {
 });
 
 // ── WiFi see-through view (RuView) ────────────────────────────
-// Polls /api/wifi/scene and renders whatever RuView provides: real 17-keypoint
-// skeletons if it exposes pose, otherwise glowing dots on a room map. You can't
-// get a photo from WiFi (physics) — this is the reconstructed silhouette/pose.
+// Professional live renderer: the server is polled at 2 Hz, but people are
+// TRACKED client-side (stable ids via nearest-neighbour matching) and drawn at
+// 60 fps with interpolation, motion trails, a soft presence glow, and a chest
+// that visibly BREATHES at the sensed breathing rate. Vitals (breathing/heart)
+// are shown next to each person when RuView provides them.
 const stBtn    = document.getElementById('seethrough-btn');
 const stStatus = document.getElementById('seethrough-status');
 const stCanvas = document.getElementById('seethrough-canvas');
-let stOn = false, stTimer = null;
-// COCO-17 skeleton edges (used when a person has 17 keypoints).
+let stOn = false, stTimer = null, stRaf = null;
+let stFloorLevel = 0;
+let stScene = null;                 // latest raw scene (floorplan, counts)
+const stTracks = new Map();         // id → track {pos,tgt,kp,kpTgt,trail,vitals…}
+let stNextId = 1;
 const COCO_EDGES = [[0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],
                     [5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
 
 async function stPoll() {
+    if (document.hidden) return;    // save CPU when the tab is in background
     let scene;
     try {
-        const r = await fetch('/api/wifi/scene');
+        const r = await fetch('/api/wifi/scene', { cache: 'no-store' });
         scene = await r.json();
     } catch (e) { stStatus.textContent = 'WiFi sensor unreachable'; return; }
     if (!scene.ok) {
         stStatus.textContent = scene.error === 'disabled'
-            ? 'RuView off — set RUVIEW_ENABLED=true (needs an ESP32-S3 or the Docker demo)'
-            : 'Can’t reach RuView. Is it running?';
-        drawScene({ people: [] });
+            ? 'RuView off — set RUVIEW_ENABLED=true (needs an ESP32-S3 or the demo bridge)'
+            : 'Can\u2019t reach RuView. Is it running?';
+        stScene = scene; stTracks.clear();
         return;
     }
+    stScene = scene;
+    stIngest(scene);
     const n = scene.count || 0;
-    stStatus.textContent = n
-        ? `${n} ${n === 1 ? 'person' : 'people'}${scene.has_pose ? ' · pose' : ''}`
-        : 'no one detected';
-    stLastScene = scene;
-    drawScene(scene);
-}
-
-function _allPoints(scene) {
-    const pts = [];
-    for (const p of (scene.people || [])) {
-        if (p.keypoints) for (const k of p.keypoints) pts.push(k);
-        else if (p.x != null && p.y != null) pts.push([p.x, p.y]);
+    const withVitals = (scene.people || []).find(p => p.breathing_bpm || p.heart_bpm);
+    let line = n ? `${n} ${n === 1 ? 'person' : 'people'}${scene.has_pose ? ' \u00b7 pose' : ''}` : 'no one detected';
+    if (withVitals) {
+        if (withVitals.breathing_bpm) line += ` \u00b7 \ud83e\udee7 ${withVitals.breathing_bpm}`;
+        if (withVitals.heart_bpm)     line += ` \u00b7 \u2764 ${Math.round(withVitals.heart_bpm)}`;
     }
-    return pts;
+    stStatus.textContent = line;
 }
 
-let stFloorLevel = 0;   // which floor the see-through map shows
+// Match incoming people to existing tracks (nearest neighbour on the same
+// floor) so each person keeps a stable identity between polls.
+function stIngest(scene) {
+    const now = performance.now();
+    const unmatched = new Set(stTracks.keys());
+    for (const p of (scene.people || [])) {
+        const pos = p.pos || (p.x != null ? [p.x, p.y] : null);
+        if (!pos) continue;
+        const lvl = (p.level != null) ? p.level : 0;
+        let best = null, bestD = 0.28;
+        for (const id of unmatched) {
+            const tr = stTracks.get(id);
+            if (tr.level !== lvl) continue;
+            const d = Math.hypot(tr.tgt[0] - pos[0], tr.tgt[1] - pos[1]);
+            if (d < bestD) { best = id; bestD = d; }
+        }
+        let tr;
+        if (best != null) { tr = stTracks.get(best); unmatched.delete(best); }
+        else {
+            tr = { id: stNextId++, pos: [...pos], trail: [], kp: null,
+                   born: now, hue: 130 + ((stNextId * 47) % 60) - 30 };
+            stTracks.set(tr.id, tr);
+        }
+        tr.tgt = pos;
+        tr.level = lvl;
+        tr.room = p.room || '';
+        tr.br = p.breathing_bpm || null;
+        tr.hr = p.heart_bpm || null;
+        tr.kpTgt = (p.keypoints && p.keypoints.length) ? p.keypoints : null;
+        if (!tr.kp && tr.kpTgt) tr.kp = tr.kpTgt.map(k => [...k]);
+        tr.lastSeen = now;
+    }
+    for (const id of unmatched) {
+        if (now - stTracks.get(id).lastSeen > 2500) stTracks.delete(id);
+    }
+}
 
-function _grid(ctx, W, H) {
-    ctx.strokeStyle = 'rgba(111,212,138,0.10)'; ctx.lineWidth = 1;
+function _stGrid(ctx, W, H) {
+    ctx.strokeStyle = 'rgba(111,212,138,0.08)'; ctx.lineWidth = 1;
     for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
     for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
 }
 
-function _miniSkeleton(ctx, kp, cx, cy, h) {
-    // Normalise the pose to a small figure centred at (cx, cy).
-    const xs = kp.map(k => k[0]), ys = kp.map(k => k[1]);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const sy = h / ((maxY - minY) || 1), sx = sy;
-    const P = kp.map(k => [cx + (k[0] - (minX + maxX) / 2) * sx, cy + (k[1] - maxY) * sy]);
-    ctx.lineWidth = 2;
-    for (const [a, b] of COCO_EDGES) if (P[a] && P[b]) { ctx.beginPath(); ctx.moveTo(...P[a]); ctx.lineTo(...P[b]); ctx.stroke(); }
-    for (const p of P) { ctx.beginPath(); ctx.arc(p[0], p[1], 1.8, 0, 7); ctx.fill(); }
-}
-
-function drawFloorPlan(ctx, W, H, scene) {
-    const floors = scene.floorplan.floors || [];
-    const floor = floors.find(f => f.level === stFloorLevel) || floors[0];
-    if (!floor) return;
-    // rooms
+function _stRooms(ctx, W, H, floor) {
     ctx.lineWidth = 1.5;
     for (const r of (floor.rooms || [])) {
         const x = r.x * W, y = r.y * H, w = r.w * W, h = r.h * H;
-        ctx.strokeStyle = 'rgba(111,212,138,0.45)';
+        ctx.strokeStyle = 'rgba(111,212,138,0.40)';
         ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-        ctx.fillStyle = 'rgba(111,212,138,0.55)'; ctx.font = '10px sans-serif';
+        ctx.fillStyle = 'rgba(111,212,138,0.5)'; ctx.font = '10px sans-serif';
         ctx.fillText(r.name, x + 5, y + 13);
     }
-    // people on this floor
-    ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 10;
-    for (const p of (scene.people || [])) {
-        const lvl = (p.level != null) ? p.level : 0;   // default ground floor
-        if (lvl !== floor.level) continue;
-        const pos = p.pos || (p.x != null ? [p.x, p.y] : null);
-        if (!pos) continue;
-        const cx = pos[0] * W, cy = pos[1] * H;
-        ctx.strokeStyle = '#8affb0'; ctx.fillStyle = '#8affb0';
-        if (p.keypoints && p.keypoints.length >= 17) _miniSkeleton(ctx, p.keypoints, cx, cy, 34);
-        ctx.beginPath(); ctx.arc(cx, cy, 4, 0, 7); ctx.fill();
-    }
-    ctx.shadowBlur = 0;
-    // floor label
-    ctx.fillStyle = 'rgba(207,238,222,0.9)'; ctx.font = '11px sans-serif';
-    const label = floors.length > 1 ? `${floor.name} — tap to switch floor` : floor.name;
-    ctx.fillText(label, 6, H - 8);
 }
 
-function drawScene(scene) {
+// A softly-breathing mini skeleton: the torso expands/contracts at the sensed
+// breathing rate, joints glow with a bright core.
+function _stSkeleton(ctx, kp, cx, cy, h, breathScale, hue) {
+    const xs = kp.map(k => k[0]), ys = kp.map(k => k[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const sy = h / ((maxY - minY) || 1);
+    // Chest (shoulders 5,6 + hips 11,12) breathes; extremities stay anchored.
+    const chest = new Set([5, 6, 11, 12, 0, 1, 2, 3, 4]);
+    const midX = (minX + maxX) / 2;
+    const P = kp.map((k, i) => {
+        const bs = chest.has(i) ? breathScale : 1;
+        return [cx + (k[0] - midX) * sy * bs, cy + (k[1] - maxY) * sy];
+    });
+    const col = `hsl(${hue}, 80%, 62%)`;
+    ctx.strokeStyle = col; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+    ctx.shadowColor = col; ctx.shadowBlur = 12;
+    for (const [a, b] of COCO_EDGES) if (P[a] && P[b]) {
+        ctx.beginPath(); ctx.moveTo(...P[a]); ctx.lineTo(...P[b]); ctx.stroke();
+    }
+    for (const p of P) {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(p[0], p[1], 2.4, 0, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 1.0, 0, 7); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+}
+
+function stFrame(now) {
+    if (!stOn) { stRaf = null; return; }
     const ctx = stCanvas.getContext('2d');
     const W = stCanvas.width, H = stCanvas.height;
     ctx.clearRect(0, 0, W, H);
-    _grid(ctx, W, H);
+    _stGrid(ctx, W, H);
 
-    // Prefer the floor-plan view when we have a plan + positions.
-    if (scene.floorplan && scene.floorplan.floors &&
-        (scene.people || []).some(p => p.pos || p.x != null)) {
-        drawFloorPlan(ctx, W, H, scene);
-        return;
-    }
+    const floors = stScene && stScene.floorplan && stScene.floorplan.floors || [];
+    const floor = floors.find(f => f.level === stFloorLevel) || floors[0];
+    if (floor) _stRooms(ctx, W, H, floor);
+    const t = now / 1000;
 
-    const people = scene.people || [];
-    // Auto-fit whatever coordinate space RuView uses (0..1, pixels, metres).
-    const pts = _allPoints(scene);
-    let minX = 0, minY = 0, maxX = 1, maxY = 1;
-    if (pts.length) {
-        minX = Math.min(...pts.map(p => p[0])); maxX = Math.max(...pts.map(p => p[0]));
-        minY = Math.min(...pts.map(p => p[1])); maxY = Math.max(...pts.map(p => p[1]));
-    }
-    const pad = 30, spanX = (maxX - minX) || 1, spanY = (maxY - minY) || 1;
-    const map = (p) => [
-        pad + ((p[0] - minX) / spanX) * (W - 2 * pad),
-        pad + ((p[1] - minY) / spanY) * (H - 2 * pad),
-    ];
-
-    ctx.strokeStyle = '#6fd48a'; ctx.fillStyle = '#8affb0';
-    ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 10;
-
-    let drewPerson = false;
-    for (const p of people) {
-        if (p.keypoints && p.keypoints.length) {
-            drewPerson = true;
-            const kp = p.keypoints.map(map);
-            if (kp.length >= 17) {
-                ctx.lineWidth = 3;
-                for (const [a, b] of COCO_EDGES) {
-                    if (kp[a] && kp[b]) { ctx.beginPath(); ctx.moveTo(...kp[a]); ctx.lineTo(...kp[b]); ctx.stroke(); }
-                }
+    for (const tr of stTracks.values()) {
+        // Glide toward the latest target — fluid motion despite the 2 Hz poll.
+        tr.pos[0] += (tr.tgt[0] - tr.pos[0]) * 0.09;
+        tr.pos[1] += (tr.tgt[1] - tr.pos[1]) * 0.09;
+        if (tr.kp && tr.kpTgt) {
+            const n = Math.min(tr.kp.length, tr.kpTgt.length);
+            for (let i = 0; i < n; i++) {
+                tr.kp[i][0] += (tr.kpTgt[i][0] - tr.kp[i][0]) * 0.12;
+                tr.kp[i][1] += (tr.kpTgt[i][1] - tr.kp[i][1]) * 0.12;
             }
-            for (const k of kp) { ctx.beginPath(); ctx.arc(k[0], k[1], 3.5, 0, 7); ctx.fill(); }
-        } else if (p.x != null && p.y != null) {
-            drewPerson = true;
-            const [cx, cy] = map([p.x, p.y]);
-            ctx.beginPath(); ctx.arc(cx, cy, 10, 0, 7); ctx.fill();
-            if (p.room) { ctx.shadowBlur = 0; ctx.fillStyle = '#cfeede'; ctx.font = '11px sans-serif';
-                ctx.fillText(p.room, cx + 12, cy + 4); ctx.fillStyle = '#8affb0'; ctx.shadowBlur = 10; }
         }
+        if (floor && tr.level !== floor.level) continue;
+
+        const cx = tr.pos[0] * W, cy = tr.pos[1] * H;
+        // Motion trail (fading footsteps).
+        const last = tr.trail[tr.trail.length - 1];
+        if (!last || Math.hypot(last[0] - cx, last[1] - cy) > 3) tr.trail.push([cx, cy]);
+        if (tr.trail.length > 26) tr.trail.shift();
+        for (let i = 0; i < tr.trail.length; i++) {
+            const a = (i / tr.trail.length) * 0.20;
+            ctx.fillStyle = `hsla(${tr.hue}, 80%, 60%, ${a})`;
+            ctx.beginPath(); ctx.arc(tr.trail[i][0], tr.trail[i][1], 2.2, 0, 7); ctx.fill();
+        }
+        // Presence glow pool (pulses gently with the heart rate when known).
+        const hrHz = (tr.hr || 66) / 60;
+        const pulse = 1 + 0.10 * Math.max(0, Math.sin(t * hrHz * 2 * Math.PI));
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 22 * pulse);
+        g.addColorStop(0, `hsla(${tr.hue}, 85%, 60%, 0.35)`);
+        g.addColorStop(1, `hsla(${tr.hue}, 85%, 55%, 0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, 22 * pulse, 0, 7); ctx.fill();
+        // Breathing chest expansion at the sensed rate (default ~14 BPM).
+        const brHz = (tr.br || 14) / 60;
+        const breath = 1 + 0.05 * Math.sin(t * brHz * 2 * Math.PI + tr.id);
+        if (tr.kp && tr.kp.length >= 17) _stSkeleton(ctx, tr.kp, cx, cy, 36, breath, tr.hue);
+        else {
+            ctx.fillStyle = `hsl(${tr.hue}, 85%, 62%)`;
+            ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.fill();
+        }
+        // Vitals + room chip.
+        let chip = '';
+        if (tr.br) chip += `\ud83e\udee7${Math.round(tr.br)} `;
+        if (tr.hr) chip += `\u2764${Math.round(tr.hr)}`;
+        ctx.font = '10px sans-serif';
+        if (chip) { ctx.fillStyle = 'rgba(207,238,222,0.95)'; ctx.fillText(chip.trim(), cx + 10, cy - 42); }
+        if (tr.room) { ctx.fillStyle = 'rgba(207,238,222,0.55)'; ctx.fillText(tr.room, cx + 10, cy - 30); }
     }
-    // No positions but we know a count → show N blobs in a row.
-    if (!drewPerson && (scene.count || 0) > 0) {
-        const n = scene.count;
+
+    // Count-only fallback: no positions but presence known.
+    if (stTracks.size === 0 && stScene && (stScene.count || 0) > 0) {
+        const n = stScene.count;
+        ctx.fillStyle = 'rgba(138,255,176,0.8)';
+        ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 12;
         for (let i = 0; i < n; i++) {
-            const cx = (W / (n + 1)) * (i + 1), cy = H / 2;
-            ctx.beginPath(); ctx.arc(cx, cy, 12, 0, 7); ctx.fill();
+            const bx = (W / (n + 1)) * (i + 1);
+            const by = H / 2 + 6 * Math.sin(t * 1.4 + i);
+            ctx.beginPath(); ctx.arc(bx, by, 11, 0, 7); ctx.fill();
         }
+        ctx.shadowBlur = 0;
     }
-    ctx.shadowBlur = 0;
+
+    // Floor label.
+    if (floor) {
+        ctx.fillStyle = 'rgba(207,238,222,0.9)'; ctx.font = '11px sans-serif';
+        ctx.fillText(floors.length > 1 ? `${floor.name} \u2014 tap to switch floor` : floor.name, 6, H - 8);
+    }
+    stRaf = requestAnimationFrame(stFrame);
 }
 
 // Tap the canvas to cycle floors (multi-storey plans).
-let stLastScene = null;
 stCanvas.addEventListener('click', () => {
-    const floors = stLastScene && stLastScene.floorplan && stLastScene.floorplan.floors;
+    const floors = stScene && stScene.floorplan && stScene.floorplan.floors;
     if (!floors || floors.length < 2) return;
     const levels = floors.map(f => f.level);
-    const idx = levels.indexOf(stFloorLevel);
-    stFloorLevel = levels[(idx + 1) % levels.length];
-    drawScene(stLastScene);
+    stFloorLevel = levels[(levels.indexOf(stFloorLevel) + 1) % levels.length];
 });
 
 stBtn.addEventListener('click', () => {
     stOn = !stOn;
     stBtn.classList.toggle('active', stOn);
     stCanvas.classList.toggle('live', stOn);
-    stBtn.textContent = stOn ? '🫥 Stop see-through' : '🫥 See-through (WiFi)';
-    if (stOn) { stPoll(); stTimer = setInterval(stPoll, 500); }
-    else { clearInterval(stTimer); stTimer = null; stStatus.textContent = ''; }
+    stBtn.textContent = stOn ? '\ud83e\udee5 Stop see-through' : '\ud83e\udee5 See-through (WiFi)';
+    if (stOn) {
+        stPoll(); stTimer = setInterval(stPoll, 500);
+        if (!stRaf) stRaf = requestAnimationFrame(stFrame);
+    } else {
+        clearInterval(stTimer); stTimer = null;
+        stTracks.clear(); stStatus.textContent = '';
+    }
 });
 </script>
 </body>

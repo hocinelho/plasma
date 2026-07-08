@@ -99,6 +99,21 @@ def _walk_path(path, t, period):
     return ax + (bx - ax) * f, ay + (by - ay) * f
 
 
+def _vitals(t: float, k: int, moving: bool) -> dict:
+    """Simulated vitals, shaped like ruview's Breathing/HeartRate extractors.
+
+    Breathing drifts slowly around 14 BPM (resting) or 18 (walking); heart
+    around 68 / 88. Real CSI extracts these from the 0.08–0.6 Hz band.
+    """
+    base_br = 18.0 if moving else 14.0
+    base_hr = 88 if moving else 68
+    return {
+        "breathing_bpm": round(base_br + 1.5 * math.sin(t * 0.05 + k), 1),
+        "heart_bpm": int(base_hr + 5 * math.sin(t * 0.03 + k * 2)),
+        "vitals_confidence": round(0.85 + 0.1 * math.sin(t * 0.1 + k), 2),
+    }
+
+
 def _demo_people(n_people: int = 3) -> list[dict]:
     """`n_people` simulated occupants spread across floors, some walking."""
     t = time.time() - _START
@@ -106,14 +121,17 @@ def _demo_people(n_people: int = 3) -> list[dict]:
     # Ground floor: one walking the main path, one still in the kitchen.
     px, py = _walk_path(_PATH, t, 32.0)
     people.append({"keypoints": _skeleton(px, 0.06 * math.sin(t * 3.0)),
-                   "x": round(px, 4), "y": round(py, 4), "level": 0})
+                   "x": round(px, 4), "y": round(py, 4), "level": 0,
+                   **_vitals(t, 1, moving=True)})
     if n_people >= 2:
-        people.append({"keypoints": _skeleton(0.77, 0.0), "x": 0.77, "y": 0.20, "level": 0})
+        people.append({"keypoints": _skeleton(0.77, 0.0), "x": 0.77, "y": 0.20, "level": 0,
+                       **_vitals(t, 2, moving=False)})
     # Upstairs: person(s) pacing on level 1 — proves the floor switch works.
     for k in range(3, n_people + 1):
         ux, uy = _walk_path(_PATH_UP, t + k * 7.0, 24.0)
         people.append({"keypoints": _skeleton(ux, 0.05 * math.sin(t * 2.5 + k)),
-                       "x": round(ux, 4), "y": round(uy, 4), "level": 1})
+                       "x": round(ux, 4), "y": round(uy, 4), "level": 1,
+                       **_vitals(t, k, moving=True)})
     return people
 
 
