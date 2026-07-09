@@ -110,8 +110,13 @@ class WakeMonitor:
             clap = ClapDetector(
                 threshold=config.CLAP_THRESHOLD,
                 max_gap_ms=config.CLAP_WINDOW_MS,
+                min_crest=config.CLAP_MIN_CREST,
+                min_peak=config.CLAP_MIN_PEAK,
             )
-            log.info("Clap-to-wake active (threshold=%.1f, window=%dms)", config.CLAP_THRESHOLD, config.CLAP_WINDOW_MS)
+            log.info(
+                "Clap-to-wake active (threshold=%.1f, window=%dms, min_crest=%.1f, min_peak=%d)",
+                config.CLAP_THRESHOLD, config.CLAP_WINDOW_MS, config.CLAP_MIN_CREST, config.CLAP_MIN_PEAK,
+            )
 
         if not detector and not clap:
             log.warning("No active wake detectors — thread exiting")

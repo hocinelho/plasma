@@ -364,3 +364,36 @@ loop); `RUVIEW_POLL_S`, `RUVIEW_ALERT_COOLDOWN_S`. Tests: `tests/test_ruview_mon
 - **Perf**: floorplan.json mtime-cached (was re-read at 2 Hz), uvicorn access
   logs for /api/wifi/scene|favicon|sw.js suppressed (console flood), see-through
   polling pauses when the tab is hidden.
+
+### Wake burst v2 + clap false-trigger fix (2026-07)
+- **Cinematic wake burst**: the previous single-ring pulse felt weak. Now on
+  wake ("hey plasma" or a clap): a bright radial power-on flash, 5 colour-
+  sweeping shockwave rings (ease-out, cyan→violet→amber), ~46 neural sparks
+  flung outward and fading, and the avatar sphere itself flashes into a wide-
+  spectrum `waking` palette (fast spin, icy-white core) for ~1.7 s before
+  easing back to its normal state — the whole page visibly "wakes up," not
+  just the sphere. `window.bgWakeBurst()` / `window.avatarWakeBurst()`.
+- **Clap detector was way too sensitive** — normal talking and clicks near the
+  mic were firing it. Root cause: the old detector only checked "peak loud
+  enough vs. background," with no way to tell a real clap (energy concentrated
+  in a few ms) from sustained loud speech (energy fills the whole ~80 ms
+  analysis chunk) at the same peak volume. Fixed with a **crest-factor gate**
+  (`CLAP_MIN_CREST`, default 5.0): require peak/RMS-within-chunk to be high
+  (impulsive), which sustained talking never is. Also added an **absolute
+  loudness floor** (`CLAP_MIN_PEAK`, default 1400) so a very quiet room's low
+  baseline can't make faint sounds "relatively loud" enough to pass, and raised
+  the default relative `CLAP_THRESHOLD` from 8 → 12. If real claps stop
+  registering in an echoey room, lower `CLAP_MIN_CREST` to ~3.5–4; if clicks
+  near the mic still trigger it, raise `CLAP_THRESHOLD`/`CLAP_MIN_PEAK` further.
+  Tests: `tests/test_clap_detector.py` (sustained voice never triggers, loud
+  syllable pairs don't count as double-claps, sub-floor transients rejected,
+  genuine claps still detected under the stricter defaults).
+
+### ⚠️ Reality check on WiFi sensing (important)
+The demo (`scripts/ruview_bridge.py`) generates **entirely fake, simulated**
+people/vitals — it is not sensing anyone, ever. It exists only so the UI
+(see-through view, vitals, alerts) can be tested with zero hardware. To detect
+real people (you, family) in a real apartment, you need actual CSI hardware —
+a mesh of ESP32-S3 nodes (or an Intel 5300/AR9580 NIC) running RuView's real
+sensing pipeline, feeding `RUVIEW_URL`. Without that hardware, "not accurate /
+can't detect my family" is expected: there is no real signal being measured.
