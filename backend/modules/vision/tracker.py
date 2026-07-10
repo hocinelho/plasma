@@ -213,20 +213,134 @@ def summarize_tracks(tracks: list[dict], de: bool = False) -> str:
     return f"I'm tracking: {joined}."
 
 
+# ── ByteTrack backend (supervision, MIT) ─────────────────────────────────────
+
+class ByteTrackTracker:
+    """supervision ByteTrack behind the exact same ``update()`` contract.
+
+    Why: the SORT-lite above matches by greedy IoU only, so IDs swap when
+    objects cross/occlude and a one-frame label flicker (cup→bottle) kills the
+    track. ByteTrack adds Kalman motion prediction and a second low-confidence
+    matching pass, and its lost-track buffer re-attaches the SAME id after an
+    occlusion. Matching is label-agnostic, so label flicker no longer breaks
+    identity — the reported label simply follows the current detection.
+
+    Direction and coasting (the no-blink UX) are computed here per tracker id,
+    same semantics as the legacy tracker. Swap-ready for Roboflow's separate
+    ``trackers`` package (sv.ByteTrack is deprecated since supervision 0.28):
+    only ``__init__`` and the ``update_with_detections`` call would change.
+    """
+
+    def __init__(self, frame_rate: float = 5.0, coast_frames: int = 3,
+                 activation: float = 0.25, smooth_len: int = 3):
+        import supervision as sv
+        from backend.modules.vision.detections import dicts_to_sv, sv_to_dicts
+        self._dicts_to_sv = dicts_to_sv
+        self._sv_to_dicts = sv_to_dicts
+        self._bt = sv.ByteTrack(
+            track_activation_threshold=activation,
+            lost_track_buffer=60,          # generous: survives ~2s occlusion at 5 fps
+            frame_rate=frame_rate,
+        )
+        self._smooth_len = smooth_len
+        self._smoother = sv.DetectionsSmoother(length=smooth_len)
+        self.coast_frames = coast_frames
+        # Per-id bookkeeping for direction + coasting: id -> state dict.
+        self._state: dict[int, dict] = {}
+
+    def reset(self) -> None:
+        """Start over: reset ByteTrack, the smoother, and id bookkeeping."""
+        import supervision as sv
+        self._bt.reset()
+        # DetectionsSmoother.reset() only exists in newer supervision — recreate.
+        self._smoother = sv.DetectionsSmoother(length=self._smooth_len)
+        self._state.clear()
+
+    @staticmethod
+    def _direction(vx: float, vy: float) -> Optional[str]:
+        """Coarse motion label, same thresholds as the legacy tracker."""
+        if abs(vx) < 3 and abs(vy) < 3:
+            return None
+        if abs(vx) >= abs(vy):
+            return "right" if vx > 0 else "left"
+        return "down" if vy > 0 else "up"
+
+    def update(self, detections: list[dict]) -> list[dict]:
+        """Advance one cycle; same in/out shape as ObjectTracker.update()."""
+        tracked = self._bt.update_with_detections(self._dicts_to_sv(detections))
+        tracked = self._smoother.update_with_detections(tracked)
+
+        out: list[dict] = []
+        seen: set[int] = set()
+        for d in self._sv_to_dicts(tracked):
+            tid = d.get("id")
+            if tid is None:
+                continue
+            seen.add(tid)
+            x, y, w, h = d["box"]
+            cx, cy = x + w / 2.0, y + h / 2.0
+            st = self._state.get(tid)
+            vx, vy = (cx - st["cx"], cy - st["cy"]) if st else (0.0, 0.0)
+            self._state[tid] = {"cx": cx, "cy": cy, "vx": vx, "vy": vy,
+                                "box": d["box"], "label": d["label"],
+                                "score": d["score"], "missed": 0}
+            out.append({**d, "direction": self._direction(vx, vy), "coast": False})
+
+        # Coast recently-missed ids on a velocity-predicted box (no blinking).
+        for tid, st in list(self._state.items()):
+            if tid in seen:
+                continue
+            st["missed"] += 1
+            if st["missed"] > self.coast_frames:
+                # ByteTrack still remembers it internally (lost buffer) and
+                # will re-emit the same id if the object reappears.
+                del self._state[tid]
+                continue
+            x, y, w, h = st["box"]
+            box = [round(x + st["vx"] * st["missed"], 1),
+                   round(y + st["vy"] * st["missed"], 1), w, h]
+            out.append({"id": tid, "label": st["label"], "box": box,
+                        "score": st["score"],
+                        "direction": self._direction(st["vx"], st["vy"]),
+                        "coast": True})
+        return out
+
+    @property
+    def tracks(self) -> list:
+        """Legacy-API stub (the ws layer only uses update())."""
+        return []
+
+
 # ── module-level singleton ───────────────────────────────────────────────────
 
-_tracker: Optional[ObjectTracker] = None
+_tracker: Optional[object] = None
 
 
-def get_tracker() -> ObjectTracker:
+def get_tracker():
+    """Return the tracker: ByteTrack (supervision) when available, else SORT-lite.
+
+    ``TRACK_BACKEND=iou`` forces the legacy tracker; any import/init failure
+    falls back to it too (never-crash convention).
+    """
     global _tracker
     if _tracker is None:
         from backend.core.config import config
+        if config.TRACK_BACKEND != "iou":
+            try:
+                _tracker = ByteTrackTracker(
+                    frame_rate=config.TRACK_FPS,
+                    coast_frames=config.TRACK_COAST_FRAMES,
+                )
+                log.info("Tracker backend: ByteTrack (supervision)")
+                return _tracker
+            except Exception as e:
+                log.warning("supervision unavailable (%s) — using SORT-lite", e)
         _tracker = ObjectTracker(
             iou_threshold=0.3,
             max_age=config.TRACK_MAX_AGE,
             coast_frames=config.TRACK_COAST_FRAMES,
         )
+        log.info("Tracker backend: SORT-lite (IoU)")
     return _tracker
 
 

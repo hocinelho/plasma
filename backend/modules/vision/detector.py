@@ -21,20 +21,34 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("plasma.vision.detector")
 
-_MODEL_URL = (
-    "https://storage.googleapis.com/mediapipe-models/"
-    "object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite"
-)
-_MODEL_NAME = "efficientdet_lite0.tflite"
+# Selectable model sizes (all Apache 2.0, auto-downloaded on first use).
+# lite2 is noticeably more accurate than lite0 for ~3x the (still small) size.
+_MODELS = {
+    "efficientdet_lite0": (
+        "https://storage.googleapis.com/mediapipe-models/"
+        "object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite",
+        "~4.4 MB",
+    ),
+    "efficientdet_lite2": (
+        "https://storage.googleapis.com/mediapipe-models/"
+        "object_detector/efficientdet_lite2/int8/1/efficientdet_lite2.tflite",
+        "~12 MB",
+    ),
+}
 
 
 def _model_path() -> Path:
     from backend.core.config import config
-    dest = config.VISION_MODEL_DIR / _MODEL_NAME
+    name = config.VISION_DETECTOR_MODEL
+    if name not in _MODELS:
+        log.warning("Unknown VISION_DETECTOR_MODEL=%r — using efficientdet_lite2", name)
+        name = "efficientdet_lite2"
+    url, size = _MODELS[name]
+    dest = config.VISION_MODEL_DIR / f"{name}.tflite"
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
-        log.info("Downloading MediaPipe EfficientDet model (~4.4 MB) → %s", dest)
-        urllib.request.urlretrieve(_MODEL_URL, dest)
+        log.info("Downloading MediaPipe %s model (%s) → %s", name, size, dest)
+        urllib.request.urlretrieve(url, dest)
         log.info("Model downloaded: %s", dest)
     return dest
 
@@ -93,6 +107,22 @@ class ObjectDetector:
                 "box": [bb.origin_x, bb.origin_y, bb.width, bb.height],
             })
         return out
+
+    def detect_smart(self, frame_bgr: np.ndarray) -> list[dict]:
+        """Detect with tiled (SAHI-style) inference when enabled, else plain.
+
+        Tiling makes small objects (keys, remotes) visible to the model at the
+        cost of a few extra inference passes — right for one-shot snapshots
+        ("what do you see", "find my X"), wrong for the live tracking loop.
+        """
+        from backend.core.config import config
+        if config.VISION_SLICING:
+            try:
+                from backend.modules.vision.detections import sliced_detect
+                return sliced_detect(self.detect, frame_bgr)
+            except Exception as e:
+                log.warning("Sliced detection failed (%s) — plain detect", e)
+        return self.detect(frame_bgr)
 
 
 # Module-level singleton — shared across skill + monitor

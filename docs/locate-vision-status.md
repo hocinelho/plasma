@@ -148,6 +148,26 @@ to once per `FACE_ID_INTERVAL_S` so it never eats CPU.
 
 ---
 
+## 🚀 Detection upgrade — supervision integration (2026-07-10)
+
+Hocine wasn't satisfied with detection quality. Root causes: tiny
+EfficientDet-Lite0 int8 model, full-frame-only inference (small objects are a
+few pixels), and the greedy-IoU tracker swapping IDs on occlusion. Fixed with
+**Roboflow Supervision (MIT — fits the no-AGPL policy)**:
+
+| Change | Config | Effect |
+|---|---|---|
+| `sv.ByteTrack` tracker backend (Kalman + low-conf second pass + lost-track buffer) with SORT-lite auto-fallback | `TRACK_BACKEND=byte` (default) / `iou` | IDs survive occlusion/crossing; label flicker no longer kills tracks |
+| SAHI tiled inference on snapshot paths ("what do you see", "find my X") via `sv.InferenceSlicer` | `VISION_SLICING=true` (default) | Small objects (keys!) become visible; live tracking loop stays full-frame for speed |
+| EfficientDet-**Lite2** default (Lite0 still available) | `VISION_DETECTOR_MODEL=efficientdet_lite2` | Better raw accuracy, still Apache 2.0, ~12 MB |
+| `vision/detections.py` — dict↔`sv.Detections` converters, `annotate_frame()` | — | One interop point; server-side annotated snapshots |
+
+Install: `pip install "supervision>=0.26,<0.30"` (pinned — 0.30 removes
+`ByteTrack`; migrating to Roboflow's `trackers` package is a one-line swap
+noted in `tracker.py`). Everything degrades gracefully without it.
+Tests: `tests/test_supervision_integration.py` (13). Not yet live-camera
+tested. Phase 2 candidates: RF-DETR backend, PolygonZone room zones.
+
 ## 🎯 Real-time object tracking (NEW)
 
 The "Watch me" feed can now **track objects with persistent IDs** and draw boxes

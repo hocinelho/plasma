@@ -29,9 +29,10 @@ Until now all WiFi sensing was the simulated demo. Now:
 
 ## What's next (agreed with Hocine)
 
-1. **Vision detection upgrade** — Hocine is NOT satisfied with current detection. Plan: integrate **https://github.com/hocinelho/supervision** (his fork of Roboflow Supervision: detection post-processing, tracking, annotation) into `backend/modules/vision/` (detector/tracker). Start by reading `vision/detector.py`, `tracker.py`, `perception.py` and `docs/locate-vision-status.md`.
-2. Level 1 RSSI live test whenever a non-locked-down WiFi machine is available.
-3. Level 2: ESP32-S3 CSI → bridge `real_scene()` (hardware not ordered yet).
+1. **Vision detection upgrade Phase 1 — DONE (same PR #2):** supervision (MIT) integrated: `sv.ByteTrack` tracker backend (stable IDs through occlusion; `TRACK_BACKEND=byte|iou`, auto-fallback to SORT-lite), SAHI tiled inference on snapshot paths (`VISION_SLICING`, small objects like keys), EfficientDet-Lite2 default (`VISION_DETECTOR_MODEL`), annotate helper (`vision/detections.py`). Pin `supervision<0.30` (ByteTrack removed in 0.30 → `trackers` pkg later). **Awaiting Hocine's live camera test.**
+2. Vision Phase 2 (optional, if Phase 1 isn't enough): RF-DETR (Apache 2.0) as a stronger detector backend; `PolygonZone` room zones for camera alerts; `trackers` pkg migration.
+3. Level 1 RSSI live test whenever a non-locked-down WiFi machine is available.
+4. Level 2: ESP32-S3 CSI → bridge `real_scene()` (hardware not ordered yet).
 
 ## ⚠️ Standing warnings
 

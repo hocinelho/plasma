@@ -176,6 +176,15 @@ class Config:
         "VISION_MODEL_DIR",
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
+    # Detector size: efficientdet_lite2 (default, more accurate, ~12 MB) or
+    # efficientdet_lite0 (fastest, ~4.4 MB). Both Apache 2.0, auto-downloaded.
+    VISION_DETECTOR_MODEL: str = os.getenv("VISION_DETECTOR_MODEL", "efficientdet_lite2")
+    # Tiled (SAHI-style) inference on SNAPSHOT paths ("what do you see",
+    # "find my X"): the detector runs on overlapping tiles so small objects
+    # (keys, remotes) become visible. Needs `pip install supervision` (MIT);
+    # silently falls back to full-frame detection without it. The live
+    # tracking loop always uses plain full-frame detection (speed).
+    VISION_SLICING: bool = os.getenv("VISION_SLICING", "true").lower() == "true"
 
     # --- Face + hand perception (MediaPipe FaceLandmarker + HandLandmarker) ---
     # Real-time face expression (smile / sleepy / wink) and hand gestures
@@ -211,6 +220,10 @@ class Config:
     # Keep drawing a track via velocity prediction for this many missed cycles
     # before hiding it — stops boxes blinking out when a frame misses.
     TRACK_COAST_FRAMES: int = int(os.getenv("TRACK_COAST_FRAMES", "3"))
+    # Tracker backend: "byte" = supervision ByteTrack (MIT — Kalman prediction,
+    # occlusion-proof IDs; needs `pip install supervision`), "iou" = the
+    # built-in SORT-lite. Auto-falls back to iou when supervision is missing.
+    TRACK_BACKEND: str = os.getenv("TRACK_BACKEND", "byte")
 
     # Keep the local webcam warm for this many seconds after a "find X" so the
     # next one is instant (opening a webcam is slow). Released when idle so other
