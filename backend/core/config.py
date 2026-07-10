@@ -180,6 +180,18 @@ class Config:
     # on disk) or efficientdet_lite2 (more accurate, ~12 MB, downloads on first
     # use). Both Apache 2.0. Opt into lite2 only when it can download.
     VISION_DETECTOR_MODEL: str = os.getenv("VISION_DETECTOR_MODEL", "efficientdet_lite0")
+    # Detector BACKEND: "mediapipe" (default, 80 COCO classes) or "yolo_onnx" —
+    # an Ultralytics-exported YOLOE/YOLO-World ONNX with YOUR class list baked
+    # in ("pen", "keys", ...), running on onnxruntime. NO download here: export
+    # on a connected PC and copy to YOLO_ONNX_MODEL (docs/yoloe-setup.md).
+    # Any load failure falls back to mediapipe automatically.
+    VISION_BACKEND: str = os.getenv("VISION_BACKEND", "mediapipe")
+    YOLO_ONNX_MODEL: Path = Path(os.getenv("YOLO_ONNX_MODEL")
+                                 or str(VISION_MODEL_DIR / "yoloe.onnx"))
+    # Optional comma-separated class-name override when the ONNX lacks metadata.
+    YOLO_ONNX_CLASSES: str = os.getenv("YOLO_ONNX_CLASSES", "")
+    YOLO_ONNX_IMGSZ: int = int(os.getenv("YOLO_ONNX_IMGSZ", "640"))
+    YOLO_ONNX_IOU: float = float(os.getenv("YOLO_ONNX_IOU", "0.45"))
     # Tiled (SAHI-style) inference on SNAPSHOT paths ("what do you see",
     # "find my X"): the detector runs on overlapping tiles so small objects
     # (keys, remotes) become visible — slower, so OPT-IN. Needs supervision;

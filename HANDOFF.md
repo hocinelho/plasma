@@ -30,7 +30,8 @@ Until now all WiFi sensing was the simulated demo. Now:
 ## What's next (agreed with Hocine)
 
 1. **Vision detection upgrade Phase 1 — DONE (same PR #2):** supervision (MIT) integrated: `sv.ByteTrack` tracker backend (stable IDs through occlusion; `TRACK_BACKEND=byte|iou`, auto-fallback to SORT-lite), SAHI tiled inference on snapshot paths (`VISION_SLICING`, small objects like keys), EfficientDet-Lite2 default (`VISION_DETECTOR_MODEL`), annotate helper (`vision/detections.py`). Pin `supervision<0.30` (ByteTrack removed in 0.30 → `trackers` pkg later). **Awaiting Hocine's live camera test.**
-2. Vision Phase 2 (optional, if Phase 1 isn't enough): RF-DETR (Apache 2.0) as a stronger detector backend; `PolygonZone` room zones for camera alerts; `trackers` pkg migration.
+2. **Vision Phase 2 — YOLOE open-vocab backend BUILT (same PR #2), awaiting Hocine's export+copy:** `vision/yolo_onnx.py` + `VISION_BACKEND=yolo_onnx` runs an Ultralytics-exported YOLOE/YOLO-World ONNX (user's own class list baked in — fixes "pen"→"toothbrush") on onnxruntime; mediapipe auto-fallback; e2e-verified with a synthetic ONNX. Hocine must export on a connected PC and copy the file — exact steps in `docs/yoloe-setup.md`. ⚠️ YOLOE weights are AGPL (accepted for personal use, exporter never imported by Plasma). Note: recognition-by-voice ("what is this?") uses the VLM path — his configured VLM was too big and timed out; advised `ollama pull moondream`.
+3. Vision Phase 3 (optional): RF-DETR (Apache 2.0) detector; `PolygonZone` room zones; `trackers` pkg migration.
 3. Level 1 RSSI live test whenever a non-locked-down WiFi machine is available.
 4. Level 2: ESP32-S3 CSI → bridge `real_scene()` (hardware not ordered yet).
 

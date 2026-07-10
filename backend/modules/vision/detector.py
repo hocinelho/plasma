@@ -135,15 +135,39 @@ class ObjectDetector:
         return self.detect(frame_bgr)
 
 
+def _build_detector(max_results: int, score_threshold: float):
+    """Detector factory honoring VISION_BACKEND, with mediapipe as the safe
+    fallback (never-crash: a missing ONNX file or onnxruntime import failure
+    must not break vision)."""
+    from backend.core.config import config
+    if config.VISION_BACKEND == "yolo_onnx":
+        try:
+            from backend.modules.vision.yolo_onnx import YoloOnnxDetector
+            if YoloOnnxDetector.available():
+                log.info("Detector backend: YOLO-ONNX (%s)", config.YOLO_ONNX_MODEL)
+                return YoloOnnxDetector(
+                    max_results=max_results, score_threshold=score_threshold,
+                )
+            log.warning(
+                "VISION_BACKEND=yolo_onnx but %s is missing (or onnxruntime "
+                "isn't installed) — falling back to mediapipe. See "
+                "docs/yoloe-setup.md.", config.YOLO_ONNX_MODEL,
+            )
+        except Exception as e:
+            log.warning("YOLO-ONNX backend failed (%s) — using mediapipe", e)
+    return ObjectDetector(max_results=max_results, score_threshold=score_threshold)
+
+
 # Module-level singleton — shared across skill + monitor
-_detector: ObjectDetector | None = None
+_detector = None
 
 
-def get_detector(score_threshold: float | None = None) -> ObjectDetector:
+def get_detector(score_threshold: float | None = None):
     global _detector
     if _detector is None:
         from backend.core.config import config
-        _detector = ObjectDetector(
+        _detector = _build_detector(
+            max_results=10,
             score_threshold=score_threshold or config.VISION_SCORE_THRESHOLD,
         )
     return _detector
@@ -152,14 +176,14 @@ def get_detector(score_threshold: float | None = None) -> ObjectDetector:
 # Separate instance for live tracking: a LOWER threshold + MORE results so the
 # tracker sees many objects at once and doesn't lose them on a weak frame. Kept
 # apart from the snapshot detector so the "what do you see" skill stays strict.
-_track_detector: ObjectDetector | None = None
+_track_detector = None
 
 
-def get_tracking_detector() -> ObjectDetector:
+def get_tracking_detector():
     global _track_detector
     if _track_detector is None:
         from backend.core.config import config
-        _track_detector = ObjectDetector(
+        _track_detector = _build_detector(
             max_results=config.TRACK_MAX_OBJECTS,
             score_threshold=config.TRACK_CONF,
         )
