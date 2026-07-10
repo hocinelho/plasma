@@ -267,12 +267,15 @@ def main():
         # The detector lives in the backend package; make it importable when
         # this file is run directly as `python scripts/ruview_bridge.py`.
         sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-        from backend.modules.sense.rssi_sensor import MotionDetector, read_rssi_dbm
+        from backend.modules.sense.rssi_sensor import MotionDetector, diagnose, read_rssi_dbm
         first = read_rssi_dbm()
         if first is None:
             print("\n!! No WiFi signal readable. RSSI mode needs the laptop CONNECTED")
             print("   to a WiFi network (not Ethernet-only). Serving anyway — it will")
             print("   report 'not connected' until a signal appears.")
+            hint = diagnose()
+            if hint:
+                print(f"   Likely cause: {hint}")
         else:
             print(f"\nWiFi signal found: {first:.0f} dBm — learning the quiet baseline (~15s)...")
         RSSI_LOOP = RssiLoop(MotionDetector(presence_hold_s=args.hold), hz=args.hz)

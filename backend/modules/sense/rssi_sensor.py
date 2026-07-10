@@ -73,6 +73,42 @@ def parse_proc_wireless(text: str) -> Optional[float]:
     return None
 
 
+def netsh_blocker_hint(text: str) -> Optional[str]:
+    """Explain why netsh shows no signal, if its output says so (en + de).
+
+    Windows 11 24H2 hides WLAN details behind Location Services / elevation;
+    netsh then prints a notice instead of the signal line.
+    """
+    low = text.lower()
+    if ("ms-settings:privacy-location" in low
+            or "standortberechtigung" in low
+            or "positionsdienste" in low
+            or "location permission" in low
+            or "location services" in low):
+        return (
+            "Windows is hiding WiFi info: turn ON Location Services "
+            "(Win+R -> ms-settings:privacy-location) or run this terminal "
+            "as Administrator, then restart the bridge."
+        )
+    if "getrennt" in low or "disconnected" in low:
+        return "The WiFi adapter is not connected to any network."
+    return None
+
+
+def diagnose() -> Optional[str]:
+    """Best-effort startup hint for why no RSSI is readable."""
+    if sys.platform != "win32":
+        return None
+    try:
+        out = subprocess.run(
+            ["netsh", "wlan", "show", "interfaces"],
+            capture_output=True, text=True, timeout=4.0,
+        )
+        return netsh_blocker_hint((out.stdout or "") + (out.stderr or ""))
+    except Exception as e:
+        return f"netsh could not be run: {e}"
+
+
 def read_rssi_dbm() -> Optional[float]:
     """Read the current WiFi RSSI in dBm, or None if not connected/available."""
     try:

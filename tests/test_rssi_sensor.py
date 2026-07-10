@@ -1,6 +1,7 @@
 """Tests for laptop-WiFi RSSI motion sensing (backend/modules/sense/rssi_sensor.py)."""
 from backend.modules.sense.rssi_sensor import (
     MotionDetector,
+    netsh_blocker_hint,
     parse_netsh_signal,
     parse_proc_wireless,
     percent_to_dbm,
@@ -48,6 +49,26 @@ def test_parse_netsh_english_and_german():
 
 def test_parse_netsh_no_signal():
     assert parse_netsh_signal("State : disconnected") is None
+
+
+NETSH_LOCATION_BLOCKED_DE = """
+Es ist 1 Schnittstelle auf dem System vorhanden:
+Netzwerkshellbefehle benötigen Standortberechtigungen für den Zugriff auf WLAN-Informationen.
+Hier ist den URI für die Seite „Standort" in der App „Einstellungen":
+‚ms-settings:privacy-location
+Die Funktion WlanQueryInterface gibt den Fehler 5 zurück.
+"""
+
+
+def test_netsh_blocker_hint_location_services():
+    hint = netsh_blocker_hint(NETSH_LOCATION_BLOCKED_DE)
+    assert hint is not None and "Location Services" in hint
+
+
+def test_netsh_blocker_hint_disconnected():
+    hint = netsh_blocker_hint("    Status                  : getrennt")
+    assert hint is not None and "not connected" in hint
+    assert netsh_blocker_hint(NETSH_EN) is None
 
 
 def test_parse_proc_wireless_level():
