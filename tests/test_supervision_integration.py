@@ -66,7 +66,27 @@ def test_sliced_detect_merges_duplicates():
 def _make_tracker():
     """Build a ByteTrackTracker with test-friendly settings."""
     from backend.modules.vision.tracker import ByteTrackTracker
-    return ByteTrackTracker(frame_rate=5.0, coast_frames=2, smooth_len=1)
+    return ByteTrackTracker(frame_rate=5.0, coast_frames=2, smooth_len=1,
+                            lost_buffer=90, match_thresh=0.8)
+
+
+def test_bytetrack_survives_long_occlusion():
+    """With a big lost buffer, an object hidden for several frames keeps its id
+    when it reappears — the whole point of the upgrade for 'don't lose me'."""
+    from backend.modules.vision.tracker import ByteTrackTracker
+    tr = ByteTrackTracker(frame_rate=5.0, coast_frames=1, smooth_len=1,
+                          lost_buffer=90, match_thresh=0.8)
+    out = tr.update([_det("person", [100, 100, 40, 90])])
+    tid = out[0]["id"]
+    for _ in range(2):
+        tr.update([_det("person", [108, 100, 40, 90])])
+    # Vanish for several frames (occluded), longer than coast_frames.
+    for _ in range(5):
+        drawn = tr.update([])
+        assert all(o["coast"] for o in drawn)  # only coasting boxes, if any
+    # Reappears near where it was heading → ByteTrack re-attaches the same id.
+    out = tr.update([_det("person", [140, 100, 40, 90])])
+    assert out and out[0]["id"] == tid
 
 
 def test_bytetrack_keeps_id_when_object_moves():

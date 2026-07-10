@@ -232,14 +232,19 @@ class ByteTrackTracker:
     """
 
     def __init__(self, frame_rate: float = 5.0, coast_frames: int = 3,
-                 activation: float = 0.25, smooth_len: int = 3):
+                 activation: float = 0.25, smooth_len: int = 3,
+                 lost_buffer: int = 90, match_thresh: float = 0.8):
         import supervision as sv
         from backend.modules.vision.detections import dicts_to_sv, sv_to_dicts
         self._dicts_to_sv = dicts_to_sv
         self._sv_to_dicts = sv_to_dicts
+        # lost_buffer frames the same id survives while unseen (occlusion);
+        # match_thresh: higher = stricter matching, fewer id-swaps when two
+        # subjects cross. Both live-tunable from .env via get_tracker().
         self._bt = sv.ByteTrack(
             track_activation_threshold=activation,
-            lost_track_buffer=60,          # generous: survives ~2s occlusion at 5 fps
+            lost_track_buffer=lost_buffer,
+            minimum_matching_threshold=match_thresh,
             frame_rate=frame_rate,
         )
         self._smooth_len = smooth_len
@@ -330,8 +335,16 @@ def get_tracker():
                 _tracker = ByteTrackTracker(
                     frame_rate=config.TRACK_FPS,
                     coast_frames=config.TRACK_COAST_FRAMES,
+                    activation=config.TRACK_ACTIVATION,
+                    smooth_len=config.TRACK_SMOOTH_LEN,
+                    lost_buffer=config.TRACK_LOST_BUFFER,
+                    match_thresh=config.TRACK_MATCH_THRESH,
                 )
-                log.info("Tracker backend: ByteTrack (supervision)")
+                log.info(
+                    "Tracker backend: ByteTrack (lost_buffer=%d match=%.2f smooth=%d)",
+                    config.TRACK_LOST_BUFFER, config.TRACK_MATCH_THRESH,
+                    config.TRACK_SMOOTH_LEN,
+                )
                 return _tracker
             except Exception as e:
                 log.warning("supervision unavailable (%s) — using SORT-lite", e)

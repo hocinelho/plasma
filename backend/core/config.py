@@ -224,6 +224,19 @@ class Config:
     # occlusion-proof IDs; needs `pip install supervision`), "iou" = the
     # built-in SORT-lite. Auto-falls back to iou when supervision is missing.
     TRACK_BACKEND: str = os.getenv("TRACK_BACKEND", "byte")
+    # ByteTrack tuning (only used when TRACK_BACKEND=byte) — adjust live in .env:
+    #   TRACK_LOST_BUFFER  frames an id survives while UNSEEN before it's a new
+    #                      id. Raise it if you lose the subject behind furniture.
+    TRACK_LOST_BUFFER: int = int(os.getenv("TRACK_LOST_BUFFER", "90"))
+    #   TRACK_MATCH_THRESH match strictness (0..1). Raise toward 0.9 if two
+    #                      people SWAP ids when they cross each other.
+    TRACK_MATCH_THRESH: float = float(os.getenv("TRACK_MATCH_THRESH", "0.8"))
+    #   TRACK_ACTIVATION   confidence to START a track. Lower (~0.2) to pick up
+    #                      faint/distant subjects sooner; raise to reduce noise.
+    TRACK_ACTIVATION: float = float(os.getenv("TRACK_ACTIVATION", "0.25"))
+    #   TRACK_SMOOTH_LEN   box smoothing window. Raise for steadier boxes, lower
+    #                      (1) if the box LAGS behind fast motion.
+    TRACK_SMOOTH_LEN: int = int(os.getenv("TRACK_SMOOTH_LEN", "3"))
 
     # Keep the local webcam warm for this many seconds after a "find X" so the
     # next one is instant (opening a webcam is slow). Released when idle so other
