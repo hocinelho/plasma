@@ -176,15 +176,15 @@ class Config:
         "VISION_MODEL_DIR",
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
-    # Detector size: efficientdet_lite2 (default, more accurate, ~12 MB) or
-    # efficientdet_lite0 (fastest, ~4.4 MB). Both Apache 2.0, auto-downloaded.
-    VISION_DETECTOR_MODEL: str = os.getenv("VISION_DETECTOR_MODEL", "efficientdet_lite2")
+    # Detector size: efficientdet_lite0 (default — the original, ~4.4 MB, already
+    # on disk) or efficientdet_lite2 (more accurate, ~12 MB, downloads on first
+    # use). Both Apache 2.0. Opt into lite2 only when it can download.
+    VISION_DETECTOR_MODEL: str = os.getenv("VISION_DETECTOR_MODEL", "efficientdet_lite0")
     # Tiled (SAHI-style) inference on SNAPSHOT paths ("what do you see",
     # "find my X"): the detector runs on overlapping tiles so small objects
-    # (keys, remotes) become visible. Needs `pip install supervision` (MIT);
-    # silently falls back to full-frame detection without it. The live
-    # tracking loop always uses plain full-frame detection (speed).
-    VISION_SLICING: bool = os.getenv("VISION_SLICING", "true").lower() == "true"
+    # (keys, remotes) become visible — slower, so OPT-IN. Needs supervision;
+    # falls back to plain full-frame detection without it. Off = original behavior.
+    VISION_SLICING: bool = os.getenv("VISION_SLICING", "false").lower() == "true"
 
     # --- Face + hand perception (MediaPipe FaceLandmarker + HandLandmarker) ---
     # Real-time face expression (smile / sleepy / wink) and hand gestures

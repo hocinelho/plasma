@@ -41,15 +41,25 @@ def _model_path() -> Path:
     from backend.core.config import config
     name = config.VISION_DETECTOR_MODEL
     if name not in _MODELS:
-        log.warning("Unknown VISION_DETECTOR_MODEL=%r — using efficientdet_lite2", name)
-        name = "efficientdet_lite2"
+        log.warning("Unknown VISION_DETECTOR_MODEL=%r — using efficientdet_lite0", name)
+        name = "efficientdet_lite0"
     url, size = _MODELS[name]
     dest = config.VISION_MODEL_DIR / f"{name}.tflite"
     if not dest.exists():
         dest.parent.mkdir(parents=True, exist_ok=True)
         log.info("Downloading MediaPipe %s model (%s) → %s", name, size, dest)
-        urllib.request.urlretrieve(url, dest)
-        log.info("Model downloaded: %s", dest)
+        try:
+            urllib.request.urlretrieve(url, dest)
+            log.info("Model downloaded: %s", dest)
+        except Exception as e:
+            # Never brick detection because an OPT-IN bigger model can't be
+            # fetched (offline / proxy / TLS). Fall back to lite0 if it's cached.
+            dest.unlink(missing_ok=True)
+            fallback = config.VISION_MODEL_DIR / "efficientdet_lite0.tflite"
+            if name != "efficientdet_lite0" and fallback.exists():
+                log.warning("Download of %s failed (%s) — using cached lite0", name, e)
+                return fallback
+            raise
     return dest
 
 
