@@ -228,8 +228,10 @@ class Config:
     #   TRACK_LOST_BUFFER  frames an id survives while UNSEEN before it's a new
     #                      id. Raise it if you lose the subject behind furniture.
     TRACK_LOST_BUFFER: int = int(os.getenv("TRACK_LOST_BUFFER", "90"))
-    #   TRACK_MATCH_THRESH match strictness (0..1). Raise toward 0.9 if two
-    #                      people SWAP ids when they cross each other.
+    #   TRACK_MATCH_THRESH match leniency (0..1). RAISE toward 0.9 to hold one
+    #                      id through FAST motion / low box overlap (fixes a
+    #                      moving object splitting into #1,#2,#3). LOWER toward
+    #                      0.6 if two objects that cross get merged/swapped.
     TRACK_MATCH_THRESH: float = float(os.getenv("TRACK_MATCH_THRESH", "0.8"))
     #   TRACK_ACTIVATION   confidence to START a track. Lower (~0.2) to pick up
     #                      faint/distant subjects sooner; raise to reduce noise.
