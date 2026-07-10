@@ -56,3 +56,6 @@ dist/
 external/locate-anything/bin/*.exe
 external/locate-anything/bin/locate-anything-cli
 external/locate-anything/models/*.gguf
+
+voices/
+external/locate-anything.cpp/
