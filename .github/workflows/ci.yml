@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, claude/enhance-plasma-project-cOZli]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      OLLAMA_BASE_URL: http://localhost:11434
+      PLASMA_LOG_LEVEL: WARNING
+      WHISPER_MODEL: small
+      WHISPER_LANGUAGE: auto
+      WAKE_WORD_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Compile check
+        run: python -m compileall backend/ scripts/ -q
+
+      - name: Run tests (isolation-sensitive files separate)
+        run: |
+          python -m pytest tests/ -v --tb=short \
+            --ignore=tests/test_sprint9_multilang.py \
+            --ignore=tests/test_sprint11_profiles.py \
+            --ignore=tests/test_backend.py
+          python -m pytest tests/test_sprint9_multilang.py -v --tb=short
+          python -m pytest tests/test_sprint11_profiles.py -v --tb=short

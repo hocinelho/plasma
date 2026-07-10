@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
     <title>Plasma — Voice Assistant</title>
     <style>
+        /* ── Design tokens ─────────────────────────────────── */
         :root {
             --bg: #0a0e1a;
             --panel: #141b2e;
@@ -12,213 +14,1111 @@
             --accent: #4a9eff;
             --accent-hot: #ff4a5e;
             --ok: #6fd48a;
+            --warn: #f5a623;
+            --border: #2a3450;
+            --font-base: 14px;
+            --btn-size: clamp(120px, 35vw, 160px);
         }
-        * { box-sizing: border-box; }
+
+        /* PA-71: high-contrast accessibility theme */
+        html.hc {
+            --bg: #000000;
+            --panel: #0d0d0d;
+            --text: #ffffff;
+            --muted: #cccccc;
+            --accent: #00aaff;
+            --accent-hot: #ff3333;
+            --ok: #00ee55;
+            --warn: #ffcc00;
+            --border: #666666;
+            --font-base: 16px;
+        }
+        html.hc .turn { border-bottom-color: #333; }
+        html.hc #talk-btn { border-width: 3px; }
+        html.hc #status-bar { border: 1px solid var(--border); }
+        html.hc .log-header button,
+        html.hc #theme-btn { border-color: var(--border); }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { height: 100%; }
+
         body {
-            margin: 0;
             font-family: -apple-system, 'Segoe UI', sans-serif;
-            background: var(--bg);
+            font-size: var(--font-base);
             color: var(--text);
-            min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 24px;
+            padding: 20px 16px 12px;
+            position: relative;
+            /* deep-space backdrop: nebula glows over near-black */
+            background:
+                radial-gradient(1200px 700px at 15% -10%, rgba(74,158,255,0.16), transparent 60%),
+                radial-gradient(1000px 800px at 110% 10%, rgba(255,74,140,0.12), transparent 55%),
+                radial-gradient(900px 900px at 50% 120%, rgba(120,90,255,0.14), transparent 60%),
+                #05070f;
+        }
+        /* full-screen animated field (bokeh + flowing light streams) */
+        #bg-canvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            pointer-events: none;
+        }
+
+        /* ── PA-69: responsive header ──────────────────────── */
+        .header {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            margin-bottom: 4px;
         }
         h1 {
             font-weight: 300;
             letter-spacing: 0.2em;
-            margin: 0 0 4px 0;
-            font-size: 42px;
+            font-size: clamp(28px, 8vw, 42px);
         }
         .subtitle {
             color: var(--muted);
-            font-size: 14px;
-            margin-bottom: 32px;
-        }
-        #status {
-            font-size: 13px;
-            color: var(--muted);
+            font-size: clamp(11px, 3vw, 14px);
             margin-bottom: 20px;
+        }
+
+        /* ── JARVIS neural-galaxy avatar ────────────────────── */
+        #avatar-wrap {
             display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        #status .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--muted);
-            transition: background 0.2s;
-        }
-        #status.ok .dot { background: var(--ok); }
-        #status.recording .dot { background: var(--accent-hot); animation: pulse 1s infinite; }
-        #status.processing .dot { background: var(--accent); animation: pulse 0.5s infinite; }
-        #status.speaking .dot { background: var(--ok); animation: pulse 0.6s infinite; }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
-        #talk-btn {
-            width: 160px;
-            height: 160px;
-            border-radius: 50%;
-            border: 2px solid var(--accent);
-            background: radial-gradient(circle, #1f2b4a, var(--panel));
-            color: var(--text);
-            font-size: 18px;
-            cursor: pointer;
-            transition: all 0.15s;
-            user-select: none;
+            justify-content: center;
             margin-bottom: 16px;
         }
-        #talk-btn:hover { border-color: var(--accent-hot); }
+        #avatar {
+            width: 190px;
+            height: 190px;
+            display: block;
+            /* soft outer aura; hue is nudged per-state from JS */
+            filter: drop-shadow(0 0 18px rgba(120, 180, 255, 0.25));
+            transition: filter 0.5s;
+        }
+
+        /* PA-71: theme toggle ──────────────────────────────── */
+        #theme-btn {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 8px;
+            padding: 5px 9px;
+            font-size: 17px;
+            line-height: 1;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #theme-btn:hover,
+        html.hc #theme-btn { border-color: var(--text); color: var(--text); }
+
+        /* PA-82: setup wizard link ─────────────────────────── */
+        #setup-link {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--muted);
+            text-decoration: none;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 5px 9px;
+            font-size: 13px;
+            line-height: 1;
+            white-space: nowrap;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #setup-link:hover { border-color: var(--text); color: var(--text); }
+
+        /* ── PA-39 Status indicator ────────────────────────── */
+        #status-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 7px 20px;
+            border-radius: 24px;
+            background: var(--panel);
+            margin-bottom: 20px;
+            font-size: 13px;
+            transition: background 0.3s;
+            min-width: 170px;
+            justify-content: center;
+        }
+        #status-bar .dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: var(--muted);
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+        #status-bar .label {
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            transition: color 0.2s;
+        }
+        #status-bar.idle      .dot   { background: var(--ok); }
+        #status-bar.idle      .label { color: var(--ok); }
+        #status-bar.listening        { background: #1e0e14; }
+        #status-bar.listening .dot   { background: var(--accent-hot); animation: pulse 0.9s infinite; }
+        #status-bar.listening .label { color: var(--accent-hot); }
+        #status-bar.thinking         { background: #0d1628; }
+        #status-bar.thinking  .dot   { background: var(--accent); animation: pulse 0.5s infinite; }
+        #status-bar.thinking  .label { color: var(--accent); }
+        #status-bar.speaking         { background: #0d1e14; }
+        #status-bar.speaking  .dot   { background: var(--ok); animation: pulse 0.7s infinite; }
+        #status-bar.speaking  .label { color: var(--ok); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%       { opacity: 0.35; transform: scale(0.85); }
+        }
+
+        /* ── PA-69 + PA-70: talk button ────────────────────── */
+        #talk-btn {
+            width: var(--btn-size);
+            height: var(--btn-size);
+            border-radius: 50%;
+            border: 1.5px solid rgba(120,180,255,0.55);
+            background:
+                radial-gradient(circle at 38% 32%, rgba(120,180,255,0.30), transparent 55%),
+                radial-gradient(circle, rgba(31,43,74,0.65), rgba(10,14,26,0.65));
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            color: var(--text);
+            font-size: clamp(14px, 4vw, 18px);
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+            touch-action: none;
+            margin-bottom: 8px;
+            box-shadow: 0 0 28px rgba(74,158,255,0.25), inset 0 0 22px rgba(74,158,255,0.12);
+        }
+        #talk-btn:hover {
+            border-color: var(--accent-hot);
+            box-shadow: 0 0 40px rgba(255,74,94,0.35), inset 0 0 22px rgba(255,74,94,0.15);
+            transform: scale(1.03);
+        }
         #talk-btn.recording {
             background: radial-gradient(circle, #4a1f2b, #2b1421);
             border-color: var(--accent-hot);
             box-shadow: 0 0 40px rgba(255, 74, 94, 0.5);
             transform: scale(1.05);
         }
+
+        /* PA-70: hide SPACE hint on pure-touch devices */
         .hint {
             font-size: 12px;
             color: var(--muted);
-            margin-bottom: 32px;
+            margin-bottom: 14px;
         }
+        body.touch-mode .hint { display: none; }
+
+        /* ── PA-37 Waveform ────────────────────────────────── */
+        #waveform-wrap {
+            width: 100%;
+            max-width: 700px;
+            height: 50px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(20,27,46,0.45);
+            border: 1px solid rgba(120,180,255,0.18);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        #waveform-wrap.active { opacity: 1; }
+        #waveform { width: 100%; height: 100%; display: block; }
+
+        /* ── Vision: face/hand perception panel ───────────────── */
+        #vision-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        #vision-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--accent);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        #vision-btn.active { background: var(--accent); color: #000; }
+        #track-toggle {
+            display: none;            /* shown only while watching */
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85em;
+            color: var(--muted);
+            cursor: pointer;
+            user-select: none;
+        }
+        #track-toggle.show { display: inline-flex; }
+        #track-toggle input { accent-color: var(--accent); cursor: pointer; }
+        #phone-cam-link {
+            font-size: 0.82em;
+            color: var(--muted);
+            text-decoration: none;
+            border: 1px solid rgba(120,180,255,0.2);
+            border-radius: 999px;
+            padding: 4px 12px;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        #phone-cam-link:hover { color: var(--accent); border-color: var(--accent); }
+
+        /* ── WiFi see-through view ─────────────────────────── */
+        #seethrough-panel {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+        #seethrough-btn {
+            padding: 8px 16px;
+            border: 2px solid var(--ok);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--ok);
+            cursor: pointer;
+            font-size: 0.95em;
+        }
+        #seethrough-btn.active { background: var(--ok); color: #04120a; }
+        #seethrough-canvas {
+            display: none;
+            width: 360px;
+            max-width: 90%;
+            border-radius: 12px;
+            background: #04120a;
+            border: 1px solid rgba(111,212,138,0.3);
+            box-shadow: 0 0 26px rgba(111,212,138,0.18);
+        }
+        #seethrough-canvas.live { display: block; }
+        #floorplan-link { font-size: 0.82em; color: var(--muted); text-decoration: none;
+            border: 1px solid rgba(111,212,138,0.25); border-radius: 999px; padding: 4px 12px; }
+        #floorplan-link:hover { color: var(--ok); border-color: var(--ok); }
+        .vision-status {
+            font-size: 0.85em;
+            opacity: 0.75;
+            min-height: 1.2em;
+            text-align: center;
+        }
+        /* video + box-overlay share one positioned stage so boxes line up */
+        #vision-stage {
+            position: relative;
+            width: 220px;
+            max-width: 70%;
+            display: none;
+        }
+        #vision-stage.live { display: block; }
+        #vision-video {
+            width: 100%;
+            border-radius: 10px;
+            display: block;
+            transform: scaleX(-1); /* mirror like a selfie */
+        }
+        #vision-overlay {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            transform: scaleX(-1); /* match the mirrored video */
+        }
+
+        /* ── Proactive alert toast ─────────────────────────── */
+        #alert-toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: var(--panel);
+            border: 1px solid var(--accent);
+            color: var(--text);
+            padding: 10px 20px;
+            border-radius: 24px;
+            font-size: 0.9em;
+            opacity: 0;
+            transition: opacity 0.3s, transform 0.3s;
+            pointer-events: none;
+            z-index: 1000;
+            max-width: 80%;
+            text-align: center;
+        }
+        #alert-toast.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* ── PA-38 + PA-69: conversation log ───────────────── */
+        .log-header {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .log-header .log-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+        }
+        .log-header button {
+            font-size: 11px;
+            color: var(--muted);
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 3px 10px;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .log-header button:hover { color: var(--text); border-color: var(--muted); }
+
         #log {
             width: 100%;
             max-width: 700px;
-            background: var(--panel);
-            border-radius: 12px;
+            background: rgba(20,27,46,0.42);
+            border: 1px solid rgba(120,180,255,0.15);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 14px;
             padding: 16px;
-            height: 400px;
+            /* PA-69: flex-grow fills remaining viewport on all screen sizes */
+            flex: 1;
+            min-height: 160px;
             overflow-y: auto;
-            font-size: 14px;
-            line-height: 1.5;
+            font-size: var(--font-base);
+            line-height: 1.6;
+            scroll-behavior: smooth;
         }
+        /* PA-69: cap height on large desktop screens */
+        @media (min-height: 700px) and (min-width: 600px) {
+            #log { max-height: 420px; }
+        }
+
+        #log::-webkit-scrollbar { width: 6px; }
+        #log::-webkit-scrollbar-track { background: transparent; }
+        #log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
         .turn {
             margin-bottom: 16px;
             padding-bottom: 16px;
-            border-bottom: 1px solid #232b42;
+            border-bottom: 1px solid #1e2840;
         }
-        .turn:last-child { border-bottom: none; }
+        .turn:last-child { border-bottom: none; margin-bottom: 0; }
+        .turn-meta {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
         .turn .role {
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.15em;
             color: var(--muted);
-            margin-bottom: 4px;
         }
-        .turn.user .role { color: var(--accent); }
+        .turn .ts { font-size: 10px; color: #3d4a66; }
+        .turn.user      .role { color: var(--accent); }
         .turn.assistant .role { color: var(--ok); }
-        .turn.error .role { color: var(--accent-hot); }
-        .turn.error .content { color: var(--accent-hot); }
+        .turn.error     .role,
+        .turn.error  .content { color: var(--accent-hot); }
         .turn .content { white-space: pre-wrap; }
+        .turn-image {
+            margin-top: 6px;
+            max-width: 100%;
+            border-radius: 10px;
+            border: 1px solid rgba(120,180,255,0.25);
+            box-shadow: 0 0 18px rgba(74,158,255,0.18);
+            display: block;
+        }
+
+        .empty-hint {
+            color: var(--muted);
+            font-size: 13px;
+            text-align: center;
+            margin-top: 120px;
+        }
+
+        /* PA-69: tighten spacing on small phones */
+        @media (max-width: 400px) {
+            body { padding: 14px 12px 10px; }
+            #status-bar { margin-bottom: 14px; }
+            #waveform-wrap { height: 40px; margin-bottom: 10px; }
+            .log-header { margin-bottom: 6px; }
+        }
+        /* KaTeX display equations: allow horizontal scroll, don't break layout */
+        .katex-display { overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
     </style>
+    <!-- KaTeX: render LaTeX math in replies. Loads from CDN when online; if
+         offline it degrades gracefully to the raw text. -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
-    <h1>PLASMA</h1>
+
+    <!-- Full-screen living backdrop: bokeh depth orbs + flowing light streams -->
+    <canvas id="bg-canvas" aria-hidden="true"></canvas>
+
+    <div class="header">
+        <!-- PA-82: first-run setup wizard -->
+        <a id="setup-link" href="/setup" title="Setup &amp; diagnostics" aria-label="Setup and diagnostics">⚙ Setup</a>
+        <h1>PLASMA</h1>
+        <!-- PA-71: high-contrast toggle -->
+        <button id="theme-btn" title="Toggle high-contrast mode" aria-label="Toggle high-contrast mode">◐</button>
+    </div>
     <div class="subtitle">local-first voice assistant</div>
 
-    <div id="status"><span class="dot"></span><span class="text">idle</span></div>
+    <!-- JARVIS avatar — a neural network swimming in a galaxy. Nodes orbit,
+         connections shift, colors flow, and it pulses live with the TTS voice. -->
+    <div id="avatar-wrap">
+        <canvas id="avatar" width="150" height="150" aria-hidden="true"></canvas>
+    </div>
+
+    <!-- PA-39: status indicator -->
+    <div id="status-bar" class="">
+        <span class="dot"></span>
+        <span class="label">idle</span>
+    </div>
 
     <button id="talk-btn">Hold to talk</button>
-    <div class="hint">or press and hold <b>SPACE</b></div>
+    <!-- PA-70: hint hidden in touch mode -->
+    <div class="hint">or hold <b>SPACE</b></div>
 
-    <div id="log"></div>
+    <!-- PA-37: waveform canvas -->
+    <div id="waveform-wrap">
+        <canvas id="waveform"></canvas>
+    </div>
+
+    <!-- Vision: face expression + hand gestures + object tracking (browser-driven) -->
+    <div id="vision-panel">
+        <button id="vision-btn" title="Let Plasma watch you through the camera">👁 Watch me</button>
+        <label id="track-toggle" title="Detect &amp; track objects in real time, drawing boxes on the feed">
+            <input type="checkbox" id="track-check"> 🎯 Track objects
+        </label>
+        <div id="vision-status" class="vision-status">vision off</div>
+        <div id="vision-stage">
+            <video id="vision-video" autoplay playsinline muted></video>
+            <canvas id="vision-overlay"></canvas>
+        </div>
+        <a id="phone-cam-link" href="/camera" title="Open the camera page on your phone">📱 Use your phone's camera →</a>
+    </div>
+
+    <!-- WiFi see-through view (RuView): skeletons / room map from WiFi sensing -->
+    <div id="seethrough-panel">
+        <button id="seethrough-btn" title="See people through walls via WiFi sensing (RuView)">🫥 See-through (WiFi)</button>
+        <div id="seethrough-status" class="vision-status"></div>
+        <canvas id="seethrough-canvas" width="360" height="240"></canvas>
+        <a id="floorplan-link" href="/floorplan" title="Draw your home's rooms">✏️ Edit floor plan</a>
+    </div>
+
+    <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
+    <div id="alert-toast"></div>
+
+    <!-- PA-38: conversation history -->
+    <div class="log-header">
+        <span class="log-title">Conversation</span>
+        <button id="clear-btn">Clear</button>
+    </div>
+    <div id="log">
+        <div class="empty-hint" id="empty-hint">Say something to start…</div>
+    </div>
 
 <script>
-const btn = document.getElementById('talk-btn');
-const statusEl = document.getElementById('status');
-const statusText = statusEl.querySelector('.text');
-const log = document.getElementById('log');
+const btn       = document.getElementById('talk-btn');
+const statusBar = document.getElementById('status-bar');
+const logEl     = document.getElementById('log');
+const clearBtn  = document.getElementById('clear-btn');
+const wrapEl    = document.getElementById('waveform-wrap');
+const canvas    = document.getElementById('waveform');
+const ctx2d     = canvas.getContext('2d');
+const themeBtn  = document.getElementById('theme-btn');
 
 let mediaRecorder = null;
-let chunks = [];
-let isRecording = false;
-let isBusy = false;                       // prevent overlapping recordings
-const SESSION_ID = 'web-' + Math.random().toString(36).slice(2, 10);
+let micStream     = null;
+let chunks        = [];
+let isRecording   = false;
+let isBusy        = false;
 
-function setStatus(mode, text) {
-    statusEl.className = mode;
-    statusText.textContent = text;
+// Persist session ID so analytics page can read it
+let SESSION_ID = localStorage.getItem('plasma_session_id');
+if (!SESSION_ID) {
+    SESSION_ID = 'web-' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('plasma_session_id', SESSION_ID);
+}
+
+// ── PA-71: high-contrast theme ────────────────────────────
+(function initTheme() {
+    if (localStorage.getItem('plasma-hc') === '1') document.documentElement.classList.add('hc');
+})();
+
+themeBtn.addEventListener('click', () => {
+    const on = document.documentElement.classList.toggle('hc');
+    localStorage.setItem('plasma-hc', on ? '1' : '0');
+});
+
+// ── PA-70: touch / keyboard-free detection ─────────────────
+// coarse pointer = touchscreen; no hover = no physical mouse
+const isTouchPrimary = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+if (isTouchPrimary) {
+    document.body.classList.add('touch-mode');
+    btn.textContent = 'Tap to talk';
+}
+
+// ── PA-39: status ─────────────────────────────────────────
+// ── JARVIS avatar — 3D glass-node sphere with flowing light streams ───────
+// Nodes sit on a rotating sphere (perspective-projected, depth-sorted), nearby
+// ones link into a neural net, fibre-optic light ribbons flow through it, bokeh
+// orbs drift behind, and the whole thing pulses live with the TTS voice
+// (avatarLevel is fed by the lip-sync analyser).
+const avatarCanvas = document.getElementById('avatar');
+let avatarState = 'idle';   // idle | listening | thinking | speaking
+let avatarLevel = 0;        // live audio amplitude 0..1 → drives the pulse
+const TAU = Math.PI * 2;
+
+(function initAvatar() {
+    const cv = avatarCanvas, ctx = cv.getContext('2d');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const CSS = 190;
+    cv.width = CSS * DPR; cv.height = CSS * DPR;
+    ctx.scale(DPR, DPR);
+    const cx = CSS / 2, cy = CSS / 2, R = CSS * 0.30, FOCAL = 260;
+
+    // Per-state look: core hue, colour spread, spin speed, aura rgb.
+    const PALETTE = {
+        idle:      { h: 205, spread: 90,  speed: 0.30, glow: '120,180,255' },
+        listening: { h: 330, spread: 70,  speed: 0.85, glow: '255,90,150'  },
+        thinking:  { h: 160, spread: 80,  speed: 0.55, glow: '80,230,180'  },
+        speaking:  { h: 195, spread: 160, speed: 0.70, glow: '120,220,255' },
+        // Brief "waking up" flash — bright icy-white/blue, wide spectrum, fast
+        // spin. Overrides avatarState for a couple of seconds on wake events.
+        waking:    { h: 200, spread: 240, speed: 2.4, glow: '200,225,255' },
+    };
+    let avatarWakeUntil = 0;   // performance.now() timestamp; sphere flashes until then
+    window.avatarWakeBurst = (ms = 1700) => { avatarWakeUntil = performance.now() + ms; };
+
+    // Fibonacci sphere → even 3D node distribution.
+    const N = reduce ? 22 : 42;
+    const nodes = [];
+    for (let i = 0; i < N; i++) {
+        const y = 1 - (i / (N - 1)) * 2;
+        const rad = Math.sqrt(Math.max(0, 1 - y * y));
+        const theta = i * 2.39996;
+        nodes.push({ x: Math.cos(theta) * rad, y, z: Math.sin(theta) * rad,
+                     size: 1.7 + Math.random() * 1.8 });
+    }
+    // Fixed topology: link each node to its 3 nearest neighbours (dedup).
+    const seen = new Set(), L = [];
+    for (let i = 0; i < N; i++) {
+        const ds = [];
+        for (let j = 0; j < N; j++) if (j !== i) {
+            const dx = nodes[i].x-nodes[j].x, dy = nodes[i].y-nodes[j].y, dz = nodes[i].z-nodes[j].z;
+            ds.push([dx*dx+dy*dy+dz*dz, j]);
+        }
+        ds.sort((a, b) => a[0]-b[0]);
+        for (let k = 0; k < 3; k++) {
+            const j = ds[k][1], a = Math.min(i, j), b = Math.max(i, j), key = a+'_'+b;
+            if (!seen.has(key)) { seen.add(key); L.push([a, b]); }
+        }
+    }
+    // Fibre-optic light ribbons crossing the sphere.
+    const STREAMS = [
+        { hue: 190, y: -0.55, amp: 0.55, phase: 0.0, speed: 0.55 },
+        { hue: 320, y:  0.10, amp: 0.62, phase: 2.1, speed: 0.45 },
+        { hue: 35,  y:  0.60, amp: 0.50, phase: 4.0, speed: 0.65 },
+        { hue: 265, y: -0.10, amp: 0.45, phase: 1.0, speed: 0.40 },
+    ];
+    // Bokeh depth orbs.
+    const bokeh = [];
+    for (let i = 0; i < (reduce ? 4 : 9); i++)
+        bokeh.push({ a: Math.random()*TAU, r: R*(1.45+Math.random()*0.9),
+            sz: 7+Math.random()*15, hue: [190,320,35,265][i%4],
+            sp: (Math.random()*0.3+0.08)*(Math.random()<0.5?-1:1), bob: Math.random()*TAU });
+
+    function drawStream(s, lvl, t) {
+        const ph = t*s.speed + s.phase, baseY = cy + s.y*R, amp = s.amp*R*(0.8+lvl*0.5), steps = 26;
+        ctx.lineWidth = 2.2 + lvl*2.8; ctx.lineCap = 'round';
+        for (let i = 0; i < steps; i++) {
+            const u0 = i/steps, u1 = (i+1)/steps;
+            const env0 = Math.sin(u0*Math.PI), env1 = Math.sin(u1*Math.PI);
+            const x0 = -12+u0*(CSS+24), x1 = -12+u1*(CSS+24);
+            const y0 = baseY + Math.sin(u0*6+ph)*amp*env0, y1 = baseY + Math.sin(u1*6+ph)*amp*env1;
+            const head = ((u0 - (t*s.speed*0.5))%1+1)%1;
+            const bright = Math.pow(1 - Math.abs(((head+0.5)%1)-0.5)*2, 2);
+            const o = (0.07+bright*0.55)*(0.6+lvl*0.6)*env0;
+            ctx.strokeStyle = `hsla(${s.hue},95%,${60+bright*25}%,${o})`;
+            ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+        }
+    }
+
+    let t = 0, last = performance.now();
+    let curHue = PALETTE.idle.h, curSpread = PALETTE.idle.spread, curSpeed = PALETTE.idle.speed;
+
+    function frame(now) {
+        const dt = Math.min(0.05, (now-last)/1000); last = now; t += dt;
+        const waking = now < avatarWakeUntil;
+        const p = waking ? PALETTE.waking : (PALETTE[avatarState] || PALETTE.idle);
+        const blend = waking ? 0.22 : 0.06;   // snap fast into the wake flash
+        curHue    += (p.h - curHue) * blend;
+        curSpread += (p.spread - curSpread) * blend;
+        curSpeed  += (p.speed - curSpeed) * blend;
+        avatarLevel *= 0.86;
+        const lvl = avatarLevel;
+        const ry = t*curSpeed*(1+lvl*1.2), rx = Math.sin(t*0.3)*0.35;
+        const cosY = Math.cos(ry), sinY = Math.sin(ry), cosX = Math.cos(rx), sinX = Math.sin(rx);
+        const pulse = (1 + lvl*0.22 + Math.sin(t*1.2)*0.02) * R;
+
+        ctx.clearRect(0, 0, CSS, CSS);
+        ctx.globalCompositeOperation = 'lighter';
+
+        // bokeh depth orbs
+        for (const b of bokeh) {
+            b.a += b.sp*dt;
+            const bx = cx+Math.cos(b.a)*b.r, by = cy+Math.sin(b.a)*b.r*0.7+Math.sin(t+b.bob)*4;
+            const g = ctx.createRadialGradient(bx,by,0,bx,by,b.sz);
+            g.addColorStop(0, `hsla(${b.hue},90%,65%,${0.10+lvl*0.10})`);
+            g.addColorStop(1, `hsla(${b.hue},90%,55%,0)`);
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx,by,b.sz,0,TAU); ctx.fill();
+        }
+
+        // project nodes (rotate Y then X, perspective)
+        const pts = [];
+        for (const nd of nodes) {
+            let x = nd.x*cosY - nd.z*sinY;
+            let z = nd.x*sinY + nd.z*cosY;
+            let y = nd.y*cosX - z*sinX;
+            z = nd.y*sinX + z*cosX;
+            const scale = FOCAL/(FOCAL - z*pulse);
+            pts.push({ sx: cx+x*pulse*scale, sy: cy+y*pulse*scale, depth: (z+1)/2, scale, nd });
+        }
+
+        // flowing light streams
+        for (const s of STREAMS) drawStream(s, lvl, t);
+
+        // neural-net connections (depth-shaded)
+        ctx.lineWidth = 1;
+        for (const [a, b] of L) {
+            const pa = pts[a], pb = pts[b], dep = (pa.depth+pb.depth)/2;
+            const hue = curHue + dep*curSpread + t*16;
+            ctx.strokeStyle = `hsla(${hue},85%,${55+lvl*15}%,${(0.08+dep*0.42)*(0.7+lvl*0.6)})`;
+            ctx.beginPath(); ctx.moveTo(pa.sx,pa.sy); ctx.lineTo(pb.sx,pb.sy); ctx.stroke();
+        }
+
+        // glassy nodes, back-to-front
+        pts.sort((a, b) => a.depth - b.depth);
+        for (const pt of pts) {
+            const hue = curHue + pt.depth*curSpread + t*22;
+            const sz = pt.nd.size*pt.scale*(0.7+pt.depth*0.6)*(1+lvl*0.6);
+            const alpha = 0.35 + pt.depth*0.6;
+            const g = ctx.createRadialGradient(pt.sx,pt.sy,0,pt.sx,pt.sy,sz*3.4);
+            g.addColorStop(0, `hsla(${hue},95%,68%,${alpha})`);
+            g.addColorStop(1, `hsla(${hue},95%,60%,0)`);
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(pt.sx,pt.sy,sz*3.4,0,TAU); ctx.fill();
+            const gb = ctx.createRadialGradient(pt.sx-sz*0.4,pt.sy-sz*0.5,sz*0.1,pt.sx,pt.sy,sz);
+            gb.addColorStop(0, `hsla(${hue},100%,92%,${alpha})`);
+            gb.addColorStop(0.5, `hsla(${hue},95%,65%,${alpha*0.9})`);
+            gb.addColorStop(1, `hsla(${hue+20},90%,45%,${alpha*0.7})`);
+            ctx.fillStyle = gb; ctx.beginPath(); ctx.arc(pt.sx,pt.sy,sz,0,TAU); ctx.fill();
+            ctx.fillStyle = `hsla(0,0%,100%,${alpha*0.8})`;
+            ctx.beginPath(); ctx.arc(pt.sx-sz*0.35,pt.sy-sz*0.4,sz*0.28,0,TAU); ctx.fill();
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+        cv.style.filter = `drop-shadow(0 0 ${14+lvl*30}px rgba(${p.glow},${0.25+lvl*0.4}))`;
+        requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+})();
+
+// ── Living backdrop — bokeh depth orbs + flowing light streams ────────────
+(function initBackdrop() {
+    const cv = document.getElementById('bg-canvas');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let W = 0, H = 0, DPR = 1, bokeh = [], streams = [];
+
+    function build() {
+        const n = reduce ? 8 : Math.min(24, Math.round(W*H/48000));
+        bokeh = [];
+        for (let i = 0; i < n; i++)
+            bokeh.push({ x: Math.random()*W, y: Math.random()*H, r: 24+Math.random()*80,
+                hue: [200,320,35,265,160][i%5], sp: 0.02+Math.random()*0.14,
+                drift: Math.random()*TAU, o: 0.05+Math.random()*0.07 });
+        streams = [
+            { hue: 195, y: 0.22, amp: 55, phase: 0, speed: 0.10, w: 1.6 },
+            { hue: 320, y: 0.52, amp: 75, phase: 2, speed: 0.08, w: 1.8 },
+            { hue: 35,  y: 0.80, amp: 60, phase: 4, speed: 0.12, w: 1.5 },
+        ];
+    }
+    function resize() {
+        DPR = Math.min(window.devicePixelRatio || 1, 2);
+        W = window.innerWidth; H = window.innerHeight;
+        cv.width = W*DPR; cv.height = H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+        build();
+    }
+
+    // Wake burst: a cinematic whole-background "waking up" moment — a bright
+    // flash, a sweep of multi-hued shockwave rings, outward neural sparks, and
+    // everything brightening + accelerating before easing back down over ~3 s.
+    let wake = 0;                // 1 → 0, eased (quadratic) for a sharp jolt + slow settle
+    let flash = 0;               // 1 → 0 over ~0.5 s, the initial "power-on" pop
+    let rings = [];               // expanding, colour-sweeping shockwave rings
+    let sparks = [];              // short-lived particles bursting outward
+    window.bgWakeBurst = () => {
+        wake = 1;
+        flash = 1;
+        rings = [0, 1, 2, 3, 4].map(i => ({ r: 0, delay: i * 0.14, hue: 190 + i * 32 }));
+        sparks = [];
+        const cx = W / 2, cy = Math.min(H * 0.26, 260);
+        for (let i = 0; i < 46; i++) {
+            const ang = Math.random() * TAU;
+            const speed = 60 + Math.random() * 220;
+            sparks.push({
+                x: cx, y: cy, vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
+                life: 0.7 + Math.random() * 0.7, age: 0, hue: 185 + Math.random() * 150,
+                sz: 1.2 + Math.random() * 2.2,
+            });
+        }
+    };
+
+    let t = 0, last = performance.now();
+    function frame(now) {
+        const dt = Math.min(0.05, (now-last)/1000); last = now; t += dt;
+        if (wake > 0) wake = Math.max(0, wake - dt / 2.8);
+        if (flash > 0) flash = Math.max(0, flash - dt / 0.5);
+        const wakeEase = wake * wake;                    // sharp jolt, gentle tail
+        const boost = 1 + wakeEase * 2.6;                 // speed multiplier
+        const glow  = 1 + wakeEase * 2.0;                 // brightness multiplier
+        ctx.clearRect(0, 0, W, H);
+        ctx.globalCompositeOperation = 'lighter';
+        for (const b of bokeh) {
+            b.y -= b.sp * boost; b.x += Math.sin(t*0.2+b.drift)*0.15*boost;
+            if (b.y < -b.r) { b.y = H+b.r; b.x = Math.random()*W; }
+            const g = ctx.createRadialGradient(b.x,b.y,0,b.x,b.y,b.r);
+            g.addColorStop(0, `hsla(${b.hue},80%,60%,${Math.min(0.55, b.o*glow)})`);
+            g.addColorStop(1, `hsla(${b.hue},80%,55%,0)`);
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,TAU); ctx.fill();
+        }
+        for (const s of streams) {
+            const ph = t*s.speed*6*boost+s.phase, baseY = H*s.y, steps = 44;
+            ctx.lineWidth = s.w * (1 + wakeEase * 1.4); ctx.lineCap = 'round';
+            for (let i = 0; i < steps; i++) {
+                const u0 = i/steps, u1 = (i+1)/steps;
+                const y0 = baseY+Math.sin(u0*5+ph)*s.amp+Math.sin(u0*13+ph*1.7)*s.amp*0.3;
+                const y1 = baseY+Math.sin(u1*5+ph)*s.amp+Math.sin(u1*13+ph*1.7)*s.amp*0.3;
+                const head = ((u0-(t*s.speed*boost))%1+1)%1;
+                const bright = Math.pow(1-Math.abs(((head+0.5)%1)-0.5)*2, 3);
+                ctx.strokeStyle = `hsla(${s.hue},90%,${55+bright*30}%,${Math.min(0.65,(0.04+bright*0.18)*glow)})`;
+                ctx.beginPath(); ctx.moveTo(u0*W,y0); ctx.lineTo(u1*W,y1); ctx.stroke();
+            }
+        }
+        // Multi-hued shockwave rings, sweeping outward from the avatar.
+        if (rings.length) {
+            const cx = W / 2, cy = Math.min(H * 0.26, 260);
+            const maxR = Math.hypot(W, H) * 0.78;
+            let alive = false;
+            for (const ring of rings) {
+                if (ring.delay > 0) { ring.delay -= dt; alive = true; continue; }
+                // Ease-out expansion: fast burst, gentle finish — reads as an impact.
+                ring.r += dt * maxR * (1.5 - Math.min(1, ring.r / maxR)) * 0.85;
+                const a = Math.max(0, 0.55 * (1 - ring.r / maxR));
+                if (a > 0.01) {
+                    alive = true;
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeStyle = `hsla(${ring.hue}, 95%, 72%, ${a})`;
+                    ctx.beginPath(); ctx.arc(cx, cy, ring.r, 0, TAU); ctx.stroke();
+                    ctx.lineWidth = 7;
+                    ctx.strokeStyle = `hsla(${ring.hue}, 95%, 70%, ${a * 0.28})`;
+                    ctx.beginPath(); ctx.arc(cx, cy, ring.r, 0, TAU); ctx.stroke();
+                }
+            }
+            if (!alive) rings = [];
+        }
+        // Neural sparks — bright particles flung outward, fading + slowing.
+        if (sparks.length) {
+            sparks = sparks.filter(sp => sp.age < sp.life);
+            for (const sp of sparks) {
+                sp.age += dt;
+                sp.x += sp.vx * dt; sp.y += sp.vy * dt;
+                sp.vx *= (1 - dt * 1.1); sp.vy *= (1 - dt * 1.1);
+                const a = Math.max(0, 1 - sp.age / sp.life);
+                ctx.fillStyle = `hsla(${sp.hue}, 95%, 75%, ${a})`;
+                ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.sz * a, 0, TAU); ctx.fill();
+            }
+        }
+        // Initial "power-on" flash — a soft radial pop centred on the avatar.
+        if (flash > 0.01) {
+            const cx = W / 2, cy = Math.min(H * 0.26, 260);
+            const fr = Math.hypot(W, H) * (0.15 + 0.5 * (1 - flash));
+            const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, fr);
+            g.addColorStop(0, `hsla(200, 100%, 85%, ${flash * 0.4})`);
+            g.addColorStop(1, 'hsla(200, 100%, 85%, 0)');
+            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, fr, 0, TAU); ctx.fill();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        requestAnimationFrame(frame);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+    requestAnimationFrame(frame);
+})();
+
+function setStatus(state) {
+    const map = {
+        idle:      { cls: 'idle',      label: 'idle' },
+        listening: { cls: 'listening', label: 'listening…' },
+        thinking:  { cls: 'thinking',  label: 'thinking…' },
+        speaking:  { cls: 'speaking',  label: 'speaking…' },
+        error:     { cls: '',          label: 'error' },
+    };
+    const s = map[state] || map.idle;
+    statusBar.className = s.cls;
+    statusBar.querySelector('.label').textContent = s.label;
+    // Galaxy mirrors the status (error falls back to a calm idle swirl).
+    avatarState = (state === 'error') ? 'idle' : state;
+}
+
+// ── PA-37: waveform ───────────────────────────────────────
+let audioCtx = null;
+let analyser = null;
+let rafId    = null;
+
+function initAnalyser(stream) {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+}
+
+function drawWaveform() {
+    const W = canvas.width  = wrapEl.clientWidth;
+    const H = canvas.height = wrapEl.clientHeight;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteTimeDomainData(data);
+    ctx2d.clearRect(0, 0, W, H);
+    ctx2d.lineWidth   = 2;
+    ctx2d.strokeStyle = getComputedStyle(document.documentElement)
+                            .getPropertyValue('--accent-hot').trim();
+    ctx2d.beginPath();
+    const step = W / data.length;
+    let x = 0;
+    for (let i = 0; i < data.length; i++) {
+        const y = (data[i] / 128.0) * (H / 2);
+        i === 0 ? ctx2d.moveTo(x, y) : ctx2d.lineTo(x, y);
+        x += step;
+    }
+    ctx2d.stroke();
+    rafId = requestAnimationFrame(drawWaveform);
+}
+
+function startWaveform() {
+    wrapEl.classList.add('active');
+    if (analyser) rafId = requestAnimationFrame(drawWaveform);
+}
+
+function stopWaveform() {
+    wrapEl.classList.remove('active');
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+    ctx2d.clearRect(0, 0, canvas.width, canvas.height);
+}
+
+// ── PA-38: conversation log ───────────────────────────────
+function nowStr() {
+    return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function addTurn(role, content) {
+    document.getElementById('empty-hint')?.remove();
     const div = document.createElement('div');
     div.className = 'turn ' + role;
-    div.innerHTML = `<div class="role">${role}</div><div class="content"></div>`;
-    div.querySelector('.content').textContent = content;
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;
+    div.innerHTML =
+        `<div class="turn-meta">` +
+            `<span class="role">${role}</span>` +
+            `<span class="ts">${nowStr()}</span>` +
+        `</div>` +
+        `<div class="content"></div>`;
+    const contentEl = div.querySelector('.content');
+    contentEl.textContent = content;
+    renderMath(contentEl);
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
 }
 
-async function initMic() {
+// Render LaTeX math ($...$, $$...$$, \(...\), \[...\]) via KaTeX if it loaded.
+function renderMath(el) {
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-        mediaRecorder.ondataavailable = e => {
-            if (e.data.size > 0) chunks.push(e.data);
-        };
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(el, {
+                delimiters: [
+                    { left: '$$', right: '$$', display: true },
+                    { left: '\\[', right: '\\]', display: true },
+                    { left: '$', right: '$', display: false },
+                    { left: '\\(', right: '\\)', display: false },
+                ],
+                throwOnError: false,
+            });
+        }
+    } catch (e) { /* offline / not loaded → leave raw text */ }
+}
+
+// Render an annotated camera frame (e.g. "find my X" with a box drawn on it).
+function addImageTurn(b64) {
+    document.getElementById('empty-hint')?.remove();
+    const div = document.createElement('div');
+    div.className = 'turn assistant';
+    div.innerHTML =
+        `<div class="turn-meta">` +
+            `<span class="role">assistant</span>` +
+            `<span class="ts">${nowStr()}</span>` +
+        `</div>`;
+    const img = document.createElement('img');
+    img.className = 'turn-image';
+    img.src = 'data:image/jpeg;base64,' + b64;
+    img.alt = 'annotated camera view';
+    div.appendChild(img);
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+clearBtn.addEventListener('click', () => {
+    logEl.innerHTML = '<div class="empty-hint" id="empty-hint">Say something to start…</div>';
+});
+
+// ── mic + recording ───────────────────────────────────────
+async function initMic() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const isLocalhost = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+        const msg = isLocalhost
+            ? 'Microphone API unavailable. Try a different browser.'
+            : `Microphone requires a secure context.\nOpen via http://localhost:8000 on this PC,\nor use HTTPS for remote access.`;
+        setStatus('error');
+        addTurn('error', msg);
+        return false;
+    }
+    try {
+        micStream     = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(micStream, { mimeType: 'audio/webm' });
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
         mediaRecorder.onstop = async () => {
             const blob = new Blob(chunks, { type: 'audio/webm' });
             chunks = [];
             await sendAudio(blob);
         };
-        setStatus('ok', 'ready');
+        initAnalyser(micStream);
+        setStatus('idle');
         return true;
     } catch (err) {
-        setStatus('', 'mic permission denied');
+        setStatus('error');
         addTurn('error', 'Microphone access denied: ' + err.message);
         return false;
     }
 }
 
+// Lip-sync: route playback audio through a Web Audio analyser and drive the
+// avatar mouth's vertical scale from the live amplitude. Falls back silently
+// to plain playback if Web Audio isn't available.
+let speakRaf = null;
+
+function startLipSync(audioEl) {
+    try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const src = audioCtx.createMediaElementSource(audioEl);
+        const lipAnalyser = audioCtx.createAnalyser();
+        lipAnalyser.fftSize = 256;
+        src.connect(lipAnalyser);
+        lipAnalyser.connect(audioCtx.destination);
+        const buf = new Uint8Array(lipAnalyser.frequencyBinCount);
+        const tick = () => {
+            lipAnalyser.getByteFrequencyData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) sum += buf[i];
+            const level = sum / buf.length / 255;           // 0..1 average energy
+            avatarLevel = Math.min(1, level * 5);           // drives the galaxy pulse
+            speakRaf = requestAnimationFrame(tick);
+        };
+        tick();
+    } catch (e) {
+        // createMediaElementSource can throw if the element was already routed;
+        // just skip lip-sync, audio still plays via the element itself.
+        console.debug('[lipsync] disabled:', e.message);
+    }
+}
+
+function stopLipSync() {
+    if (speakRaf) { cancelAnimationFrame(speakRaf); speakRaf = null; }
+    avatarLevel = 0;
+}
+
 function playBase64Audio(b64) {
     return new Promise((resolve) => {
         if (!b64) { resolve(); return; }
+        const finish = () => { stopLipSync(); resolve(); };
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
-            audio.onended = () => resolve();
-            audio.onerror = (e) => {
-                console.error('Audio playback failed', e);
+            audio.crossOrigin = 'anonymous';
+            audio.onended = finish;
+            audio.onerror = () => {
                 addTurn('error', 'Audio playback failed (browser blocked autoplay?)');
-                resolve();
+                finish();
             };
-            audio.play().catch(e => {
-                console.error('audio.play() rejected:', e);
-                addTurn('error', 'Audio autoplay blocked. Click the page once, then retry.');
-                resolve();
+            audio.play().then(() => startLipSync(audio)).catch(() => {
+                addTurn('error', 'Audio autoplay blocked — tap the page once, then retry.');
+                finish();
             });
-        } catch (e) {
-            console.error(e);
-            resolve();
-        }
+        } catch (e) { console.error(e); finish(); }
     });
 }
 
 async function sendAudio(blob) {
-    if (isBusy) { console.warn('Still busy; dropping extra recording'); return; }
+    if (isBusy) return;
     isBusy = true;
-    setStatus('processing', 'transcribing + thinking…');
+    setStatus('thinking');
     const form = new FormData();
     form.append('audio', blob, 'speech.webm');
     form.append('session_id', SESSION_ID);
     try {
-        const r = await fetch('/voice/chat', { method: 'POST', body: form });
+        const r    = await fetch('/voice/chat', { method: 'POST', body: form });
         const data = await r.json();
         if (data.transcript) addTurn('user', data.transcript);
-        if (data.reply) addTurn('assistant', data.reply);
+        if (data.reply)      addTurn('assistant', data.reply);
+        if (data.image_b64)  addImageTurn(data.image_b64);
         if (data.error && !data.transcript) addTurn('error', data.error);
-
         if (data.audio_b64) {
-            setStatus('speaking', 'speaking…');
+            setStatus('speaking');
             await playBase64Audio(data.audio_b64);
         }
-
-        setStatus('ok', 'ready');
+        setStatus('idle');
     } catch (err) {
-        console.error(err);
-        setStatus('', 'error');
+        setStatus('error');
         addTurn('error', 'Request failed: ' + err.message);
     } finally {
         isBusy = false;
@@ -230,8 +1130,9 @@ function startRecording() {
     if (mediaRecorder.state === 'recording') return;
     isRecording = true;
     btn.classList.add('recording');
-    btn.textContent = 'Listening…';
-    setStatus('recording', 'recording');
+    btn.textContent = isTouchPrimary ? 'Tap to stop' : 'Listening…';
+    setStatus('listening');
+    startWaveform();
     chunks = [];
     mediaRecorder.start();
 }
@@ -240,32 +1141,555 @@ function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     isRecording = false;
     btn.classList.remove('recording');
-    btn.textContent = 'Hold to talk';
+    btn.textContent = isTouchPrimary ? 'Tap to talk' : 'Hold to talk';
+    stopWaveform();
     if (mediaRecorder.state === 'recording') mediaRecorder.stop();
 }
 
-// Button press & hold
-btn.addEventListener('mousedown', startRecording);
-btn.addEventListener('mouseup', stopRecording);
-btn.addEventListener('mouseleave', stopRecording);
-btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
-btn.addEventListener('touchend', e => { e.preventDefault(); stopRecording(); });
+// ── PA-70: input handling — hold on desktop, tap-toggle on touch ───
+if (isTouchPrimary) {
+    // Tap to start, tap again to stop (pure voice, no hold required)
+    btn.addEventListener('click', () => {
+        if (isRecording) stopRecording();
+        else startRecording();
+    });
+} else {
+    // Desktop: hold-to-talk
+    btn.addEventListener('mousedown',  startRecording);
+    btn.addEventListener('mouseup',    stopRecording);
+    btn.addEventListener('mouseleave', stopRecording);
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+    btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording(); });
+}
 
-// SPACE bar press & hold
+// Keyboard SPACE (desktop)
 window.addEventListener('keydown', e => {
     if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT') {
-        e.preventDefault();
-        startRecording();
+        e.preventDefault(); startRecording();
     }
 });
 window.addEventListener('keyup', e => {
-    if (e.code === 'Space') {
-        e.preventDefault();
-        stopRecording();
-    }
+    if (e.code === 'Space') { e.preventDefault(); stopRecording(); }
 });
 
 initMic();
+
+// ── PA-34: wake word WebSocket ────────────────────────────
+const WAKE_AUTO_STOP_MS = 6000;
+let wakeStopTimer = null;
+
+// "Waking up" moment: the neural sphere surges and the whole background fires
+// a shockwave + accelerates for ~2.5 s. Triggered by the wake word ("hey
+// plasma") or a double-clap (CLAP_WAKE_ENABLED=true).
+let _wakePump = null;
+function wakeBurst() {
+    if (window.bgWakeBurst) window.bgWakeBurst();
+    if (window.avatarWakeBurst) window.avatarWakeBurst();
+    if (_wakePump) clearInterval(_wakePump);
+    let n = 0;
+    _wakePump = setInterval(() => {
+        // Feed the avatar's live-energy level; it decays naturally, so this
+        // keeps the sphere surging for ~2 s then lets it settle.
+        avatarLevel = Math.max(avatarLevel, 0.95 * (1 - n / 20));
+        if (++n >= 20) { clearInterval(_wakePump); _wakePump = null; }
+    }, 100);
+}
+
+function connectWakeSocket() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/wake`);
+
+    ws.onopen = () => console.log('[wake] WebSocket connected');
+
+
+    ws.onmessage = (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'wake') {
+                console.log(`[wake] ${msg.source || 'wake_word'} detected (score=${msg.score?.toFixed(2)})`);
+                wakeBurst();   // whole-background "waking up" surge (word OR clap)
+                if (!isRecording && !isBusy) {
+                    startRecording();
+                    clearTimeout(wakeStopTimer);
+                    wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
+                }
+            }
+        } catch (e) { console.warn('[wake] bad message', ev.data); }
+    };
+
+    ws.onclose = () => {
+        console.log('[wake] WebSocket closed — reconnecting in 3s');
+        setTimeout(connectWakeSocket, 3000);
+    };
+
+    ws.onerror = e => console.warn('[wake] WebSocket error', e);
+}
+
+connectWakeSocket();
+
+// ── Proactive alerts (/ws/alerts → spoken + toast) ────────────
+const alertToast = document.getElementById('alert-toast');
+let alertToastTimer = null;
+
+function showAlertToast(text) {
+    alertToast.textContent = text;
+    alertToast.classList.add('show');
+    clearTimeout(alertToastTimer);
+    alertToastTimer = setTimeout(() => alertToast.classList.remove('show'), 5000);
+}
+
+function connectAlertSocket() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${proto}://${location.host}/ws/alerts`);
+    ws.onmessage = async (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'alert') {
+                if (msg.text) showAlertToast(msg.text);
+                if (msg.audio_b64 && !isBusy && !isRecording) {
+                    // Proactive speech: light up the galaxy, then settle back.
+                    avatarState = 'speaking';
+                    await playBase64Audio(msg.audio_b64);
+                    avatarState = 'idle';
+                }
+            }
+        } catch (e) { console.warn('[alerts] bad message', ev.data); }
+    };
+    ws.onclose = () => setTimeout(connectAlertSocket, 3000);
+    ws.onerror = e => console.warn('[alerts] WS error', e);
+}
+connectAlertSocket();
+
+// Show the LAN URL to open the camera page on a phone (over HTTPS).
+(function showPhoneUrl() {
+    const link = document.getElementById('phone-cam-link');
+    if (!link) return;
+    fetch('/api/network-info').then(r => r.json()).then(info => {
+        const url = (info.phone_urls && info.phone_urls[0]) || '';
+        if (url) {
+            link.title = `On your phone (same Wi-Fi) open: ${url}\n` +
+                `First run "python serve_phone.py" on this PC for HTTPS.`;
+        }
+    }).catch(() => {});
+})();
+
+// ── Vision: browser-driven face/hand perception ───────────────
+// The button owns the camera (works on PC and phone). Frames stream to the
+// server at a low FPS; perception runs server-side. Toggling off stops the
+// camera and the socket, so there's zero cost when not watching.
+const visionBtn     = document.getElementById('vision-btn');
+const visionStatus  = document.getElementById('vision-status');
+const visionVideo   = document.getElementById('vision-video');
+const visionStage   = document.getElementById('vision-stage');
+const visionOverlay = document.getElementById('vision-overlay');
+const trackToggle   = document.getElementById('track-toggle');
+const trackCheck    = document.getElementById('track-check');
+let visionOn = false;
+let visionStream = null;
+let visionWS = null;
+let visionTimer = null;
+let visionCanvas = null;
+const VISION_FPS = 6;
+
+// Persistent colour per track id so a tracked object keeps its box colour.
+const trackColors = {};
+function colorFor(id) {
+    if (!trackColors[id]) {
+        const hue = (id * 67) % 360;          // spread ids around the wheel
+        trackColors[id] = `hsl(${hue}, 90%, 60%)`;
+    }
+    return trackColors[id];
+}
+
+// ── Smooth, no-blink box rendering ────────────────────────────────────────
+// The server sends tracks at ~5 fps (and coasts over missed frames). The client
+// keeps a *target* box per id and glides the *displayed* box toward it every
+// animation frame (~60 fps), so boxes follow moving objects smoothly instead of
+// jumping or blinking. Targets expire after a short grace period when an object
+// truly leaves.
+let trackTargets = {};      // id → {box:[x,y,w,h], label, direction, ts}
+let trackDisplay = {};      // id → {box:[x,y,w,h]} (interpolated)
+let trackFrameW = 0, trackFrameH = 0;
+let trackRaf = null;
+const TRACK_EXPIRE_MS = 700; // hide a box this long after its last update
+const ARROWS = { left:'←', right:'→', up:'↑', down:'↓' };
+
+function updateTrackTargets(objects, fw, fh) {
+    trackFrameW = fw || trackFrameW;
+    trackFrameH = fh || trackFrameH;
+    const now = performance.now();
+    for (const o of (objects || [])) {
+        trackTargets[o.id] = {
+            box: o.box.slice(), label: o.label, direction: o.direction, ts: now,
+        };
+    }
+    if (!trackRaf) trackRaf = requestAnimationFrame(boxFrame);
+}
+
+function drawOneBox(ctx, id, box, label, direction, sx, sy) {
+    const [x, y, w, h] = box;
+    const c = colorFor(id);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = c;
+    ctx.shadowColor = c; ctx.shadowBlur = 8;
+    ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+    ctx.shadowBlur = 0;
+    // The overlay is CSS-mirrored, so flip text back to read correctly.
+    const arrow = direction ? (ARROWS[direction] || '') : '';
+    const text = `${label} #${id} ${arrow}`.trim();
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.font = '600 13px -apple-system, Segoe UI, sans-serif';
+    ctx.textBaseline = 'bottom';
+    const tx = -(x * sx + w * sx);
+    const ty = Math.max(13, y * sy - 3);
+    ctx.fillStyle = c;
+    const tw = ctx.measureText(text).width + 8;
+    ctx.fillRect(tx, ty - 15, tw, 16);
+    ctx.fillStyle = '#000';
+    ctx.fillText(text, tx + 4, ty);
+    ctx.restore();
+}
+
+function boxFrame() {
+    const ctx = visionOverlay.getContext('2d');
+    const dw = visionVideo.clientWidth, dh = visionVideo.clientHeight;
+    if (visionOverlay.width !== dw || visionOverlay.height !== dh) {
+        visionOverlay.width = dw; visionOverlay.height = dh;
+    }
+    ctx.clearRect(0, 0, dw, dh);
+    const now = performance.now();
+    const sx = dw / (trackFrameW || dw), sy = dh / (trackFrameH || dh);
+    for (const id of Object.keys(trackTargets)) {
+        const tgt = trackTargets[id];
+        if (now - tgt.ts > TRACK_EXPIRE_MS) {        // object gone → drop it
+            delete trackTargets[id]; delete trackDisplay[id];
+            continue;
+        }
+        let disp = trackDisplay[id];
+        if (!disp) { disp = { box: tgt.box.slice() }; trackDisplay[id] = disp; }
+        for (let i = 0; i < 4; i++) disp.box[i] += (tgt.box[i] - disp.box[i]) * 0.3;
+        drawOneBox(ctx, id, disp.box, tgt.label, tgt.direction, sx, sy);
+    }
+    if (visionOn && trackCheck.checked) {
+        trackRaf = requestAnimationFrame(boxFrame);
+    } else {
+        trackRaf = null;
+        ctx.clearRect(0, 0, dw, dh);
+    }
+}
+
+function clearBoxes() {
+    trackTargets = {}; trackDisplay = {};
+    if (trackRaf) { cancelAnimationFrame(trackRaf); trackRaf = null; }
+    const ctx = visionOverlay.getContext('2d');
+    ctx.clearRect(0, 0, visionOverlay.width, visionOverlay.height);
+}
+
+async function startVision() {
+    try {
+        visionStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    } catch (e) {
+        visionStatus.textContent = 'camera blocked';
+        console.warn('[vision] getUserMedia failed', e);
+        return;
+    }
+    visionVideo.srcObject = visionStream;
+    visionStage.classList.add('live');
+    trackToggle.classList.add('show');
+    visionCanvas = document.createElement('canvas');
+
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    visionWS = new WebSocket(`${proto}://${location.host}/ws/perception-input`);
+
+    visionWS.onopen = () => {
+        visionStatus.textContent = 'watching…';
+        visionTimer = setInterval(sendVisionFrame, Math.round(1000 / VISION_FPS));
+    };
+    visionWS.onmessage = (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'perception') {
+                const who = msg.identity ? `${msg.identity}: ` : '';
+                let line = who + (msg.summary || '…');
+                if (trackCheck.checked && msg.objects && msg.objects.length) {
+                    const names = msg.objects.map(o => `${o.label} #${o.id}`).join(', ');
+                    line += ` · 🎯 ${names}`;
+                }
+                visionStatus.textContent = line;
+                if (trackCheck.checked) updateTrackTargets(msg.objects, msg.frame_w, msg.frame_h);
+            } else if (msg.type === 'error') {
+                visionStatus.textContent = '⚠ ' + msg.message;
+            }
+        } catch (e) { /* ignore */ }
+    };
+    visionWS.onclose = () => { if (visionOn) visionStatus.textContent = 'reconnecting…'; };
+    visionWS.onerror = e => console.warn('[vision] WS error', e);
+}
+
+function sendVisionFrame() {
+    if (!visionWS || visionWS.readyState !== WebSocket.OPEN) return;
+    if (!visionVideo.videoWidth) return;
+    visionCanvas.width = visionVideo.videoWidth;
+    visionCanvas.height = visionVideo.videoHeight;
+    visionCanvas.getContext('2d').drawImage(visionVideo, 0, 0);
+    const b64 = visionCanvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    visionWS.send(JSON.stringify({
+        frame: b64, language: 'en', identify: true, track: trackCheck.checked,
+    }));
+}
+
+function stopVision() {
+    clearInterval(visionTimer); visionTimer = null;
+    if (visionWS) { try { visionWS.close(); } catch (e) {} visionWS = null; }
+    if (visionStream) { visionStream.getTracks().forEach(t => t.stop()); visionStream = null; }
+    visionVideo.srcObject = null;
+    visionStage.classList.remove('live');
+    trackToggle.classList.remove('show');
+    clearBoxes();
+    visionStatus.textContent = 'vision off';
+}
+
+// Clear boxes immediately when tracking is switched off mid-stream.
+trackCheck.addEventListener('change', () => {
+    if (!trackCheck.checked) clearBoxes();
+});
+
+visionBtn.addEventListener('click', () => {
+    visionOn = !visionOn;
+    visionBtn.classList.toggle('active', visionOn);
+    visionBtn.textContent = visionOn ? '👁 Stop watching' : '👁 Watch me';
+    if (visionOn) startVision(); else stopVision();
+});
+
+// ── WiFi see-through view (RuView) ────────────────────────────
+// Professional live renderer: the server is polled at 2 Hz, but people are
+// TRACKED client-side (stable ids via nearest-neighbour matching) and drawn at
+// 60 fps with interpolation, motion trails, a soft presence glow, and a chest
+// that visibly BREATHES at the sensed breathing rate. Vitals (breathing/heart)
+// are shown next to each person when RuView provides them.
+const stBtn    = document.getElementById('seethrough-btn');
+const stStatus = document.getElementById('seethrough-status');
+const stCanvas = document.getElementById('seethrough-canvas');
+let stOn = false, stTimer = null, stRaf = null;
+let stFloorLevel = 0;
+let stScene = null;                 // latest raw scene (floorplan, counts)
+const stTracks = new Map();         // id → track {pos,tgt,kp,kpTgt,trail,vitals…}
+let stNextId = 1;
+const COCO_EDGES = [[0,1],[0,2],[1,3],[2,4],[5,6],[5,7],[7,9],[6,8],[8,10],
+                    [5,11],[6,12],[11,12],[11,13],[13,15],[12,14],[14,16]];
+
+async function stPoll() {
+    if (document.hidden) return;    // save CPU when the tab is in background
+    let scene;
+    try {
+        const r = await fetch('/api/wifi/scene', { cache: 'no-store' });
+        scene = await r.json();
+    } catch (e) { stStatus.textContent = 'WiFi sensor unreachable'; return; }
+    if (!scene.ok) {
+        stStatus.textContent = scene.error === 'disabled'
+            ? 'RuView off — set RUVIEW_ENABLED=true (needs an ESP32-S3 or the demo bridge)'
+            : 'Can\u2019t reach RuView. Is it running?';
+        stScene = scene; stTracks.clear();
+        return;
+    }
+    stScene = scene;
+    stIngest(scene);
+    const n = scene.count || 0;
+    const withVitals = (scene.people || []).find(p => p.breathing_bpm || p.heart_bpm);
+    let line = n ? `${n} ${n === 1 ? 'person' : 'people'}${scene.has_pose ? ' \u00b7 pose' : ''}` : 'no one detected';
+    if (withVitals) {
+        if (withVitals.breathing_bpm) line += ` \u00b7 \ud83e\udee7 ${withVitals.breathing_bpm}`;
+        if (withVitals.heart_bpm)     line += ` \u00b7 \u2764 ${Math.round(withVitals.heart_bpm)}`;
+    }
+    stStatus.textContent = line;
+}
+
+// Match incoming people to existing tracks (nearest neighbour on the same
+// floor) so each person keeps a stable identity between polls.
+function stIngest(scene) {
+    const now = performance.now();
+    const unmatched = new Set(stTracks.keys());
+    for (const p of (scene.people || [])) {
+        const pos = p.pos || (p.x != null ? [p.x, p.y] : null);
+        if (!pos) continue;
+        const lvl = (p.level != null) ? p.level : 0;
+        let best = null, bestD = 0.28;
+        for (const id of unmatched) {
+            const tr = stTracks.get(id);
+            if (tr.level !== lvl) continue;
+            const d = Math.hypot(tr.tgt[0] - pos[0], tr.tgt[1] - pos[1]);
+            if (d < bestD) { best = id; bestD = d; }
+        }
+        let tr;
+        if (best != null) { tr = stTracks.get(best); unmatched.delete(best); }
+        else {
+            tr = { id: stNextId++, pos: [...pos], trail: [], kp: null,
+                   born: now, hue: 130 + ((stNextId * 47) % 60) - 30 };
+            stTracks.set(tr.id, tr);
+        }
+        tr.tgt = pos;
+        tr.level = lvl;
+        tr.room = p.room || '';
+        tr.br = p.breathing_bpm || null;
+        tr.hr = p.heart_bpm || null;
+        tr.kpTgt = (p.keypoints && p.keypoints.length) ? p.keypoints : null;
+        if (!tr.kp && tr.kpTgt) tr.kp = tr.kpTgt.map(k => [...k]);
+        tr.lastSeen = now;
+    }
+    for (const id of unmatched) {
+        if (now - stTracks.get(id).lastSeen > 2500) stTracks.delete(id);
+    }
+}
+
+function _stGrid(ctx, W, H) {
+    ctx.strokeStyle = 'rgba(111,212,138,0.08)'; ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+}
+
+function _stRooms(ctx, W, H, floor) {
+    ctx.lineWidth = 1.5;
+    for (const r of (floor.rooms || [])) {
+        const x = r.x * W, y = r.y * H, w = r.w * W, h = r.h * H;
+        ctx.strokeStyle = 'rgba(111,212,138,0.40)';
+        ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.fillStyle = 'rgba(111,212,138,0.5)'; ctx.font = '10px sans-serif';
+        ctx.fillText(r.name, x + 5, y + 13);
+    }
+}
+
+// A softly-breathing mini skeleton: the torso expands/contracts at the sensed
+// breathing rate, joints glow with a bright core.
+function _stSkeleton(ctx, kp, cx, cy, h, breathScale, hue) {
+    const xs = kp.map(k => k[0]), ys = kp.map(k => k[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const sy = h / ((maxY - minY) || 1);
+    // Chest (shoulders 5,6 + hips 11,12) breathes; extremities stay anchored.
+    const chest = new Set([5, 6, 11, 12, 0, 1, 2, 3, 4]);
+    const midX = (minX + maxX) / 2;
+    const P = kp.map((k, i) => {
+        const bs = chest.has(i) ? breathScale : 1;
+        return [cx + (k[0] - midX) * sy * bs, cy + (k[1] - maxY) * sy];
+    });
+    const col = `hsl(${hue}, 80%, 62%)`;
+    ctx.strokeStyle = col; ctx.lineWidth = 2.4; ctx.lineCap = 'round';
+    ctx.shadowColor = col; ctx.shadowBlur = 12;
+    for (const [a, b] of COCO_EDGES) if (P[a] && P[b]) {
+        ctx.beginPath(); ctx.moveTo(...P[a]); ctx.lineTo(...P[b]); ctx.stroke();
+    }
+    for (const p of P) {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(p[0], p[1], 2.4, 0, 7); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 1.0, 0, 7); ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+}
+
+function stFrame(now) {
+    if (!stOn) { stRaf = null; return; }
+    const ctx = stCanvas.getContext('2d');
+    const W = stCanvas.width, H = stCanvas.height;
+    ctx.clearRect(0, 0, W, H);
+    _stGrid(ctx, W, H);
+
+    const floors = stScene && stScene.floorplan && stScene.floorplan.floors || [];
+    const floor = floors.find(f => f.level === stFloorLevel) || floors[0];
+    if (floor) _stRooms(ctx, W, H, floor);
+    const t = now / 1000;
+
+    for (const tr of stTracks.values()) {
+        // Glide toward the latest target — fluid motion despite the 2 Hz poll.
+        tr.pos[0] += (tr.tgt[0] - tr.pos[0]) * 0.09;
+        tr.pos[1] += (tr.tgt[1] - tr.pos[1]) * 0.09;
+        if (tr.kp && tr.kpTgt) {
+            const n = Math.min(tr.kp.length, tr.kpTgt.length);
+            for (let i = 0; i < n; i++) {
+                tr.kp[i][0] += (tr.kpTgt[i][0] - tr.kp[i][0]) * 0.12;
+                tr.kp[i][1] += (tr.kpTgt[i][1] - tr.kp[i][1]) * 0.12;
+            }
+        }
+        if (floor && tr.level !== floor.level) continue;
+
+        const cx = tr.pos[0] * W, cy = tr.pos[1] * H;
+        // Motion trail (fading footsteps).
+        const last = tr.trail[tr.trail.length - 1];
+        if (!last || Math.hypot(last[0] - cx, last[1] - cy) > 3) tr.trail.push([cx, cy]);
+        if (tr.trail.length > 26) tr.trail.shift();
+        for (let i = 0; i < tr.trail.length; i++) {
+            const a = (i / tr.trail.length) * 0.20;
+            ctx.fillStyle = `hsla(${tr.hue}, 80%, 60%, ${a})`;
+            ctx.beginPath(); ctx.arc(tr.trail[i][0], tr.trail[i][1], 2.2, 0, 7); ctx.fill();
+        }
+        // Presence glow pool (pulses gently with the heart rate when known).
+        const hrHz = (tr.hr || 66) / 60;
+        const pulse = 1 + 0.10 * Math.max(0, Math.sin(t * hrHz * 2 * Math.PI));
+        const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 22 * pulse);
+        g.addColorStop(0, `hsla(${tr.hue}, 85%, 60%, 0.35)`);
+        g.addColorStop(1, `hsla(${tr.hue}, 85%, 55%, 0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(cx, cy, 22 * pulse, 0, 7); ctx.fill();
+        // Breathing chest expansion at the sensed rate (default ~14 BPM).
+        const brHz = (tr.br || 14) / 60;
+        const breath = 1 + 0.05 * Math.sin(t * brHz * 2 * Math.PI + tr.id);
+        if (tr.kp && tr.kp.length >= 17) _stSkeleton(ctx, tr.kp, cx, cy, 36, breath, tr.hue);
+        else {
+            ctx.fillStyle = `hsl(${tr.hue}, 85%, 62%)`;
+            ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.fill();
+        }
+        // Vitals + room chip.
+        let chip = '';
+        if (tr.br) chip += `\ud83e\udee7${Math.round(tr.br)} `;
+        if (tr.hr) chip += `\u2764${Math.round(tr.hr)}`;
+        ctx.font = '10px sans-serif';
+        if (chip) { ctx.fillStyle = 'rgba(207,238,222,0.95)'; ctx.fillText(chip.trim(), cx + 10, cy - 42); }
+        if (tr.room) { ctx.fillStyle = 'rgba(207,238,222,0.55)'; ctx.fillText(tr.room, cx + 10, cy - 30); }
+    }
+
+    // Count-only fallback: no positions but presence known.
+    if (stTracks.size === 0 && stScene && (stScene.count || 0) > 0) {
+        const n = stScene.count;
+        ctx.fillStyle = 'rgba(138,255,176,0.8)';
+        ctx.shadowColor = '#6fd48a'; ctx.shadowBlur = 12;
+        for (let i = 0; i < n; i++) {
+            const bx = (W / (n + 1)) * (i + 1);
+            const by = H / 2 + 6 * Math.sin(t * 1.4 + i);
+            ctx.beginPath(); ctx.arc(bx, by, 11, 0, 7); ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+
+    // Floor label.
+    if (floor) {
+        ctx.fillStyle = 'rgba(207,238,222,0.9)'; ctx.font = '11px sans-serif';
+        ctx.fillText(floors.length > 1 ? `${floor.name} \u2014 tap to switch floor` : floor.name, 6, H - 8);
+    }
+    stRaf = requestAnimationFrame(stFrame);
+}
+
+// Tap the canvas to cycle floors (multi-storey plans).
+stCanvas.addEventListener('click', () => {
+    const floors = stScene && stScene.floorplan && stScene.floorplan.floors;
+    if (!floors || floors.length < 2) return;
+    const levels = floors.map(f => f.level);
+    stFloorLevel = levels[(levels.indexOf(stFloorLevel) + 1) % levels.length];
+});
+
+stBtn.addEventListener('click', () => {
+    stOn = !stOn;
+    stBtn.classList.toggle('active', stOn);
+    stCanvas.classList.toggle('live', stOn);
+    stBtn.textContent = stOn ? '\ud83e\udee5 Stop see-through' : '\ud83e\udee5 See-through (WiFi)';
+    if (stOn) {
+        stPoll(); stTimer = setInterval(stPoll, 500);
+        if (!stRaf) stRaf = requestAnimationFrame(stFrame);
+    } else {
+        clearInterval(stTimer); stTimer = null;
+        stTracks.clear(); stStatus.textContent = '';
+    }
+});
 </script>
 </body>
 </html>

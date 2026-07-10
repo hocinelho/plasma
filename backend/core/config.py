@@ -7,21 +7,269 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Quiet MediaPipe / TensorFlow-Lite console spam (oneDNN, XNNPACK, and the
+# harmless "Failed to send to clearcut" telemetry errors). Set before those
+# libraries import. Users can override in the environment if debugging.
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+# 3 = FATAL only: silences MediaPipe's C++ ERROR spam (the "clearcut" telemetry
+# lines). Plasma's own errors go through Python logging, so they're unaffected.
+os.environ.setdefault("GLOG_minloglevel", "3")
+os.environ.setdefault("GLOG_logtostderr", "0")
+
+# Use the OS certificate store for TLS so corporate MITM proxies (whose CA is
+# trusted by Windows but absent from certifi's bundle) don't break outbound
+# HTTPS. This is why some hosts (e.g. Wikipedia) hit
+# "CERTIFICATE_VERIFY_FAILED" while others (Google) work. Safe no-op if the
+# package isn't installed — falls back to certifi.
+try:
+    import truststore
+
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
 class Config:
+    # --- Cloud LLM (OpenAI-compatible, provider-agnostic) ---
+    # Default: Google Gemini (free tier, 1500 req/day).
+    # Swap to Cerebras, OpenRouter, or Groq by changing these three vars.
+    CLOUD_API_KEY: str = os.getenv("CLOUD_API_KEY", "")
+    CLOUD_MODEL: str = os.getenv("CLOUD_MODEL", "gemini-2.0-flash")
+    CLOUD_BASE_URL: str = os.getenv(
+        "CLOUD_BASE_URL",
+        "https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
+    # "openai" (default) speaks the OpenAI /chat/completions wire protocol that
+    # Gemini/Cerebras/OpenRouter/Groq all share. "anthropic" switches cloud_client
+    # to Claude's native Messages API (PA-32) — different endpoint/auth/response
+    # shape, so it can't be reached by just pointing CLOUD_BASE_URL at Anthropic.
+    CLOUD_PROVIDER: str = os.getenv("CLOUD_PROVIDER", "openai").strip().lower()
+    # Keep CHAT on the local Ollama model even when a cloud key is set, so the
+    # cloud free-tier quota is reserved for vision (describe/find) and doesn't
+    # hit per-minute 429 rate limits. Vision still uses the cloud when configured.
+    CLOUD_CHAT_ENABLED: bool = os.getenv("CLOUD_CHAT_ENABLED", "true").lower() == "true"
+    # Stream only the first sentence of a reply (faster TTS start) vs. the full
+    # answer. Default OFF: the first-sentence cutoff truncated real answers when
+    # the model opened with a greeting, so full answers are the safe default.
+    CHAT_FIRST_SENTENCE_ONLY: bool = os.getenv("CHAT_FIRST_SENTENCE_ONLY", "false").lower() == "true"
+
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "orca-mini:latest")
 
+    # --- Local ASR (Whisper) ---
+    # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)
+    # For German: use 'small' (multilingual, not small.en)
+    WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "small.en")
+    # ASR decoding beam. 1 (greedy) is ~2x faster than 5 with tiny accuracy loss
+    # on short commands — the default for snappy responses. Raise for dictation.
+    WHISPER_BEAM_SIZE: int = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
+    # "auto" = detect language per utterance | "en" = English only | "de" = German only
+    WHISPER_LANGUAGE: str = os.getenv("WHISPER_LANGUAGE", "en")
+    # When WHISPER_LANGUAGE=auto, restrict detection to these languages so short,
+    # accented utterances aren't mis-detected (e.g. English heard as Arabic).
+    WHISPER_ALLOWED_LANGS: str = os.getenv("WHISPER_ALLOWED_LANGS", "en,de")
+
+    # --- Wake word (PA-34 / PA-89) ---
+    # Set WAKE_WORD_ENABLED=true in .env to enable hands-free detection.
+    # Requires openwakeword (already in requirements.txt).
+    WAKE_WORD_ENABLED: bool = os.getenv("WAKE_WORD_ENABLED", "false").lower() == "true"
+    # Pre-trained model name (fallback when WAKE_WORD_MODEL_PATH not set)
+    WAKE_WORD_MODEL: str = os.getenv("WAKE_WORD_MODEL", "hey_jarvis")
+    WAKE_WORD_THRESHOLD: float = float(os.getenv("WAKE_WORD_THRESHOLD", "0.5"))
+    # Consecutive 80ms frames that must exceed the threshold before firing.
+    # Higher = fewer false triggers (but a slightly longer wake word needed).
+    # 2-3 is a good range; raise to 3 if you get spurious activations.
+    WAKE_WORD_TRIGGER_FRAMES: int = int(os.getenv("WAKE_WORD_TRIGGER_FRAMES", "2"))
+    # Path to a custom .onnx wake word model trained via scripts/train_hey_plasma.py
+    # When set and file exists, used instead of WAKE_WORD_MODEL.
+    WAKE_WORD_MODEL_PATH: str = os.getenv("WAKE_WORD_MODEL_PATH", "")
+
     # --- Local TTS (Piper) ---
     TTS_VOICE_MODEL: str = os.getenv("TTS_VOICE_MODEL", "")
+    TTS_VOICE_DE: str = os.getenv("TTS_VOICE_DE", "")   # German voice model path
     TTS_ENABLED: bool = os.getenv("TTS_ENABLED", "true").lower() == "true"
+
+    # --- Speaker identification (PA-65, S11) ---
+    # Requires `pip install resemblyzer` (voice embedding model, ~17MB + torch).
+    # Gracefully disabled if the package is missing.
+    SPEAKER_ID_ENABLED: bool = os.getenv("SPEAKER_ID_ENABLED", "true").lower() == "true"
+    # Cosine similarity threshold for a positive match (0.5 loose – 0.9 strict)
+    SPEAKER_THRESHOLD: float = float(os.getenv("SPEAKER_THRESHOLD", "0.70"))
 
     # --- Logging ---
     LOG_LEVEL: str = os.getenv("PLASMA_LOG_LEVEL", "INFO")
+
+    # --- Spotify (PA-74/77) ---
+    SPOTIFY_CLIENT_ID: str = os.getenv("SPOTIFY_CLIENT_ID", "")
+    SPOTIFY_CLIENT_SECRET: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+    SPOTIFY_REDIRECT_URI: str = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:9090")
+
+    # --- Google Calendar + Gmail (alternative to Microsoft Graph) ---
+    # Create a project at console.cloud.google.com, then run: python scripts/google_auth.py
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+
+    # --- Microsoft Graph (Outlook calendar + email + Teams meetings) ---
+    # Register an app at portal.azure.com, then run: python scripts/ms_auth.py
+    MS_CLIENT_ID: str = os.getenv("MS_CLIENT_ID", "")
+    MS_TENANT_ID: str = os.getenv("MS_TENANT_ID", "common")  # "common" = personal + work
+
+    # --- Slack (PA-78, S13) ---
+    SLACK_USER_TOKEN: str = os.getenv("SLACK_USER_TOKEN", "")
+
+    # --- WhatsApp via Twilio (PA-80, S13) ---
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_WHATSAPP_FROM: str = os.getenv("TWILIO_WHATSAPP_FROM", "")
+
+    # --- WiFi sensing via RuView (CSI presence/room detection) ---
+    # RuView senses people through walls from WiFi CSI. Needs its own hardware
+    # (ESP32-S3 ~$9 / RPi+nexmon_csi) OR the no-hardware Docker demo, running its
+    # HTTP API. Plasma is the voice layer: "is anyone home?", "who's in the
+    # living room?". Disabled unless RUVIEW_ENABLED=true.
+    RUVIEW_ENABLED: bool = os.getenv("RUVIEW_ENABLED", "false").lower() == "true"
+    RUVIEW_URL: str = os.getenv("RUVIEW_URL", "http://localhost:3000")
+    RUVIEW_API_KEY: str = os.getenv("RUVIEW_API_KEY", "")
+    # Proactive spoken alerts on presence changes ("someone entered the living
+    # room", "the house is empty now"). Polls RuView in the background.
+    RUVIEW_ALERTS: bool = os.getenv("RUVIEW_ALERTS", "false").lower() == "true"
+    RUVIEW_POLL_S: float = float(os.getenv("RUVIEW_POLL_S", "5.0"))
+    RUVIEW_ALERT_COOLDOWN_S: float = float(os.getenv("RUVIEW_ALERT_COOLDOWN_S", "30.0"))
+
+    # --- Home Assistant smart home integration ---
+    # Run Home Assistant locally (https://www.home-assistant.io/) or on a Pi.
+    # Generate a Long-Lived Access Token: Profile → Long-Lived Access Tokens.
+    HA_BASE_URL: str = os.getenv("HA_BASE_URL", "http://homeassistant.local:8123")
+    HA_TOKEN: str = os.getenv("HA_TOKEN", "")
+    # Default light entity controlled when no room is specified
+    HA_LIGHT_ENTITY: str = os.getenv("HA_LIGHT_ENTITY", "light.all")
+
+    # --- Clap-to-wake (double-clap detection, pure numpy, no ML model) ---
+    CLAP_WAKE_ENABLED: bool = os.getenv("CLAP_WAKE_ENABLED", "false").lower() == "true"
+    # How many times louder than background the clap peak must be (12 = default;
+    # raised from 8 — 8 was tripping on loud talking and clicks near the mic).
+    CLAP_THRESHOLD: float = float(os.getenv("CLAP_THRESHOLD", "12.0"))
+    # Max gap between the two claps in milliseconds
+    CLAP_WINDOW_MS: int = int(os.getenv("CLAP_WINDOW_MS", "600"))
+    # Impulsiveness gate (peak/RMS within one ~80ms chunk). A real clap's energy
+    # is concentrated in a few ms, so this ratio is high; sustained talking fills
+    # the whole chunk, so it's much lower even at the same peak volume. This is
+    # the main fix for "voice keeps triggering the clap detector".
+    CLAP_MIN_CREST: float = float(os.getenv("CLAP_MIN_CREST", "5.0"))
+    # Absolute loudness floor (0-32767) so a very quiet room's low baseline
+    # doesn't make faint sounds (e.g. a soft click) count as "relatively loud".
+    CLAP_MIN_PEAK: int = int(os.getenv("CLAP_MIN_PEAK", "1400"))
+
+    # --- Camera / vision (MediaPipe, Apache 2.0) ---
+    CAMERA_ENABLED: bool = os.getenv("CAMERA_ENABLED", "false").lower() == "true"
+    # OpenCV device index for local webcam (0 = default camera)
+    CAMERA_DEVICE: int = int(os.getenv("CAMERA_DEVICE", "0"))
+    # Minimum confidence score to report a detected object (0.0–1.0)
+    VISION_SCORE_THRESHOLD: float = float(os.getenv("VISION_SCORE_THRESHOLD", "0.5"))
+    # Where to cache the MediaPipe EfficientDet model (~4.4 MB, auto-downloaded)
+    VISION_MODEL_DIR: Path = Path(os.getenv(
+        "VISION_MODEL_DIR",
+        str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
+    ))
+
+    # --- Face + hand perception (MediaPipe FaceLandmarker + HandLandmarker) ---
+    # Real-time face expression (smile / sleepy / wink) and hand gestures
+    # (finger counting, victory, thumbs up). Runs on CPU, browser-driven so it
+    # works on PC and phones. Models (~3.7 MB + ~7.5 MB) auto-download on first use.
+    # Default off at boot — the web UI "Watch me" button turns it on live.
+    PERCEPTION_ENABLED: bool = os.getenv("PERCEPTION_ENABLED", "false").lower() == "true"
+    # Frames per second the browser streams for live tracking (keep low for CPU).
+    PERCEPTION_FPS: float = float(os.getenv("PERCEPTION_FPS", "6"))
+
+    # --- Face identity recognition (DeepFace, MIT, fully local) ---
+    # Optional heavy dep: pip install deepface. Gracefully disabled if missing.
+    FACE_ID_ENABLED: bool = os.getenv("FACE_ID_ENABLED", "true").lower() == "true"
+    # DeepFace backbone: ArcFace (accurate) | Facenet | SFace (light) | VGG-Face
+    FACE_ID_MODEL: str = os.getenv("FACE_ID_MODEL", "ArcFace")
+    # In always-on tracking, run identity at most once per this many seconds.
+    FACE_ID_INTERVAL_S: float = float(os.getenv("FACE_ID_INTERVAL_S", "3.0"))
+
+    # --- Real-time object tracking (MediaPipe EfficientDet + SORT-lite tracker) ---
+    # Detects objects per frame (existing Apache-2.0 detector) and assigns
+    # PERSISTENT track IDs across frames so Plasma can follow things on the live
+    # "Watch me" feed and draw boxes. Pure-Python tracker — no AGPL, no new deps.
+    # Opt-in per stream (the browser sends track:true), so zero cost when off.
+    TRACK_ENABLED: bool = os.getenv("TRACK_ENABLED", "true").lower() == "true"
+    # Detection confidence floor (0..1) — lower = more boxes, more noise.
+    TRACK_CONF: float = float(os.getenv("TRACK_CONF", "0.35"))
+    # Run detection at most this many times/sec in always-on (tracker fills gaps).
+    TRACK_FPS: float = float(os.getenv("TRACK_FPS", "5"))
+    # Drop a track after it's been unseen for this many detection cycles.
+    TRACK_MAX_AGE: int = int(os.getenv("TRACK_MAX_AGE", "8"))
+    # Max objects tracked at once (EfficientDet max_results for the track path).
+    TRACK_MAX_OBJECTS: int = int(os.getenv("TRACK_MAX_OBJECTS", "12"))
+    # Keep drawing a track via velocity prediction for this many missed cycles
+    # before hiding it — stops boxes blinking out when a frame misses.
+    TRACK_COAST_FRAMES: int = int(os.getenv("TRACK_COAST_FRAMES", "3"))
+
+    # Keep the local webcam warm for this many seconds after a "find X" so the
+    # next one is instant (opening a webcam is slow). Released when idle so other
+    # apps can use the camera. Set 0 to always open fresh (slowest, most polite).
+    CAMERA_KEEPALIVE_S: float = float(os.getenv("CAMERA_KEEPALIVE_S", "60"))
+    # Seconds to let the webcam run before the first shot so its auto
+    # white-balance/exposure converge (fixes blue/green colour casts at the
+    # source). Only paid on a cold open; warm re-use is instant.
+    CAMERA_SETTLE_S: float = float(os.getenv("CAMERA_SETTLE_S", "1.2"))
+    # Software gray-world white-balance AFTER capture. Off by default — the camera
+    # settling above is the real fix; gray-world can over-correct (blue→green) on
+    # close-up faces. Turn on only if your camera still casts a colour.
+    CAMERA_AUTO_WHITE_BALANCE: bool = os.getenv("CAMERA_AUTO_WHITE_BALANCE", "false").lower() == "true"
+
+    # --- Personal object memory ("remember this as my keys") ---
+    # Teach Plasma YOUR specific items via MediaPipe ImageEmbedder (Apache 2.0).
+    # Enrolled crops live in .plasma/objects/<name>/. No training, offline.
+    OBJECT_MEMORY_ENABLED: bool = os.getenv("OBJECT_MEMORY_ENABLED", "true").lower() == "true"
+    # Cosine similarity (0..1) a candidate crop must reach to count as "your X".
+    OBJECT_MATCH_THRESHOLD: float = float(os.getenv("OBJECT_MATCH_THRESHOLD", "0.55"))
+
+    # --- LocateAnything open-vocabulary detection — 3-tier backend ---
+    # Tier 1 (fastest, zero install): cloud vision LLM — uses CLOUD_API_KEY above.
+    #   Uses CLOUD_MODEL by default. Override with LOCATE_CLOUD_MODEL to pick a
+    #   vision-capable model without changing your main chat model.
+    #   On OpenRouter, free vision model: google/gemini-2.0-flash-exp:free
+    LOCATE_CLOUD_MODEL: str = os.getenv("LOCATE_CLOUD_MODEL", "")
+    # Tier 2 (offline, fast): Ollama vision model (moondream ~1.9 GB).
+    #   Enable: ollama pull moondream  then set:
+    LOCATE_VISION_OLLAMA_MODEL: str = os.getenv("LOCATE_VISION_OLLAMA_MODEL", "")
+    # If the model above errors (e.g. too big → Ollama 500) or blanks, Plasma
+    # auto-tries these lighter models in order so recognition still answers.
+    # Comma-separated; set blank to disable auto-fallback.
+    LOCATE_VISION_OLLAMA_FALLBACKS: str = os.getenv("LOCATE_VISION_OLLAMA_FALLBACKS", "moondream")
+    # Tier 3 (offline, heavy): locate-anything.cpp CLI (6 GB GGUF, C++ build).
+    #   See external/locate-anything/README.md for build instructions.
+    LOCATE_ANYTHING_BIN: str = os.getenv("LOCATE_ANYTHING_BIN", "")
+    LOCATE_ANYTHING_MODEL: str = os.getenv("LOCATE_ANYTHING_MODEL", "")
+    # hybrid (default) | slow | fast
+    LOCATE_ANYTHING_MODE: str = os.getenv("LOCATE_ANYTHING_MODE", "hybrid")
+    # CPU threads for the CLI. 0 = let the binary decide. On a many-core machine
+    # set this to (cores - 2) so inference is fast but the PC stays responsive.
+    LOCATE_ANYTHING_THREADS: int = int(os.getenv("LOCATE_ANYTHING_THREADS", "0"))
+    # Seconds to allow the (slow, CPU) inference before giving up
+    LOCATE_ANYTHING_TIMEOUT: float = float(os.getenv("LOCATE_ANYTHING_TIMEOUT", "60"))
+    # Remote server URL — if set, the CLI subprocess is skipped entirely and the
+    # image is POSTed to this server. Takes priority over local BIN/MODEL.
+    LOCATE_ANYTHING_SERVER_URL: str = os.getenv("LOCATE_ANYTHING_SERVER_URL", "")
+
+    # --- Image generation via Muapi.ai (Open-Generative-AI backend) ---
+    # Get a key at https://muapi.ai. "generate an image of X" → image URL.
+    MUAPI_API_KEY: str = os.getenv("MUAPI_API_KEY", "")
+    MUAPI_BASE_URL: str = os.getenv("MUAPI_BASE_URL", "https://api.muapi.ai")
+    # Model endpoint slug (POST /api/v1/<endpoint>). Default: a fast Flux model.
+    # NOTE: MUAPI text-to-image slugs end in "-image" (e.g. flux-schnell-image,
+    # flux-dev-image). A bare "flux-schnell" returns 404.
+    MUAPI_IMAGE_MODEL: str = os.getenv("MUAPI_IMAGE_MODEL", "flux-schnell-image")
+    # Max seconds to poll for the generated image before giving up
+    MUAPI_TIMEOUT: float = float(os.getenv("MUAPI_TIMEOUT", "120"))
 
     # --- Paths ---
     PLASMA_DIR: Path = PROJECT_ROOT / ".plasma"

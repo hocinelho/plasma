@@ -1,0 +1,143 @@
+"""Warm-camera cache — the 'find X' speed win (no real webcam)."""
+import sys
+import types
+
+import numpy as np
+import pytest
+
+
+@pytest.fixture
+def fake_cv2(monkeypatch):
+    """Install a fake cv2 whose VideoCapture opens instantly and returns frames."""
+    cv2 = types.ModuleType("cv2")
+    cv2.CAP_DSHOW = 700
+    cv2.CAP_ANY = 0
+
+    class FakeCap:
+        instances = 0
+
+        def __init__(self, *a):
+            FakeCap.instances += 1
+            self._open = True
+
+        def isOpened(self):
+            return self._open
+
+        def read(self):
+            # A mid-grey frame (not black) so it passes the black-frame guard.
+            return True, np.full((4, 4, 3), 120, dtype=np.uint8)
+
+        def release(self):
+            self._open = False
+
+    cv2.VideoCapture = lambda *a: FakeCap()
+    monkeypatch.setitem(sys.modules, "cv2", cv2)
+    return FakeCap
+
+
+@pytest.fixture(autouse=True)
+def _reset_cache():
+    import backend.modules.vision.capture as cap
+    cap.release_camera()
+    yield
+    cap.release_camera()
+
+
+def test_snapshot_opens_and_caches(fake_cv2):
+    import backend.modules.vision.capture as cap
+    frame = cap.snapshot(0)
+    assert frame.shape == (4, 4, 3)
+    assert cap._cached_cam is not None and cap._cached_cam.is_open()
+
+
+def test_second_snapshot_reuses_camera(fake_cv2):
+    import backend.modules.vision.capture as cap
+    cap.snapshot(0)
+    first = cap._cached_cam
+    opened_after_first = fake_cv2.instances
+    cap.snapshot(0)
+    # Same cached object, no new VideoCapture created on the warm path.
+    assert cap._cached_cam is first
+    assert fake_cv2.instances == opened_after_first
+
+
+def test_release_camera_clears_cache(fake_cv2):
+    import backend.modules.vision.capture as cap
+    cap.snapshot(0)
+    cap.release_camera()
+    assert cap._cached_cam is None
+
+
+def test_switching_device_reopens(fake_cv2):
+    import backend.modules.vision.capture as cap
+    cap.snapshot(0)
+    n0 = fake_cv2.instances
+    cap.snapshot(1)      # different device → must open a new capture
+    assert fake_cv2.instances == n0 + 1
+    assert cap._cached_device == 1
+
+
+def test_gray_world_removes_blue_cast():
+    from backend.modules.vision.capture import apply_gray_world
+    img = np.zeros((16, 16, 3), dtype=np.uint8)
+    img[:, :, 0] = 200  # strong blue cast
+    img[:, :, 1] = 120
+    img[:, :, 2] = 100
+    out = apply_gray_world(img)
+    b, g, r = out.reshape(-1, 3).mean(axis=0)
+    # channels should be much closer after balancing
+    assert abs(b - r) < 30
+
+
+def test_gray_world_safe_on_black():
+    from backend.modules.vision.capture import apply_gray_world
+    black = np.zeros((8, 8, 3), dtype=np.uint8)
+    out = apply_gray_world(black)
+    assert out.shape == black.shape
+
+
+def test_looks_corrupt_flags_green_glitch():
+    from backend.modules.vision.capture import _looks_corrupt
+    green = np.zeros((16, 16, 3), dtype=np.uint8)
+    green[:, :, 1] = 180  # heavy green (glitch)
+    green[:, :, 0] = 40
+    green[:, :, 2] = 40
+    assert _looks_corrupt(green) is True
+
+
+def test_looks_corrupt_passes_normal_frame():
+    from backend.modules.vision.capture import _looks_corrupt
+    normal = np.zeros((16, 16, 3), dtype=np.uint8)
+    normal[:, :, 0] = 120
+    normal[:, :, 1] = 130
+    normal[:, :, 2] = 150
+    assert _looks_corrupt(normal) is False
+
+
+def test_snapshot_raises_on_black_frame(monkeypatch):
+    """A camera that only yields black frames → a clear 'held by another app' error."""
+    import types
+    cv2 = types.ModuleType("cv2")
+    cv2.CAP_DSHOW = 700
+    cv2.CAP_ANY = 0
+    cv2.CAP_PROP_FOURCC = 6
+    cv2.CAP_PROP_FRAME_WIDTH = 3
+    cv2.CAP_PROP_FRAME_HEIGHT = 4
+    cv2.CAP_PROP_AUTO_WB = 44
+    cv2.VideoWriter_fourcc = lambda *a: 0
+
+    class BlackCap:
+        def __init__(self, *a): self._open = True
+        def isOpened(self): return True
+        def set(self, *a): return True
+        def get(self, *a): return 0
+        def read(self): return True, np.zeros((8, 8, 3), dtype=np.uint8)  # always black
+        def release(self): self._open = False
+
+    cv2.VideoCapture = lambda *a: BlackCap()
+    monkeypatch.setitem(sys.modules, "cv2", cv2)
+    import backend.modules.vision.capture as cap
+    cap.release_camera()
+    with pytest.raises(RuntimeError, match="black"):
+        cap.snapshot(0)
+    cap.release_camera()

@@ -1,0 +1,415 @@
+"""WiFi presence sensing via RuView — "is anyone home?", "who's in the kitchen?".
+
+RuView (https://github.com/hocinelho/RuView) turns WiFi Channel State Information
+into spatial sensing: it detects people through walls, counts occupants, and maps
+rooms — no cameras. It runs on its own hardware (ESP32-S3, RPi + nexmon_csi, or a
+research NIC) or the no-hardware Docker demo, and exposes an HTTP API.
+
+Plasma is the VOICE LAYER on top: this skill queries RuView and answers presence
+questions. It degrades gracefully — if RuView isn't set up, it explains how.
+
+Setup:
+  # Quick demo (no hardware):
+  #   docker run -p 3000:3000 ruvnet/wifi-densepose:latest
+  # then in .env:
+  RUVIEW_ENABLED=true
+  RUVIEW_URL=http://localhost:3000
+  # RUVIEW_API_KEY=...   # if your instance requires one
+
+The RuView HTTP shape varies by version, so we probe a few common endpoints and
+parse the JSON flexibly (looking for presence / count / rooms), rather than
+hard-coding one path.
+"""
+from __future__ import annotations
+
+import logging
+import re
+from typing import Optional
+
+from backend.core.config import config
+from backend.core.http_client import get as http_get
+
+log = logging.getLogger("plasma.skill.wifi_sense")
+
+META = {
+    "name": "wifi_sense",
+    "description": "WiFi-based presence sensing via RuView (people/rooms, no camera).",
+    "triggers": [
+        # English
+        "is anyone home",
+        "is someone home",
+        "anybody home",
+        "who is around",
+        "who's around",
+        "who is in the",
+        "who's in the",
+        "is anyone in the",
+        "is someone in the",
+        "anyone in the",
+        "how many people are home",
+        "how many people are in the house",
+        "people around",
+        "scan the house",
+        "wifi presence",
+        "sense the room",
+        "is the house empty",
+        # Vitals — English
+        "my breathing rate",
+        "breathing rate",
+        "my heart rate",
+        "heart rate",
+        "my pulse",
+        "check my vitals",
+        "vital signs",
+        "am i breathing",
+        # Vitals — German
+        "meine atmung",
+        "atemfrequenz",
+        "mein puls",
+        "herzfrequenz",
+        # Proactive alert toggle — English
+        "watch the house",
+        "alert me when someone",
+        "tell me when someone comes home",
+        "tell me when someone enters",
+        "let me know when someone",
+        "stop watching the house",
+        "stop house alerts",
+        # German
+        "beobachte das haus",
+        "sag mir wenn jemand kommt",
+        "hör auf das haus zu beobachten",
+        "ist jemand zu hause",
+        "ist jemand da",
+        "wer ist im",
+        "wer ist zu hause",
+        "wie viele leute sind zu hause",
+        "ist jemand im",
+        "scanne das haus",
+    ],
+    "example_utterances": [
+        "Is anyone home?",
+        "Who's in the living room?",
+        "How many people are home?",
+        "Ist jemand zu Hause?",
+    ],
+}
+
+# Candidate endpoints across RuView versions (first that returns JSON wins).
+_ENDPOINTS = ("/api/presence", "/presence", "/api/status", "/status", "/api/sensors")
+# Pose/keypoint endpoints tried first for the see-through visualisation.
+_POSE_ENDPOINTS = ("/api/pose", "/pose", "/api/keypoints", "/keypoints", "/api/skeletons")
+
+
+def _as_xy(pt) -> Optional[list]:
+    """Normalise a keypoint of shape [x,y], [x,y,score], or {x,y} to [x,y]."""
+    if isinstance(pt, dict):
+        x, y = pt.get("x"), pt.get("y")
+        return [float(x), float(y)] if x is not None and y is not None else None
+    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+        return [float(pt[0]), float(pt[1])]
+    return None
+
+
+def _extract_people(data: dict) -> list[dict]:
+    """Pull a list of people (with keypoints and/or a position) from any shape."""
+    people: list[dict] = []
+    arr = None
+    for k in ("people", "persons", "poses", "subjects", "detections", "skeletons"):
+        v = data.get(k)
+        if isinstance(v, list):
+            arr = v
+            break
+    for item in (arr or []):
+        if not isinstance(item, dict):
+            # A bare list of points → a pose.
+            kps = [p for p in (_as_xy(q) for q in item) if p] if isinstance(item, list) else []
+            if kps:
+                people.append({"keypoints": kps})
+            continue
+        person: dict = {}
+        raw_kp = item.get("keypoints") or item.get("pose") or item.get("joints") or item.get("skeleton")
+        if isinstance(raw_kp, list):
+            kps = [p for p in (_as_xy(q) for q in raw_kp) if p]
+            if kps:
+                person["keypoints"] = kps
+        pos = item.get("position") or item.get("center")
+        xy = _as_xy(pos) if pos else _as_xy(item)
+        if xy:
+            person["x"], person["y"] = xy[0], xy[1]
+        room = item.get("room") or item.get("area")
+        if room:
+            person["room"] = str(room)
+        if item.get("level") is not None:
+            person["level"] = item["level"]
+        # Vitals — key names vary across RuView versions/extractors.
+        for keys, out in (
+            (("breathing_bpm", "breathing", "respiration_bpm", "respiration", "breath_rate"), "breathing_bpm"),
+            (("heart_bpm", "heart_rate", "heartrate", "hr", "pulse"), "heart_bpm"),
+        ):
+            for k in keys:
+                v = item.get(k)
+                if isinstance(v, (int, float)):
+                    person[out] = round(float(v), 1)
+                    break
+        if person:
+            people.append(person)
+    return people
+
+
+def fetch_scene() -> dict:
+    """Normalised scene for the see-through view. Never raises.
+
+    Returns {ok, present, count, rooms, people:[{keypoints?, x?, y?, room?}],
+             has_pose, error?}. `people[].keypoints` are [x,y] pairs (pose);
+             otherwise a person has an x/y position and/or a room.
+    """
+    if not is_available():
+        return {"ok": False, "error": "disabled", "people": [], "count": 0, "has_pose": False}
+    base = getattr(config, "RUVIEW_URL", "").rstrip("/")
+    hdr = _headers()
+    data = None
+    for ep in (*_POSE_ENDPOINTS, *_ENDPOINTS):
+        try:
+            resp = http_get(f"{base}{ep}", headers=hdr, timeout=4.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data:
+                    break
+        except Exception:
+            continue
+    if data is None:
+        return {"ok": False, "error": "unreachable", "people": [], "count": 0, "has_pose": False}
+
+    people = _extract_people(data)
+    # Count / rooms fall back to the presence parser if no explicit people list.
+    count = None
+    for k in ("count", "people_count", "occupancy", "persons", "num_people", "total"):
+        v = data.get(k)
+        if isinstance(v, (int, float)):
+            count = int(v)
+            break
+    if count is None:
+        count = len(people) if people else (1 if data.get("present") else 0)
+    rooms = data.get("rooms") or data.get("areas") or {}
+    has_pose = any("keypoints" in p for p in people)
+
+    # Map each person to a room/floor from their position (a real multi-node
+    # deployment supplies x/y by trilateration; else use the pose centroid).
+    from backend.modules.sense.floorplan import load_floorplan, room_for
+    plan = load_floorplan()
+    for p in people:
+        px, py = p.get("x"), p.get("y")
+        if (px is None or py is None) and p.get("keypoints"):
+            kps = p["keypoints"]
+            px = sum(k[0] for k in kps) / len(kps)
+            py = sum(k[1] for k in kps) / len(kps)
+        if px is not None and py is not None:
+            p["pos"] = [round(px, 4), round(py, 4)]
+            loc = room_for(px, py, level=p.get("level"), plan=plan)
+            if not p.get("room"):
+                p["room"] = loc["room"]
+                p["floor"] = loc["floor"]
+            # Always pin a numeric floor level so a person can't leak onto every
+            # floor in the view (default to ground floor / 0).
+            if p.get("level") is None:
+                p["level"] = loc["level"]
+        if p.get("level") is None:
+            p["level"] = 0
+
+    return {
+        "ok": True,
+        "present": count > 0,
+        "count": count,
+        "rooms": rooms if isinstance(rooms, dict) else {},
+        "people": people,
+        "has_pose": has_pose,
+        "floorplan": plan,
+    }
+
+_ROOM_RE = re.compile(r"in the ([a-zA-Zà-ÿ ]+?)(?:[.?!]|$)|im ([a-zA-Zà-ÿ ]+?)(?:[.?!]|$)", re.I)
+
+
+def _extract_room(utterance: str) -> Optional[str]:
+    m = _ROOM_RE.search(utterance or "")
+    if not m:
+        return None
+    room = (m.group(1) or m.group(2) or "").strip().lower()
+    return room or None
+
+
+def is_available() -> bool:
+    return bool(getattr(config, "RUVIEW_ENABLED", False))
+
+
+def _headers() -> dict:
+    key = getattr(config, "RUVIEW_API_KEY", "").strip()
+    return {"Authorization": f"Bearer {key}"} if key else {}
+
+
+def _query_ruview() -> Optional[dict]:
+    """Return RuView's latest reading as a dict, or None if unreachable."""
+    base = getattr(config, "RUVIEW_URL", "").rstrip("/")
+    if not base:
+        return None
+    for ep in _ENDPOINTS:
+        try:
+            resp = http_get(f"{base}{ep}", headers=_headers(), timeout=4.0)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception:
+            continue
+    return None
+
+
+def _interpret(data: dict, room: Optional[str], de: bool) -> str:
+    """Turn RuView's (loosely-shaped) JSON into a spoken answer."""
+    # Total occupancy: try the common key names.
+    count = None
+    for k in ("count", "people", "occupancy", "persons", "num_people", "total"):
+        v = data.get(k)
+        if isinstance(v, (int, float)):
+            count = int(v)
+            break
+    present = data.get("present")
+    if count is None and isinstance(present, bool):
+        count = 1 if present else 0
+
+    # Per-room breakdown, if present.
+    rooms = data.get("rooms") or data.get("areas") or {}
+    if room and isinstance(rooms, dict):
+        # Find a matching room key (fuzzy).
+        match = next((rooms[k] for k in rooms if room in k.lower() or k.lower() in room), None)
+        if match is not None:
+            n = match.get("count") if isinstance(match, dict) else match
+            n = int(n) if isinstance(n, (int, float)) else (1 if match else 0)
+            if de:
+                return f"Im {room} sind gerade {n} Person(en)." if n else f"Im {room} ist niemand."
+            return f"There {'is' if n == 1 else 'are'} {n} in the {room}." if n else f"No one is in the {room}."
+
+    if count is None:
+        # We reached RuView but couldn't parse it — be honest.
+        return (
+            "Ich habe den WiFi-Sensor erreicht, konnte die Antwort aber nicht deuten."
+            if de else
+            "I reached the WiFi sensor but couldn't read its response format."
+        )
+    if count <= 0:
+        return "Es scheint niemand zu Hause zu sein." if de else "No one seems to be home."
+    if de:
+        return f"Ich spüre {count} Person(en) zu Hause." if count > 1 else "Ich spüre eine Person zu Hause."
+    return f"I sense {count} people at home." if count > 1 else "I sense one person at home."
+
+
+_VITALS_RE = re.compile(
+    r"\b(breathing|breath|heart\s*rate|pulse|vitals?|vital signs"
+    r"|atmung|atemfrequenz|puls|herzfrequenz)\b",
+    re.I,
+)
+
+
+def _answer_vitals(de: bool) -> str:
+    """Report breathing/heart rate for the sensed person (first with vitals)."""
+    scene = fetch_scene()
+    if not scene.get("ok"):
+        return (
+            "Ich kann den WiFi-Sensor gerade nicht erreichen."
+            if de else
+            "I can't reach the WiFi sensor right now."
+        )
+    person = next((p for p in scene.get("people", [])
+                   if p.get("breathing_bpm") or p.get("heart_bpm")), None)
+    if not person:
+        return (
+            "Ich empfange gerade keine Vitalwerte — dafür muss jemand ruhig im "
+            "Sensorbereich sein."
+            if de else
+            "I'm not picking up vitals right now — someone needs to be fairly "
+            "still inside the sensing area."
+        )
+    parts_en, parts_de = [], []
+    br = person.get("breathing_bpm")
+    hr = person.get("heart_bpm")
+    if br:
+        parts_en.append(f"breathing at {br:g} breaths per minute")
+        parts_de.append(f"eine Atemfrequenz von {br:g} Atemzügen pro Minute")
+    if hr:
+        parts_en.append(f"a heart rate of about {int(hr)} BPM")
+        parts_de.append(f"einen Puls von etwa {int(hr)} Schlägen pro Minute")
+    where = f" in the {person['room']}" if person.get("room") else ""
+    where_de = f" im {person['room']}" if person.get("room") else ""
+    if de:
+        return f"Ich messe{where_de} " + " und ".join(parts_de) + "."
+    return f"I sense someone{where} " + " and ".join(parts_en) + "."
+
+
+_STOP_ALERTS_RE = re.compile(r"\b(stop|hör auf|disable|no more)\b", re.I)
+_START_ALERTS_RE = re.compile(
+    r"\b(watch the house|alert me when|tell me when someone|let me know when someone"
+    r"|beobachte das haus|sag mir wenn jemand)\b",
+    re.I,
+)
+
+
+def run(args: dict | None = None) -> str:
+    utterance = ((args or {}).get("utterance") or "").strip()
+    language = (args or {}).get("language", "en")
+    de = language == "de"
+
+    if not is_available():
+        return (
+            "WiFi-Sensing (RuView) ist nicht aktiviert. Starte RuView (z.B. die "
+            "Docker-Demo) und setze RUVIEW_ENABLED=true und RUVIEW_URL in der .env."
+            if de else
+            "WiFi sensing (RuView) isn't set up. It reads people from WiFi signals — "
+            "run RuView (e.g. its Docker demo: docker run -p 3000:3000 "
+            "ruvnet/wifi-densepose:latest), then set RUVIEW_ENABLED=true and "
+            "RUVIEW_URL in your .env. Real through-wall sensing needs an ESP32-S3 (~$9)."
+        )
+
+    # Vitals: "what's my heart rate / breathing rate?"
+    if _VITALS_RE.search(utterance):
+        return _answer_vitals(de)
+
+    # Proactive alert toggle ("watch the house" / "stop watching the house").
+    if _STOP_ALERTS_RE.search(utterance) and "watch" in utterance.lower() \
+            or ("stop" in utterance.lower() and "house" in utterance.lower()):
+        try:
+            from backend.modules.sense.ruview_monitor import ruview_monitor
+            ruview_monitor.stop_watching()
+        except Exception as e:
+            log.warning("stop alerts failed: %s", e)
+        return "Ich beobachte das Haus nicht mehr." if de else "I'll stop watching the house."
+    if _START_ALERTS_RE.search(utterance):
+        try:
+            from backend.modules.sense.ruview_monitor import ruview_monitor
+            ok = ruview_monitor.start_watching(language)
+        except Exception as e:
+            log.warning("start alerts failed: %s", e)
+            ok = False
+        if ok:
+            return (
+                "Okay, ich beobachte das Haus und sage Bescheid, wenn jemand kommt oder geht."
+                if de else
+                "Okay — I'll watch the house and tell you when someone comes or goes."
+            )
+        return (
+            "Dafür muss RuView laufen (RUVIEW_ENABLED=true)."
+            if de else
+            "I need RuView running for that (set RUVIEW_ENABLED=true)."
+        )
+
+    data = _query_ruview()
+    if data is None:
+        return (
+            f"Ich kann den WiFi-Sensor unter {config.RUVIEW_URL} nicht erreichen. "
+            "Läuft RuView?"
+            if de else
+            f"I can't reach the WiFi sensor at {config.RUVIEW_URL}. Is RuView running?"
+        )
+
+    return _interpret(data, _extract_room(utterance), de)
+
+
+def self_test() -> bool:
+    return isinstance(META.get("triggers"), list) and callable(run)

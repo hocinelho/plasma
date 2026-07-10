@@ -43,6 +43,11 @@ class MemoryStore:
     def _init_schema(self) -> None:
         with self._conn() as c:
             c.executescript(SCHEMA_SQL)
+            # PA-66 migration: per-user facts. NULL user = shared/global fact.
+            try:
+                c.execute("ALTER TABLE facts ADD COLUMN user TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     # ---------------------------------------------------------------
     # Conversations
@@ -85,26 +90,48 @@ class MemoryStore:
         content: str,
         confidence: float = 1.0,
         source: Optional[str] = None,
+        user: Optional[str] = None,
     ) -> int:
         with self._conn() as c:
             cur = c.execute(
-                "INSERT INTO facts(category, content, confidence, source) VALUES (?, ?, ?, ?)",
-                (category, content, confidence, source),
+                "INSERT INTO facts(category, content, confidence, source, user) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (category, content, confidence, source, user),
             )
             return int(cur.lastrowid)
 
-    def get_facts(self, category: Optional[str] = None, limit: int = 100) -> list[dict]:
+    def get_facts_all(self, limit: int = 500) -> list[dict]:
+        """Return all facts across all users/categories, newest first."""
         with self._conn() as c:
-            if category:
-                rows = c.execute(
-                    "SELECT * FROM facts WHERE category = ? ORDER BY updated_at DESC LIMIT ?",
-                    (category, limit),
-                ).fetchall()
-            else:
-                rows = c.execute(
-                    "SELECT * FROM facts ORDER BY updated_at DESC LIMIT ?",
-                    (limit,),
-                ).fetchall()
+            rows = c.execute(
+                "SELECT * FROM facts ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_facts(
+        self,
+        category: Optional[str] = None,
+        limit: int = 100,
+        user: Optional[str] = None,
+    ) -> list[dict]:
+        """Fetch facts. With user=<name>, returns that user's facts PLUS shared
+        (user IS NULL) facts — personal context layered on top of global."""
+        where: list[str] = []
+        params: list = []
+        if category:
+            where.append("category = ?")
+            params.append(category)
+        if user:
+            where.append("(user IS NULL OR user = ?)")
+            params.append(user)
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        params.append(limit)
+        with self._conn() as c:
+            rows = c.execute(
+                f"SELECT * FROM facts {clause} ORDER BY updated_at DESC LIMIT ?",
+                params,
+            ).fetchall()
             return [dict(r) for r in rows]
 
     def search_facts(self, query: str, limit: int = 10) -> list[dict]:
@@ -120,6 +147,10 @@ class MemoryStore:
         with self._conn() as c:
             cur = c.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
             return cur.rowcount > 0
+
+    def get_skills_meta(self) -> list[dict]:
+        """Return skills sorted by usage_count descending (alias for list_skills)."""
+        return self.list_skills()
 
     # ---------------------------------------------------------------
     # Skills metadata
@@ -186,6 +217,36 @@ class MemoryStore:
                 "WHERE name = ?",
                 (n, new_rate, name),
             )
+
+    # ---------------------------------------------------------------
+    # Request latency log
+    # ---------------------------------------------------------------
+    def log_request(
+        self,
+        session_id: str,
+        turn: int,
+        asr_ms: Optional[float] = None,
+        llm_ms: Optional[float] = None,
+        tts_ms: Optional[float] = None,
+        total_ms: Optional[float] = None,
+        skill_used: Optional[str] = None,
+    ) -> int:
+        with self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO request_log(session_id, turn, asr_ms, llm_ms, tts_ms, total_ms, skill_used) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, turn, asr_ms, llm_ms, tts_ms, total_ms, skill_used),
+            )
+            return int(cur.lastrowid)
+
+    def get_request_log(self, session_id: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT id, session_id, turn, asr_ms, llm_ms, tts_ms, total_ms, skill_used, created_at "
+                "FROM request_log WHERE session_id = ? ORDER BY turn ASC",
+                (session_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     # ---------------------------------------------------------------
     # Utility

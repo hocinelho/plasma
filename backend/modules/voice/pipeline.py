@@ -36,6 +36,18 @@ def get_asr() -> WhisperASR:
     return _asr
 
 
+def reload_model(model_name: str) -> None:
+    """Replace the Whisper ASR singleton with a new model (PA-64).
+
+    Called by the settings_control skill when the user says
+    "switch to faster model" etc.
+    """
+    global _asr
+    log.info(f"Reloading Whisper model: {model_name}")
+    _asr = WhisperASR(model_name=model_name)
+    log.info(f"Whisper model reloaded: {model_name}")
+
+
 def _get_ffmpeg() -> str:
     """Return the path to the bundled FFmpeg binary."""
     global _ffmpeg_path
@@ -96,7 +108,17 @@ def transcribe_audio_bytes(data: bytes) -> dict:
     if len(audio) < 1600:  # < 0.1 s
         return {"text": "", "error": "audio_too_short"}
 
-    return transcribe_array(audio)
+    # Reject near-silent clips — Whisper hallucinates on silence
+    rms = float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))
+    if rms < 200:
+        log.info(f"Audio rejected (silence): rms={rms:.0f}")
+        return {"text": "", "error": "audio_too_quiet"}
+
+    result = transcribe_array(audio)
+    # PA-65: hand the decoded PCM to the caller for speaker ID / enrollment
+    # (in-process only — main.py pops it before building the JSON response)
+    result["_audio"] = audio
+    return result
 
 
 def transcribe_array(audio: np.ndarray) -> dict:
@@ -104,10 +126,28 @@ def transcribe_array(audio: np.ndarray) -> dict:
     if audio is None or len(audio) < 1600:
         return {"text": "", "error": "audio_too_short"}
 
+    from backend.core.config import config as _cfg
+    whisper_lang = _cfg.WHISPER_LANGUAGE
+    allowed_langs = None
+    if whisper_lang == "auto":
+        lang_arg = None  # Whisper auto-detects; requires multilingual model
+        if _cfg.WHISPER_MODEL.endswith(".en"):
+            log.warning(
+                "WHISPER_LANGUAGE=auto but model is English-only (%s). "
+                "Set WHISPER_MODEL=small for German support.", _cfg.WHISPER_MODEL
+            )
+            lang_arg = "en"
+        else:
+            allowed_langs = [
+                s.strip() for s in _cfg.WHISPER_ALLOWED_LANGS.split(",") if s.strip()
+            ] or None
+    else:
+        lang_arg = whisper_lang
+
     asr = get_asr()
-    result = asr.transcribe(audio)
+    result = asr.transcribe(audio, language=lang_arg, allowed_languages=allowed_langs)
     log.info(
-        f"Transcribed: text='{result['text'][:80]}' "
+        f"Transcribed: text='{result['text'][:80]}' lang={result.get('language','?')} "
         f"dur={result['duration']:.1f}s lat={result['latency']:.1f}s"
     )
     return result

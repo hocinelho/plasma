@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#05070f">
+    <title>Plasma — Phone Camera</title>
+    <style>
+        :root {
+            --accent: #4a9eff;
+            --ok: #6fd48a;
+            --text: #e6edf7;
+            --muted: #8a94a7;
+            --glass: rgba(20, 27, 46, 0.55);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        html, body { height: 100%; overflow: hidden; }
+        body {
+            font-family: -apple-system, 'Segoe UI', sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(800px 600px at 50% -10%, rgba(74,158,255,0.18), transparent 60%),
+                #05070f;
+            display: flex;
+            flex-direction: column;
+            height: 100dvh;
+        }
+
+        /* ── Header ───────────────────────────────────────── */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+        }
+        header h1 {
+            font-weight: 300;
+            letter-spacing: 0.18em;
+            font-size: 18px;
+        }
+        header .dot {
+            width: 9px; height: 9px; border-radius: 50%;
+            background: var(--muted); display: inline-block; margin-right: 6px;
+        }
+        header.live .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+        header a { color: var(--muted); text-decoration: none; font-size: 13px; }
+
+        /* ── Camera stage ─────────────────────────────────── */
+        #stage {
+            position: relative;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            margin: 0 10px;
+            border-radius: 18px;
+            background: #0b0f1c;
+            border: 1px solid rgba(120,180,255,0.15);
+        }
+        #video {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+        #video.mirror { transform: scaleX(-1); }
+        #overlay {
+            position: absolute;
+            pointer-events: none;
+        }
+        #overlay.mirror { transform: scaleX(-1); }
+
+        #placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            color: var(--muted);
+            text-align: center;
+            padding: 24px;
+        }
+        #placeholder .big { font-size: 48px; }
+
+        /* ── Status line ──────────────────────────────────── */
+        #status {
+            min-height: 1.4em;
+            margin: 8px 16px 2px;
+            padding: 8px 14px;
+            border-radius: 12px;
+            background: var(--glass);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            font-size: 14px;
+            text-align: center;
+            line-height: 1.4;
+        }
+        #status .who { color: var(--ok); font-weight: 600; }
+        #status .objs { color: var(--accent); }
+
+        /* ── Controls ─────────────────────────────────────── */
+        #controls {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            padding: 12px 16px calc(env(safe-area-inset-bottom) + 16px);
+        }
+        button.ctrl {
+            border: 1.5px solid rgba(120,180,255,0.4);
+            background: var(--glass);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            color: var(--text);
+            border-radius: 999px;
+            padding: 12px 16px;
+            font-size: 15px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+        }
+        button.ctrl:active { transform: scale(0.96); }
+        button.ctrl.on { background: var(--accent); color: #04102a; border-color: var(--accent); }
+        #start-btn {
+            font-size: 17px;
+            padding: 14px 28px;
+            border-color: var(--accent);
+            box-shadow: 0 0 24px rgba(74,158,255,0.3);
+        }
+        #start-btn.live { border-color: #ff4a5e; box-shadow: 0 0 24px rgba(255,74,94,0.3); }
+        .ctrl.icon { padding: 12px 14px; font-size: 18px; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <header id="header">
+        <span><span class="dot"></span><span id="conn">offline</span></span>
+        <h1>PLASMA</h1>
+        <a href="/">⌂ Home</a>
+    </header>
+
+    <div id="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas id="overlay"></canvas>
+        <div id="placeholder">
+            <div class="big">📷</div>
+            <div>Point your phone camera at the world.<br>Tap <b>Start camera</b> below.</div>
+        </div>
+    </div>
+
+    <div id="status">Ready. Plasma will see faces, gestures and objects.</div>
+
+    <div id="controls">
+        <button id="track-btn" class="ctrl">🎯 Track</button>
+        <button id="start-btn" class="ctrl">▶ Start camera</button>
+        <button id="flip-btn" class="ctrl icon" title="Flip camera">🔄</button>
+    </div>
+
+<script>
+const headerEl  = document.getElementById('header');
+const connEl    = document.getElementById('conn');
+const video     = document.getElementById('video');
+const overlay   = document.getElementById('overlay');
+const placeholder = document.getElementById('placeholder');
+const statusEl  = document.getElementById('status');
+const startBtn  = document.getElementById('start-btn');
+const flipBtn   = document.getElementById('flip-btn');
+const trackBtn  = document.getElementById('track-btn');
+
+let on = false;
+let facing = 'environment';      // start with the back camera (good for objects)
+let stream = null;
+let ws = null;
+let timer = null;
+let grabCanvas = null;
+let trackOn = false;
+const FPS = 6;
+
+// ── smooth box rendering (mirrors the desktop UI) ───────────
+const trackColors = {};
+function colorFor(id) {
+    if (!trackColors[id]) trackColors[id] = `hsl(${(id * 67) % 360}, 90%, 60%)`;
+    return trackColors[id];
+}
+let targets = {}, display = {}, frameW = 0, frameH = 0, raf = null;
+const EXPIRE_MS = 700;
+const ARROWS = { left:'←', right:'→', up:'↑', down:'↓' };
+
+function updateTargets(objects, fw, fh) {
+    frameW = fw || frameW; frameH = fh || frameH;
+    const now = performance.now();
+    for (const o of (objects || []))
+        targets[o.id] = { box: o.box.slice(), label: o.label, direction: o.direction, ts: now };
+    if (!raf) raf = requestAnimationFrame(boxFrame);
+}
+function drawOneBox(ctx, id, box, label, dir, sx, sy) {
+    const [x, y, w, h] = box;
+    const c = colorFor(id);
+    ctx.lineWidth = 2.5; ctx.strokeStyle = c;
+    ctx.shadowColor = c; ctx.shadowBlur = 9;
+    ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
+    ctx.shadowBlur = 0;
+    const text = `${label} #${id} ${dir ? (ARROWS[dir] || '') : ''}`.trim();
+    ctx.save();
+    if (overlay.classList.contains('mirror')) ctx.scale(-1, 1);
+    ctx.font = '600 14px -apple-system, Segoe UI, sans-serif';
+    ctx.textBaseline = 'bottom';
+    const tx = overlay.classList.contains('mirror') ? -(x * sx + w * sx) : x * sx;
+    const ty = Math.max(15, y * sy - 3);
+    ctx.fillStyle = c;
+    const tw = ctx.measureText(text).width + 10;
+    ctx.fillRect(tx, ty - 17, tw, 18);
+    ctx.fillStyle = '#04102a';
+    ctx.fillText(text, tx + 5, ty);
+    ctx.restore();
+}
+function boxFrame() {
+    const ctx = overlay.getContext('2d');
+    const dw = video.clientWidth, dh = video.clientHeight;
+    if (overlay.width !== dw || overlay.height !== dh) { overlay.width = dw; overlay.height = dh; }
+    // position overlay exactly over the (centred) video element
+    overlay.style.width = dw + 'px'; overlay.style.height = dh + 'px';
+    ctx.clearRect(0, 0, dw, dh);
+    const now = performance.now();
+    const sx = dw / (frameW || dw), sy = dh / (frameH || dh);
+    for (const id of Object.keys(targets)) {
+        const t = targets[id];
+        if (now - t.ts > EXPIRE_MS) { delete targets[id]; delete display[id]; continue; }
+        let d = display[id]; if (!d) { d = { box: t.box.slice() }; display[id] = d; }
+        for (let i = 0; i < 4; i++) d.box[i] += (t.box[i] - d.box[i]) * 0.3;
+        drawOneBox(ctx, id, d.box, t.label, t.direction, sx, sy);
+    }
+    if (on && trackOn) raf = requestAnimationFrame(boxFrame);
+    else { raf = null; ctx.clearRect(0, 0, dw, dh); }
+}
+function clearBoxes() {
+    targets = {}; display = {};
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
+}
+
+// ── camera + websocket ──────────────────────────────────────
+function failStart(msg) {
+    statusEl.innerHTML = msg;
+    on = false; startBtn.classList.remove('live'); startBtn.textContent = '▶ Start camera';
+}
+
+async function startCamera() {
+    // Phones block camera access unless the page is a secure context
+    // (HTTPS, or localhost). Surface that clearly instead of a vague error.
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const host = location.hostname;
+        const localish = ['localhost', '127.0.0.1', '[::1]'].includes(host);
+        failStart(localish
+            ? '⚠ Camera API unavailable in this browser.'
+            : `⚠ Phone cameras need a secure (https) connection.<br>` +
+              `On your computer run <b>python serve_phone.py</b>, then open the ` +
+              `<b>https://</b> address it prints (tap “Advanced → Proceed” once). ` +
+              `Plain http://${host} is blocked by the browser.`);
+        return;
+    }
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: false,
+        });
+    } catch (e) {
+        failStart('⚠ Camera blocked. Allow camera access in your browser and tap Start again.');
+        return;
+    }
+    video.srcObject = stream;
+    applyMirror();
+    placeholder.classList.add('hidden');
+    grabCanvas = document.createElement('canvas');
+    connectWS();
+}
+
+function applyMirror() {
+    // Mirror only the front (selfie) camera so it feels natural.
+    const m = facing === 'user';
+    video.classList.toggle('mirror', m);
+    overlay.classList.toggle('mirror', m);
+}
+
+function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/perception-input`);
+    ws.onopen = () => {
+        connEl.textContent = 'live'; headerEl.classList.add('live');
+        timer = setInterval(sendFrame, Math.round(1000 / FPS));
+    };
+    ws.onmessage = (ev) => {
+        try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'perception') {
+                let html = '';
+                if (msg.identity) html += `<span class="who">${msg.identity}</span> · `;
+                html += (msg.summary || '…');
+                if (trackOn && msg.objects && msg.objects.length) {
+                    const names = msg.objects.map(o => `${o.label} #${o.id}`).join(', ');
+                    html += ` · <span class="objs">🎯 ${names}</span>`;
+                }
+                statusEl.innerHTML = html;
+                if (trackOn) updateTargets(msg.objects, msg.frame_w, msg.frame_h);
+            } else if (msg.type === 'error') {
+                statusEl.textContent = '⚠ ' + msg.message;
+            }
+        } catch (e) { /* ignore */ }
+    };
+    ws.onclose = () => { connEl.textContent = on ? 'reconnecting…' : 'offline'; headerEl.classList.remove('live'); };
+    ws.onerror = () => {};
+}
+
+function sendFrame() {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !video.videoWidth) return;
+    grabCanvas.width = video.videoWidth;
+    grabCanvas.height = video.videoHeight;
+    grabCanvas.getContext('2d').drawImage(video, 0, 0);
+    const b64 = grabCanvas.toDataURL('image/jpeg', 0.7).split(',')[1];
+    ws.send(JSON.stringify({ frame: b64, language: 'en', identify: true, track: trackOn }));
+}
+
+function stopCamera() {
+    clearInterval(timer); timer = null;
+    if (ws) { try { ws.close(); } catch (e) {} ws = null; }
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.srcObject = null;
+    placeholder.classList.remove('hidden');
+    clearBoxes();
+    connEl.textContent = 'offline'; headerEl.classList.remove('live');
+    statusEl.textContent = 'Camera stopped.';
+}
+
+// ── controls ────────────────────────────────────────────────
+startBtn.addEventListener('click', () => {
+    on = !on;
+    startBtn.classList.toggle('live', on);
+    startBtn.textContent = on ? '■ Stop' : '▶ Start camera';
+    if (on) startCamera(); else stopCamera();
+});
+
+flipBtn.addEventListener('click', async () => {
+    facing = facing === 'environment' ? 'user' : 'environment';
+    if (on) {
+        // restart the stream on the other camera, keep the socket
+        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: facing, width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: false,
+            });
+            video.srcObject = stream;
+            applyMirror();
+        } catch (e) { statusEl.textContent = '⚠ Could not switch camera.'; }
+    }
+});
+
+trackBtn.addEventListener('click', () => {
+    trackOn = !trackOn;
+    trackBtn.classList.toggle('on', trackOn);
+    if (!trackOn) clearBoxes();
+    else if (on && !raf) raf = requestAnimationFrame(boxFrame);
+});
+
+// Stop cleanly if the page is hidden/backgrounded to save the battery.
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && on) { /* keep socket but pause sending */ }
+});
+</script>
+</body>
+</html>

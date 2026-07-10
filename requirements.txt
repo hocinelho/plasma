@@ -4,6 +4,9 @@ websockets>=13.0
 python-multipart>=0.0.20
 python-dotenv>=1.0.1
 httpx>=0.28.0
+truststore>=0.9.0
+# Self-signed HTTPS for the phone camera page (python serve_phone.py)
+cryptography>=41.0.0
 pydantic>=2.10.0
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
@@ -18,3 +21,26 @@ onnxruntime>=1.20.0
 keyboard>=0.13.5
 soundfile>=0.13.0
 imageio-ffmpeg>=0.5.1
+# --- Microsoft Graph (Sprint 6 — Outlook calendar + email) ---
+msal>=1.31.0
+python-dateutil>=2.9.0
+# --- Sprint 7/8 ---
+Pillow>=11.0.0
+spotipy>=2.25.0
+# --- Sprint 11 (PA-65 speaker identification) — OPTIONAL, pulls in torch ---
+# Install manually to enable voice profiles:
+#   pip install resemblyzer
+# Plasma works fine without it (speaker ID silently disabled).
+
+# --- Vision: object detection + face/hand perception (MediaPipe, Apache 2.0) ---
+# Powers "find my X", finger counting, gestures (victory/thumbs up), face
+# expression (smile/sleepy/wink), AND real-time object tracking (EfficientDet +
+# a pure-Python SORT-lite tracker — persistent IDs, boxes on the live feed; no
+# AGPL, no extra deps). Runs on CPU; models auto-download (~16 MB).
+mediapipe>=0.10.14
+opencv-python>=4.10.0
+
+# --- Face identity recognition (DeepFace, MIT) — OPTIONAL, pulls in tensorflow ---
+# Install manually to let Plasma recognize WHO it sees:
+#   pip install deepface
+# Plasma works fine without it (face naming silently disabled; tracking still works).

@@ -1,0 +1,126 @@
+"""
+MediaPipe-based object detector — Apache 2.0 license, no AGPL.
+
+Model: EfficientDet-Lite0 (int8, ~4.4 MB), auto-downloaded on first use.
+Input: BGR numpy array (from OpenCV or decoded JPEG bytes).
+Output: list of {"label": str, "score": float, "box": [x, y, w, h]}
+
+Lazy import: if mediapipe is not installed, raises a friendly ImportError
+instead of crashing the whole app.
+"""
+from __future__ import annotations
+import logging
+import urllib.request
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+if TYPE_CHECKING:
+    pass
+
+log = logging.getLogger("plasma.vision.detector")
+
+_MODEL_URL = (
+    "https://storage.googleapis.com/mediapipe-models/"
+    "object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite"
+)
+_MODEL_NAME = "efficientdet_lite0.tflite"
+
+
+def _model_path() -> Path:
+    from backend.core.config import config
+    dest = config.VISION_MODEL_DIR / _MODEL_NAME
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        log.info("Downloading MediaPipe EfficientDet model (~4.4 MB) → %s", dest)
+        urllib.request.urlretrieve(_MODEL_URL, dest)
+        log.info("Model downloaded: %s", dest)
+    return dest
+
+
+class ObjectDetector:
+    """Lazy-loaded MediaPipe object detector (thread-safe after first load)."""
+
+    def __init__(self, max_results: int = 10, score_threshold: float = 0.5):
+        self._max_results = max_results
+        self._score_threshold = score_threshold
+        self._detector = None
+
+    def _load(self) -> None:
+        if self._detector is not None:
+            return
+        try:
+            import mediapipe as mp
+            from mediapipe.tasks import python as mp_python
+            from mediapipe.tasks.python import vision as mp_vision
+        except ImportError as e:
+            raise ImportError(
+                "mediapipe is not installed. "
+                "Run: pip install mediapipe"
+            ) from e
+
+        model = _model_path()
+        options = mp_vision.ObjectDetectorOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=str(model)),
+            max_results=self._max_results,
+            score_threshold=self._score_threshold,
+        )
+        self._detector = mp_vision.ObjectDetector.create_from_options(options)
+        log.info("MediaPipe ObjectDetector loaded (threshold=%.2f)", self._score_threshold)
+
+    def detect(self, frame_bgr: np.ndarray) -> list[dict]:
+        """
+        Detect objects in a BGR frame (cv2 format).
+        Returns list of {"label": str, "score": float, "box": [x, y, w, h]}.
+        """
+        self._load()
+        import mediapipe as mp
+
+        rgb = frame_bgr[:, :, ::-1].copy()  # BGR → RGB, contiguous
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        result = self._detector.detect(mp_image)
+
+        out = []
+        for d in result.detections:
+            if not d.categories:
+                continue
+            cat = d.categories[0]
+            bb = d.bounding_box
+            out.append({
+                "label": cat.category_name,
+                "score": round(float(cat.score), 3),
+                "box": [bb.origin_x, bb.origin_y, bb.width, bb.height],
+            })
+        return out
+
+
+# Module-level singleton — shared across skill + monitor
+_detector: ObjectDetector | None = None
+
+
+def get_detector(score_threshold: float | None = None) -> ObjectDetector:
+    global _detector
+    if _detector is None:
+        from backend.core.config import config
+        _detector = ObjectDetector(
+            score_threshold=score_threshold or config.VISION_SCORE_THRESHOLD,
+        )
+    return _detector
+
+
+# Separate instance for live tracking: a LOWER threshold + MORE results so the
+# tracker sees many objects at once and doesn't lose them on a weak frame. Kept
+# apart from the snapshot detector so the "what do you see" skill stays strict.
+_track_detector: ObjectDetector | None = None
+
+
+def get_tracking_detector() -> ObjectDetector:
+    global _track_detector
+    if _track_detector is None:
+        from backend.core.config import config
+        _track_detector = ObjectDetector(
+            max_results=config.TRACK_MAX_OBJECTS,
+            score_threshold=config.TRACK_CONF,
+        )
+    return _track_detector

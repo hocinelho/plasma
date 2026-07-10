@@ -59,11 +59,9 @@ class SkillRegistry:
             log.warning(f"Skills dir does not exist: {SKILLS_DIR}")
             return 0
 
-        skill_files = sorted(SKILLS_DIR.glob("*.py"))
+        skill_files = [f for f in sorted(SKILLS_DIR.glob("*.py")) if not f.name.startswith("_")]
         loaded = 0
         for f in skill_files:
-            if f.name.startswith("_"):
-                continue
             if self._load_one(f):
                 loaded += 1
         log.info(f"Skills loaded: {loaded}/{len(skill_files)}")
