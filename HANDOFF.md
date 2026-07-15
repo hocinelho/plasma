@@ -35,6 +35,16 @@ Until now all WiFi sensing was the simulated demo. Now:
 3. Level 1 RSSI live test whenever a non-locked-down WiFi machine is available.
 4. Level 2: ESP32-S3 CSI → bridge `real_scene()` (hardware not ordered yet).
 
+## Parallel work — avatar session
+
+A **separate session** is designing Plasma's avatar as a **creature/mascot**
+(Hocine's choice). It works on branch `claude/avatar-design` off the enhance
+branch, own PR. Brief + contract: **`docs/avatar-design.md`**. Division of
+labour: the avatar session touches only `frontend/avatar.*`, the include line
+in `index.html`, and `docs/avatar-*.md`; the main session keeps backend +
+tracking overlay. First avatar task is extracting the sphere out of
+`index.html` into `avatar.js` to create a clean seam.
+
 ## ⚠️ Standing warnings
 
 - **Old `main` has a real Groq API key committed in `.env.example`** (`gsk_...`). Told Hocine to revoke it at console.groq.com — as of 2026-07-10 unconfirmed. Never commit real keys; `.env.example` gets placeholders only.
