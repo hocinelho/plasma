@@ -24,6 +24,7 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend.core.config import config as plasma_config
@@ -153,6 +154,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Static assets for the 3D human avatar (TalkingHead + three.js + GLB models).
+_frontend_dir = Path(__file__).resolve().parents[1] / "frontend"
+for _static in ("vendor", "avatars"):
+    _static_dir = _frontend_dir / _static
+    if _static_dir.is_dir():
+        app.mount(f"/{_static}", StaticFiles(directory=_static_dir), name=_static)
 
 
 import re as _re

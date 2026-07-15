@@ -18,3 +18,19 @@
     filter: drop-shadow(0 0 18px rgba(120, 180, 255, 0.25));
     transition: filter 0.5s;
 }
+
+/* ── Human 3D avatar (TalkingHead renderer) ─────────────────────────── */
+#avatar-human {
+    width: min(320px, 82vw);
+    height: 380px;
+    border-radius: 18px;
+    overflow: hidden;
+    /* subtle glass panel so the person sits inside the plasma UI */
+    background: radial-gradient(circle at 50% 20%, rgba(74, 158, 255, 0.10), rgba(10, 14, 26, 0) 70%);
+    box-shadow: 0 0 34px rgba(74, 158, 255, 0.16), inset 0 0 0 1px rgba(120, 180, 255, 0.18);
+}
+#avatar-human canvas { display: block; width: 100%; height: 100%; }
+
+@media (max-width: 480px) {
+    #avatar-human { height: 300px; }
+}

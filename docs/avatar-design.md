@@ -90,17 +90,49 @@ so much.
 
 ## Renderers
 
-`avatar.js` ships two renderers behind the same contract, chosen with a
-`data-avatar` attribute on the canvas (defaults to **mascot**):
+`avatar.js` ships three renderers behind the same contract, chosen with a
+`data-avatar` attribute on the canvas (defaults to **human**):
 
-- **`mascot`** *(default)* — Plasma, the creature described above.
+- **`human`** *(default)* — a full-body, realistic 3D person built on the
+  MIT-licensed [TalkingHead](https://github.com/met4citizen/TalkingHead)
+  library (three.js). Facial expressions per mood, gaze/eye contact, hand
+  gestures (waves on the wake word, sometimes raises a finger while
+  thinking), and **real lip-sync**: the page hands Piper's TTS audio to
+  `window.avatarSpeak(b64, text)`, word timings are estimated from the
+  clip length, and TalkingHead converts words → visemes (English and
+  German modules are bundled). Falls back to the mascot automatically if
+  WebGL or module loading fails.
+- **`mascot`** — Plasma, the plasma-jelly creature described above.
 - **`orb`** — the original JARVIS neural-galaxy sphere: a perspective 3D
   node-sphere with a neural net, flowing fibre-optic ribbons, and bokeh
   depth orbs. Kept as an alternate look and a reference.
 
 ```html
-<canvas id="avatar" data-avatar="orb"></canvas>   <!-- opt into the sphere -->
+<canvas id="avatar" data-avatar="mascot"></canvas>   <!-- opt into the creature -->
+<canvas id="avatar" data-avatar="orb"></canvas>      <!-- opt into the sphere  -->
 ```
+
+### Human renderer — assets & swapping the character
+
+Everything is served locally (no CDN, works offline):
+
+| Path | What |
+|---|---|
+| `frontend/vendor/talkinghead/` | TalkingHead modules + en/de lip-sync (MIT) |
+| `frontend/vendor/three/` | three.js 0.180 + the addons TalkingHead needs (MIT) |
+| `frontend/avatars/brunette.glb` | default character (from the TalkingHead repo, MIT) |
+
+To use a different character, replace the GLB: any **Ready Player Me /
+Avaturn**-style full-body GLB with ARKit/Oculus-viseme blend shapes and a
+Mixamo-compatible rig works — drop it in `frontend/avatars/` and change the
+URL in `avatar.js` (`showAvatar({ url: ... })`). Plain game models without
+facial blend shapes (e.g. `girl_mechanic.glb`) load but can't emote or
+lip-sync, so they're not suitable as-is.
+
+The extra `window.avatarSpeak` hook is part of the contract now: optional,
+only defined while the human renderer is active; `playBase64Audio()` in
+`index.html` calls it first and falls back to plain `<audio>` playback (and
+the amplitude-driven `avatarLevel` path) when it's absent.
 
 ---
 

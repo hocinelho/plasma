@@ -468,6 +468,16 @@
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <link rel="stylesheet" href="/avatar.css">
+    <!-- Import map for the 3D human avatar (TalkingHead + three.js), all served
+         locally from /vendor — no CDN, works offline. Inert unless the human
+         renderer is used. -->
+    <script type="importmap">
+    { "imports": {
+        "three": "/vendor/three/three.module.js",
+        "three/addons/": "/vendor/three/addons/",
+        "talkinghead": "/vendor/talkinghead/talkinghead.mjs"
+    } }
+    </script>
 </head>
 <body>
 
@@ -907,10 +917,15 @@ function stopLipSync() {
     avatarLevel = 0;
 }
 
-function playBase64Audio(b64) {
+function playBase64Audio(b64, text) {
     return new Promise((resolve) => {
         if (!b64) { resolve(); return; }
         const finish = () => { stopLipSync(); resolve(); };
+        // Human 3D avatar takes over playback for real lip-sync when active.
+        if (window.avatarSpeak) {
+            const handled = window.avatarSpeak(b64, text || '');
+            if (handled) { handled.then(finish).catch(finish); return; }
+        }
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
             audio.crossOrigin = 'anonymous';
@@ -943,7 +958,7 @@ async function sendAudio(blob) {
         if (data.error && !data.transcript) addTurn('error', data.error);
         if (data.audio_b64) {
             setStatus('speaking');
-            await playBase64Audio(data.audio_b64);
+            await playBase64Audio(data.audio_b64, data.reply);
         }
         setStatus('idle');
     } catch (err) {
@@ -1078,7 +1093,7 @@ function connectAlertSocket() {
                 if (msg.audio_b64 && !isBusy && !isRecording) {
                     // Proactive speech: light up the galaxy, then settle back.
                     avatarState = 'speaking';
-                    await playBase64Audio(msg.audio_b64);
+                    await playBase64Audio(msg.audio_b64, msg.text);
                     avatarState = 'idle';
                 }
             }

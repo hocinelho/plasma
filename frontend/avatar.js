@@ -482,6 +482,142 @@
         requestAnimationFrame(frame);
     }
 
-    const which = (avatarCanvas.dataset.avatar || 'mascot').toLowerCase();
-    (which === 'orb' ? startOrb : startMascot)();
+    // ══════════════════════════════════════════════════════════════════════
+    //  HUMAN — full-body 3D avatar (TalkingHead + three.js, all local files)
+    //  Realistic person with facial expressions, gaze, gestures and real
+    //  lip-sync. Drives the same contract; additionally exposes
+    //  window.avatarSpeak(b64, text) so the page can hand TTS audio over for
+    //  proper mouth animation. Falls back to the mascot on any failure.
+    // ══════════════════════════════════════════════════════════════════════
+    function startHuman() {
+        const wrap = avatarCanvas.parentElement;
+        const holder = document.createElement('div');
+        holder.id = 'avatar-human';
+        avatarCanvas.style.display = 'none';
+        wrap.classList.add('human');
+        wrap.appendChild(holder);
+
+        let head = null, stateTimer = null;
+        let failed = false;
+        function fail(err) {
+            if (failed) return;
+            failed = true;
+            console.warn('[avatar] human renderer unavailable — using mascot.', err);
+            if (stateTimer) clearInterval(stateTimer);
+            delete window.avatarSpeak;
+            holder.remove();
+            wrap.classList.remove('human');
+            avatarCanvas.style.display = '';
+            startMascot();
+        }
+
+        // Piper gives us audio but no word timings — estimate them by spreading
+        // the words over the clip weighted by word length. Close enough for
+        // natural-looking visemes.
+        function estimateTimings(text, durationMs) {
+            const words = (text || '').trim().split(/\s+/).filter(Boolean);
+            const wtimes = [], wdurations = [];
+            if (words.length) {
+                const weights = words.map(w => w.length + 2);
+                const sum = weights.reduce((a, b) => a + b, 0);
+                let tcur = 0;
+                for (let i = 0; i < words.length; i++) {
+                    const d = durationMs * weights[i] / sum;
+                    wtimes.push(Math.round(tcur));
+                    wdurations.push(Math.round(d * 0.9));
+                    tcur += d;
+                }
+            }
+            return { words, wtimes, wdurations };
+        }
+
+        const guessLang = (text) =>
+            /[äöüß]|\b(und|ich|nicht|das|ist|ein|eine|der|die)\b/i.test(text || '') ? 'de' : 'en';
+
+        import('talkinghead').then(async ({ TalkingHead }) => {
+            head = new TalkingHead(holder, {
+                lipsyncModules: ['en', 'de'],
+                lipsyncLang: 'en',
+                cameraView: 'upper',
+                cameraRotateEnable: false,
+                cameraPanEnable: false,
+                cameraZoomEnable: false,
+                avatarMood: 'neutral',
+                lightAmbientIntensity: 2,
+                lightDirectIntensity: 22,
+                statsNode: null,
+            });
+            await head.showAvatar({
+                url: '/avatars/brunette.glb',
+                body: 'F',
+                avatarMood: 'neutral',
+                lipsyncLang: 'en',
+            });
+
+            // Map the shared contract onto moods / gaze / gestures.
+            const MOODS = { idle: 'neutral', listening: 'happy', thinking: 'neutral', speaking: 'happy' };
+            let lastState = null, wakeApplied = false;
+            stateTimer = setInterval(() => {
+                try {
+                    const waking = performance.now() < (window.__avatarWakeUntil || 0);
+                    if (waking && !wakeApplied) {
+                        wakeApplied = true;
+                        head.setMood('love');
+                        head.playGesture('handup', 2);
+                        head.lookAtCamera(800);
+                    } else if (!waking && wakeApplied) {
+                        wakeApplied = false;
+                        head.setMood(MOODS[window.avatarState] || 'neutral');
+                    }
+                    if (window.avatarState !== lastState) {
+                        lastState = window.avatarState;
+                        if (!waking) head.setMood(MOODS[lastState] || 'neutral');
+                        if (lastState === 'listening') head.lookAtCamera(1000);
+                        // Occasionally raise an index finger — "one moment…"
+                        if (lastState === 'thinking' && Math.random() < 0.3) head.playGesture('index', 2);
+                    }
+                } catch (e) { /* one bad tick must not kill the loop */ }
+            }, 250);
+
+            // TTS playback + real lip-sync. Returns a Promise while handling
+            // (page waits for it), or null → page falls back to plain audio.
+            window.avatarSpeak = (b64, text) => {
+                if (!head || failed) return null;
+                try {
+                    const bin = atob(b64);
+                    const bytes = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                    return head.audioCtx.decodeAudioData(bytes.buffer).then(audio =>
+                        new Promise(resolve => {
+                            const { words, wtimes, wdurations } = estimateTimings(text, audio.duration * 1000);
+                            head.speakAudio({ audio, words, wtimes, wdurations },
+                                            { lipsyncLang: guessLang(text) });
+                            head.speakMarker(() => resolve());
+                            // Safety net in case the marker never fires.
+                            setTimeout(resolve, audio.duration * 1000 + 4000);
+                        })
+                    ).catch(() => null);
+                } catch (e) { return null; }
+            };
+        }).catch(fail);
+
+        // WebGL sanity check — bail out early on devices without it.
+        try {
+            const test = document.createElement('canvas');
+            if (!test.getContext('webgl2') && !test.getContext('webgl')) fail(new Error('WebGL unavailable'));
+        } catch (e) { fail(e); }
+    }
+
+    // Wake handling for the human renderer: reuse the shared timestamp via a
+    // window mirror (the mascot/orb close over avatarWakeUntil directly).
+    const origWakeBurst = window.avatarWakeBurst;
+    window.avatarWakeBurst = (ms = 1700) => {
+        window.__avatarWakeUntil = performance.now() + ms;
+        origWakeBurst(ms);
+    };
+
+    const which = (avatarCanvas.dataset.avatar || 'human').toLowerCase();
+    if (which === 'orb') startOrb();
+    else if (which === 'mascot') startMascot();
+    else startHuman();
 })();
