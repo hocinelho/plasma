@@ -1,120 +1,90 @@
 # Plasma — Session Handoff
 
 > Read this at the start of every new session. Update it at the end.
-> Last updated: **2026-05-13** — session by Claude Opus 4.7
+> Last updated: **2026-07-10** — Claude Code web session
 
 ---
 
-## What was done today (2026-05-13)
+## Branch situation (read first)
 
-### Sprint 1 — Cloud LLM (PA-25 epic)
-| Ticket | What | Commit |
-|---|---|---|
-| PA-28 | PII redactor — regex strips emails, phones, cards, IPs, long IDs from all outbound messages | a5150a2 |
-| PA-29 | Cloud LLM client — OpenAI-compatible, Groq initially | 45f7346 |
-| PA-29.1 | Refactored GROQ_* → CLOUD_* (provider-agnostic); Gemini free tier as default | f916ad7 |
-| PA-30 | Audit log — every cloud call appends JSONL to `.plasma/audit.log` | 23b4ac2 |
-| PA-31 | Offline fallback — `chat_service._llm_reply()` tries cloud first, falls back to Ollama on any error | built into chat_service |
+- **All real work lives on `claude/enhance-plasma-project-cOZli`** (v1.0.0 shipped 2026-06-11, then vision + sense work). 
+- **`main` is frozen at 2026-04-28** (Step 8, pre-v1.0) — 200+ commits behind. Its README/handoff.py are obsolete; don't trust them.
+- **PR #2 (open, draft):** `claude/session-015ndjdsamrc9cy69awrrpeb-x6de9z` → enhance branch — Level 1 RSSI sensing (see below). Merge it if tests are green.
+- `.plasma/MEMORY.md` is gitignored — it only exists on Hocine's machine. THIS file is the shared memory; keep it updated **every session**.
 
-### Sprint 2 — UI essentials (PA-36 epic)
-| Ticket | What | Commit |
-|---|---|---|
-| PA-37 | Waveform visualizer — Web Audio API canvas, appears only while recording | 926b127 |
-| PA-38 | Conversation history — timestamps per turn, Clear button, smooth scroll, empty-state hint | 926b127 |
-| PA-39 | Status indicator — 4 states: idle / listening / thinking / speaking, each with colour + pulse | 926b127 |
+## What was done last (2026-07-10)
 
-### Extras
-- `scripts/smoke_test.py` — one-shot live test: PII → cloud → audit log
-- Stale "Groq" log messages cleaned up in `chat_service.py` (commit 3833332)
+**Level 1 real WiFi sensing — laptop RSSI motion detection (PR #2).**
+Until now all WiFi sensing was the simulated demo. Now:
 
----
-
-## Current app state
-
-- **Branch:** `claude/enhance-plasma-project-cOZli`
-- **Tests:** 56 passing (`pytest tests/ --ignore=tests/test_backend.py`)
-- **Provider:** Google Gemini (`gemini-2.0-flash`) via OpenAI-compat endpoint — free, 1500 req/day
-- **Fallback:** Ollama (`orca-mini:latest`) on any cloud error
-- **Live test:** `python scripts/smoke_test.py` — all 3 checks green after correct `.env`
-
-### Known `.env` issue on Hocine's machine
-The user set `CLOUD_BASE_URL=https://https://aistudio.google.com/api-keys` — that is WRONG.
-The correct value is:
-```
-CLOUD_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-```
-Remind him to fix this at the start of next session and re-run `python scripts/smoke_test.py`.
-
-### Known local bug on Hocine's machine
-`backend/skills/get_date.py` had its content replaced by JSON on his machine.
-Fix: `git checkout -- backend/skills/get_date.py`
-He ran this command — should be resolved, but confirm next session.
-
----
-
-## What's next — Sprint 3 (Jun 10 – Jun 24)
-
-**Goal:** Wake word — "Hey Plasma" hands-free activation
-
-| Ticket | What |
+| Piece | What |
 |---|---|
-| PA-34 | `openWakeWord` integration — detect "hey plasma" in real time |
-| PA-35 | Remove F9 hotkey once wake word is stable |
+| `backend/modules/sense/rssi_sensor.py` | Stdlib-only `MotionDetector`: RSSI jitter (sliding-window sigma) vs adaptive quiet baseline; presence = motion within last `--hold` s (default 600). Readers: `netsh` (Windows, en+de) / `/proc/net/wireless` (Linux). |
+| `scripts/ruview_bridge.py --rssi` | Third bridge mode (demo / real / **rssi**). Same `/api/presence` + `/api/pose` endpoints → `wifi_sense` skill, alerts, and UI work unchanged. Honest shape: count 0/1, no rooms/pose/vitals. |
+| `tests/test_rssi_sensor.py` | 11 tests: parsers (en/de netsh, proc), motion/hold/warmup logic, Windows-blocker hints. |
 
-**Before starting PA-34:**
-1. Confirm `python scripts/smoke_test.py` all green (Gemini working)
-2. Confirm `get_date.py` skill loads (no IndentationError in startup log)
-3. Then: `pip install openwakeword` and design the background mic thread
+**⛔ Real-world test BLOCKED on Hocine's machine:** it's a **company laptop** — Windows 11 24H2 hides `netsh wlan` signal info unless **Location Services** are enabled (company policy forbids) or the shell runs **as Administrator**. The bridge now prints this exact diagnosis at startup. Untested paths: a private machine, an elevated shell, or the phone-hotspot test. Feature is code-complete + unit-tested, awaiting a live test.
 
----
+**Hardware context:** Hocine's gateway is a Teltonika TRB500 — **5G only, no WiFi radio**, unusable as a sensor. Real through-wall sensing = ESP32-S3 (~9€) + ESP-CSI → `real_scene()` in the bridge ("Level 2", not started).
+
+## What's next (agreed with Hocine)
+
+1. **Vision detection upgrade Phase 1 — DONE (same PR #2):** supervision (MIT) integrated: `sv.ByteTrack` tracker backend (stable IDs through occlusion; `TRACK_BACKEND=byte|iou`, auto-fallback to SORT-lite), SAHI tiled inference on snapshot paths (`VISION_SLICING`, small objects like keys), EfficientDet-Lite2 default (`VISION_DETECTOR_MODEL`), annotate helper (`vision/detections.py`). Pin `supervision<0.30` (ByteTrack removed in 0.30 → `trackers` pkg later). **Awaiting Hocine's live camera test.**
+2. **Vision Phase 2 — YOLOE open-vocab backend BUILT (same PR #2), awaiting Hocine's export+copy:** `vision/yolo_onnx.py` + `VISION_BACKEND=yolo_onnx` runs an Ultralytics-exported YOLOE/YOLO-World ONNX (user's own class list baked in — fixes "pen"→"toothbrush") on onnxruntime; mediapipe auto-fallback; e2e-verified with a synthetic ONNX. Hocine must export on a connected PC and copy the file — exact steps in `docs/yoloe-setup.md`. ⚠️ YOLOE weights are AGPL (accepted for personal use, exporter never imported by Plasma). Note: recognition-by-voice ("what is this?") uses the VLM path — his configured VLM was too big and timed out; advised `ollama pull moondream`.
+3. Vision Phase 3 (optional): RF-DETR (Apache 2.0) detector; `PolygonZone` room zones; `trackers` pkg migration.
+3. Level 1 RSSI live test whenever a non-locked-down WiFi machine is available.
+4. Level 2: ESP32-S3 CSI → bridge `real_scene()` (hardware not ordered yet).
+
+## Parallel work — avatar session
+
+A **separate session** is designing Plasma's avatar as a **creature/mascot**
+(Hocine's choice). It works on branch `claude/avatar-design` off the enhance
+branch, own PR. Brief + contract: **`docs/avatar-design.md`**. Division of
+labour: the avatar session touches only `frontend/avatar.*`, the include line
+in `index.html`, and `docs/avatar-*.md`; the main session keeps backend +
+tracking overlay. First avatar task is extracting the sphere out of
+`index.html` into `avatar.js` to create a clean seam.
+
+## ⚠️ Standing warnings
+
+- **Old `main` has a real Groq API key committed in `.env.example`** (`gsk_...`). Told Hocine to revoke it at console.groq.com — as of 2026-07-10 unconfirmed. Never commit real keys; `.env.example` gets placeholders only.
+- Do **not** commit `voices/*.onnx` (60 MB models) or `external/locate-anything.cpp` (embedded git repo). A local WIP commit with these existed on Hocine's machine (2923ce0) — advised `git reset --soft HEAD~1`; confirm it never got pushed.
+- Files on `main` (`README.md`, `.gitignore`, `handoff.py`) contain broken PowerShell here-string wrappers (`@" ... "@ | Out-File`). Don't create files that way.
 
 ## Architecture reminder
 
 ```
-Browser mic → WebM → FFmpeg → int16 PCM 16kHz
+Browser mic → WebM → FFmpeg → int16 PCM 16 kHz
   → Whisper ASR → text
-  → SkillRegistry.find_by_trigger() — fast path
-  → _llm_reply() — cloud (Gemini) or Ollama fallback
-  → PII redacted before any cloud send
-  → Audit log written for every cloud call
+  → SkillRegistry.find_by_trigger() — fast path (45 skills)
+  → _llm_reply() — cloud (Gemini via OpenAI-compat) or Ollama fallback
+  → PII redacted before any cloud send; audit log per cloud call
   → Piper TTS → WAV → base64 → browser
+Sense layer: ruview_bridge (demo | rssi | real-CSI) → /api/wifi/scene
+  → wifi_sense skill, RuViewMonitor alerts, see-through + floor-plan UI
+Vision layer: camera → detector/tracker/face_id/perception → vision skills
 ```
-
----
 
 ## File map (key files only)
 
 | File | Purpose |
 |---|---|
-| `backend/core/config.py` | All env vars — CLOUD_*, OLLAMA_*, WHISPER_MODEL |
-| `backend/modules/router/cloud_client.py` | Provider-agnostic Gemini/Cerebras/OpenRouter client |
-| `backend/modules/router/chat_service.py` | Glue: memory + skills + LLM + suggester |
-| `backend/modules/router/pii_redactor.py` | Strips PII before cloud sends |
-| `backend/modules/router/audit_log.py` | JSONL appender → `.plasma/audit.log` |
-| `backend/modules/router/ollama_client.py` | Local Ollama fallback |
-| `backend/skills/*.py` | Individual skill files (META + run + self_test) |
-| `frontend/index.html` | Entire UI — waveform + history + status indicator |
-| `scripts/smoke_test.py` | Live integration test (PA-28 + PA-29 + PA-30) |
-| `JIRA.md` | Jira board mirror — always keep in sync |
-| `HANDOFF.md` | This file — session memory |
-
----
+| `backend/core/config.py` | All env vars — CLOUD_*, OLLAMA_*, WHISPER_*, RUVIEW_* |
+| `backend/modules/router/` | chat glue, cloud client, PII redactor, audit log, Ollama |
+| `backend/modules/sense/` | RuView monitor, floor plan, **rssi_sensor (new)** |
+| `backend/modules/vision/` | capture, detector, tracker, face_id, perception — next work area |
+| `backend/skills/*.py` | 45 skills (META + run + self_test) |
+| `scripts/ruview_bridge.py` | WiFi-sensing bridge: demo / **--rssi** / real ESP32 hook |
+| `frontend/index.html` | Main UI (see-through view, wake burst, KaTeX) |
+| `JIRA.md` | Ticket board mirror |
+| `HANDOFF.md` | This file — session memory. **Update before ending a session.** |
+| `docs/session-log-*.md` | Per-session detail logs |
 
 ## Rules for next session
 
-1. **Read this file + JIRA.md before touching code**
-2. **Branch is `claude/enhance-plasma-project-cOZli`** — push here, not main
-3. **Before committing:** `pytest tests/ --ignore=tests/test_backend.py` must be 56+ green
-4. **Every shipped feature** → update JIRA.md row + commit hash
-5. **Never put API keys in code or chat** — `.env` only
-6. **Commit format:** `PA-<n>: short description`
-7. **Push after every commit** — set remote before each push (proxy resets it each session)
-
----
-
-## Git push reminder (do this every session before first push)
-
-```bash
-git remote set-url origin https://YOUR_GITHUB_PAT@github.com/hocinelho/plasma.git
-```
-(Get your PAT from GitHub → Settings → Developer settings → Personal access tokens)
+1. **Read this file first** — don't trust `main`'s README/handoff.py (frozen at April).
+2. Work branches off `claude/enhance-plasma-project-cOZli`; web sessions push their own `claude/session-*` branch + PR into it.
+3. Before committing: `pytest tests/` green (CI runs on push to main + enhance branch only, NOT on PRs into enhance — run tests locally).
+4. Every shipped feature → update JIRA.md and THIS file (state + blockers + next steps).
+5. Never put API keys in code, chat, or `.env.example` — `.env` only.
+6. Skill files: `backend/skills/<name>.py` with META + run + self_test; framework in `backend/modules/skills/`.

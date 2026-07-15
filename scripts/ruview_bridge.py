@@ -8,11 +8,16 @@ no server). This tiny bridge fills the gap:
   * DEMO mode (default) — no hardware, no Docker: streams a simulated walking
     skeleton so you can see Plasma's "🫥 See-through" view and presence alerts
     work immediately.
+  * RSSI mode (--rssi) — REAL motion sensing with zero extra hardware: reads
+    the laptop's own WiFi signal strength and detects people moving between
+    the laptop and the router from the jitter. House-level presence only
+    (no rooms, no skeletons, no vitals); the laptop must be ON WiFi.
   * REAL mode — once you have an ESP32-S3 running CSI, plug your `ruview`
     extractor output into `real_scene()` below and run with --real.
 
 Run:
     python scripts/ruview_bridge.py            # demo on http://localhost:3000
+    python scripts/ruview_bridge.py --rssi     # real laptop-WiFi motion sensing
     python scripts/ruview_bridge.py --port 3001
 
 Then in Plasma's .env:
@@ -27,8 +32,11 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 # COCO-17 skeleton, as (x, y) offsets from the body centre, roughly 0..1 tall.
 _TEMPLATE = [
@@ -147,7 +155,55 @@ def real_scene() -> dict:
     return {"people": [], "count": 0, "present": False, "rooms": {}}
 
 
+class RssiLoop(threading.Thread):
+    """Background sampler: laptop RSSI → MotionDetector, ~3 samples/second."""
+
+    def __init__(self, detector, hz: float = 3.0):
+        super().__init__(daemon=True, name="rssi-sensor")
+        self.detector = detector
+        self.hz = hz
+        self.status: dict = {"ok": True, "connected": False, "present": False,
+                             "motion": False, "warming_up": True}
+
+    def run(self):
+        from backend.modules.sense.rssi_sensor import read_rssi_dbm
+        while True:
+            self.status = self.detector.add_sample(read_rssi_dbm())
+            time.sleep(1.0 / self.hz)
+
+
+RSSI_LOOP: "RssiLoop | None" = None
+
+
+def rssi_scene() -> dict:
+    """Scene built from the laptop's real RSSI motion detector.
+
+    Honest shape: count is 0 or 1, no rooms, no people/pose — Plasma's
+    wifi_sense skill and the RuView alert monitor read count/present as-is.
+    """
+    st = RSSI_LOOP.status if RSSI_LOOP else {}
+    present = bool(st.get("present"))
+    return {
+        "present": present,
+        "count": 1 if present else 0,
+        "rooms": {},
+        "people": [],
+        "has_pose": False,
+        "mode": "rssi",
+        "connected": st.get("connected"),
+        "warming_up": st.get("warming_up"),
+        "motion": st.get("motion"),
+        "motion_level": st.get("motion_level"),
+        "rssi_dbm": st.get("rssi_dbm"),
+        "sigma_db": st.get("sigma_db"),
+        "threshold_db": st.get("threshold_db"),
+        "last_motion_ago_s": st.get("last_motion_ago_s"),
+    }
+
+
 def scene() -> dict:
+    if RSSI_LOOP is not None:
+        return rssi_scene()
     people = _demo_people(N_PEOPLE) if DEMO else real_scene().get("people", [])
     rooms: dict[str, int] = {}
     for p in people:
@@ -178,9 +234,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.rstrip("/") in ("/api/pose", "/pose", "/api/keypoints", "/keypoints"):
             self._send(data)
         elif self.path.rstrip("/") in ("/api/presence", "/presence", "/api/status", "/status", "/api/sensors"):
-            self._send({"present": data["present"], "count": data["count"], "rooms": data["rooms"]})
+            # Everything except the (possibly large) pose list.
+            self._send({k: v for k, v in data.items() if k not in ("people", "has_pose")})
         elif self.path.rstrip("/") in ("", "/"):
-            self._send({"service": "ruview-bridge", "mode": "demo" if DEMO else "real", "endpoints": ["/api/pose", "/api/presence"]})
+            mode = "rssi" if RSSI_LOOP else ("demo" if DEMO else "real")
+            self._send({"service": "ruview-bridge", "mode": mode, "endpoints": ["/api/pose", "/api/presence"]})
         else:
             self.send_response(404)
             self.end_headers()
@@ -190,18 +248,43 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    global DEMO
+    global DEMO, RSSI_LOOP
     ap = argparse.ArgumentParser(description="RuView → Plasma bridge server")
     ap.add_argument("--port", type=int, default=3000)
     ap.add_argument("--real", action="store_true", help="use real_scene() instead of the demo")
+    ap.add_argument("--rssi", action="store_true",
+                    help="REAL motion sensing from the laptop's own WiFi RSSI (no hardware)")
     ap.add_argument("--people", type=int, default=3, help="how many demo occupants to simulate")
+    ap.add_argument("--hold", type=float, default=600.0,
+                    help="rssi mode: seconds after the last motion to still report 'present'")
+    ap.add_argument("--hz", type=float, default=3.0, help="rssi mode: samples per second")
     args = ap.parse_args()
     DEMO = not args.real
     global N_PEOPLE
     N_PEOPLE = max(0, args.people)
 
+    if args.rssi:
+        # The detector lives in the backend package; make it importable when
+        # this file is run directly as `python scripts/ruview_bridge.py`.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from backend.modules.sense.rssi_sensor import MotionDetector, diagnose, read_rssi_dbm
+        first = read_rssi_dbm()
+        if first is None:
+            print("\n!! No WiFi signal readable. RSSI mode needs the laptop CONNECTED")
+            print("   to a WiFi network (not Ethernet-only). Serving anyway — it will")
+            print("   report 'not connected' until a signal appears.")
+            hint = diagnose()
+            if hint:
+                print(f"   Likely cause: {hint}")
+        else:
+            print(f"\nWiFi signal found: {first:.0f} dBm — learning the quiet baseline (~15s)...")
+        RSSI_LOOP = RssiLoop(MotionDetector(presence_hold_s=args.hold), hz=args.hz)
+        RSSI_LOOP.start()
+
     srv = ThreadingHTTPServer(("0.0.0.0", args.port), Handler)
-    mode = "DEMO (simulated walking skeleton)" if DEMO else "REAL (ruview/ESP32)"
+    mode = ("RSSI (real laptop-WiFi motion sensing)" if args.rssi
+            else "DEMO (simulated walking skeleton)" if DEMO
+            else "REAL (ruview/ESP32)")
     print(f"\nRuView bridge running — {mode}")
     print(f"  Serving http://localhost:{args.port}/api/pose  and  /api/presence")
     print("  In Plasma .env:  RUVIEW_ENABLED=true   RUVIEW_URL="

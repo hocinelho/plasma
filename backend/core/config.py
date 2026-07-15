@@ -176,6 +176,27 @@ class Config:
         "VISION_MODEL_DIR",
         str(Path(__file__).resolve().parents[2] / ".plasma" / "models"),
     ))
+    # Detector size: efficientdet_lite0 (default — the original, ~4.4 MB, already
+    # on disk) or efficientdet_lite2 (more accurate, ~12 MB, downloads on first
+    # use). Both Apache 2.0. Opt into lite2 only when it can download.
+    VISION_DETECTOR_MODEL: str = os.getenv("VISION_DETECTOR_MODEL", "efficientdet_lite0")
+    # Detector BACKEND: "mediapipe" (default, 80 COCO classes) or "yolo_onnx" —
+    # an Ultralytics-exported YOLOE/YOLO-World ONNX with YOUR class list baked
+    # in ("pen", "keys", ...), running on onnxruntime. NO download here: export
+    # on a connected PC and copy to YOLO_ONNX_MODEL (docs/yoloe-setup.md).
+    # Any load failure falls back to mediapipe automatically.
+    VISION_BACKEND: str = os.getenv("VISION_BACKEND", "mediapipe")
+    YOLO_ONNX_MODEL: Path = Path(os.getenv("YOLO_ONNX_MODEL")
+                                 or str(VISION_MODEL_DIR / "yoloe.onnx"))
+    # Optional comma-separated class-name override when the ONNX lacks metadata.
+    YOLO_ONNX_CLASSES: str = os.getenv("YOLO_ONNX_CLASSES", "")
+    YOLO_ONNX_IMGSZ: int = int(os.getenv("YOLO_ONNX_IMGSZ", "640"))
+    YOLO_ONNX_IOU: float = float(os.getenv("YOLO_ONNX_IOU", "0.45"))
+    # Tiled (SAHI-style) inference on SNAPSHOT paths ("what do you see",
+    # "find my X"): the detector runs on overlapping tiles so small objects
+    # (keys, remotes) become visible — slower, so OPT-IN. Needs supervision;
+    # falls back to plain full-frame detection without it. Off = original behavior.
+    VISION_SLICING: bool = os.getenv("VISION_SLICING", "false").lower() == "true"
 
     # --- Face + hand perception (MediaPipe FaceLandmarker + HandLandmarker) ---
     # Real-time face expression (smile / sleepy / wink) and hand gestures
@@ -211,6 +232,25 @@ class Config:
     # Keep drawing a track via velocity prediction for this many missed cycles
     # before hiding it — stops boxes blinking out when a frame misses.
     TRACK_COAST_FRAMES: int = int(os.getenv("TRACK_COAST_FRAMES", "3"))
+    # Tracker backend: "byte" = supervision ByteTrack (MIT — Kalman prediction,
+    # occlusion-proof IDs; needs `pip install supervision`), "iou" = the
+    # built-in SORT-lite. Auto-falls back to iou when supervision is missing.
+    TRACK_BACKEND: str = os.getenv("TRACK_BACKEND", "byte")
+    # ByteTrack tuning (only used when TRACK_BACKEND=byte) — adjust live in .env:
+    #   TRACK_LOST_BUFFER  frames an id survives while UNSEEN before it's a new
+    #                      id. Raise it if you lose the subject behind furniture.
+    TRACK_LOST_BUFFER: int = int(os.getenv("TRACK_LOST_BUFFER", "90"))
+    #   TRACK_MATCH_THRESH match leniency (0..1). RAISE toward 0.9 to hold one
+    #                      id through FAST motion / low box overlap (fixes a
+    #                      moving object splitting into #1,#2,#3). LOWER toward
+    #                      0.6 if two objects that cross get merged/swapped.
+    TRACK_MATCH_THRESH: float = float(os.getenv("TRACK_MATCH_THRESH", "0.8"))
+    #   TRACK_ACTIVATION   confidence to START a track. Lower (~0.2) to pick up
+    #                      faint/distant subjects sooner; raise to reduce noise.
+    TRACK_ACTIVATION: float = float(os.getenv("TRACK_ACTIVATION", "0.25"))
+    #   TRACK_SMOOTH_LEN   box smoothing window. Raise for steadier boxes, lower
+    #                      (1) if the box LAGS behind fast motion.
+    TRACK_SMOOTH_LEN: int = int(os.getenv("TRACK_SMOOTH_LEN", "3"))
 
     # Keep the local webcam warm for this many seconds after a "find X" so the
     # next one is instant (opening a webcam is slow). Released when idle so other

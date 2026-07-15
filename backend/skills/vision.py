@@ -114,7 +114,7 @@ def _detect_from_local_camera() -> list[dict]:
     from backend.modules.vision.detector import get_detector
     from backend.modules.vision.capture import snapshot
     frame = snapshot(config.CAMERA_DEVICE)
-    return get_detector().detect(frame)
+    return get_detector().detect_smart(frame)
 
 
 # Utterances about the user's appearance get a person-focused prompt.
@@ -168,7 +168,7 @@ def _augment_with_detected_objects(frame, description: str, de: bool) -> str:
     """Append held objects the detector saw but the description didn't mention."""
     try:
         from backend.modules.vision.detector import get_detector
-        dets = get_detector().detect(frame)
+        dets = get_detector().detect_smart(frame)
     except Exception:
         return description
 

@@ -83,7 +83,7 @@ def _annotate_object(frame, obj: str) -> str | None:
     """
     try:
         from backend.modules.vision.detector import get_detector
-        dets = get_detector().detect(frame)
+        dets = get_detector().detect_smart(frame)
     except Exception as e:  # detector/opencv missing → just skip the box
         log.debug("locate annotate: detector unavailable: %s", e)
         return None
@@ -118,7 +118,7 @@ def _try_enrolled_object(frame, obj: str, img_w: int, img_h: int, de: bool) -> s
     if not (object_memory.is_available() and object_memory.is_enrolled(obj)):
         return None
     try:
-        dets = get_detector().detect(frame)
+        dets = get_detector().detect_smart(frame)
         match = object_memory.find_in_frame(obj, frame, dets)
     except Exception as e:
         log.debug("locate: enrolled match failed: %s", e)

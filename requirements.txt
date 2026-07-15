@@ -39,6 +39,10 @@ spotipy>=2.25.0
 # AGPL, no extra deps). Runs on CPU; models auto-download (~16 MB).
 mediapipe>=0.10.14
 opencv-python>=4.10.0
+# Detection toolbox (Roboflow Supervision, MIT): ByteTrack tracking (stable IDs
+# through occlusion), SAHI tiled inference (small objects), NMS, annotators.
+# <0.30 because sv.ByteTrack is removed there (moves to the `trackers` pkg).
+supervision>=0.26.0,<0.30
 
 # --- Face identity recognition (DeepFace, MIT) — OPTIONAL, pulls in tensorflow ---
 # Install manually to let Plasma recognize WHO it sees:
