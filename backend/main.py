@@ -232,6 +232,24 @@ async def camera_page():
     return JSONResponse({"error": "camera.html not found"}, status_code=404)
 
 
+@app.get("/avatar.js")
+async def avatar_js():
+    """Serve the avatar renderer (extracted from index.html)."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "avatar.js"
+    if path.exists():
+        return FileResponse(path, media_type="application/javascript")
+    return JSONResponse({"error": "avatar.js not found"}, status_code=404)
+
+
+@app.get("/avatar.css")
+async def avatar_css():
+    """Serve the avatar styles (extracted from index.html)."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "avatar.css"
+    if path.exists():
+        return FileResponse(path, media_type="text/css")
+    return JSONResponse({"error": "avatar.css not found"}, status_code=404)
+
+
 @app.get("/api/network-info")
 async def network_info():
     """LAN IPs + the HTTPS phone URLs, so the UI can tell the user where to point

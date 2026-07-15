@@ -1,0 +1,20 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Plasma avatar — styles
+   Extracted from index.html so the avatar can evolve on its own.
+   Paired with avatar.js (same directory), served at /avatar.css.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#avatar-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+#avatar {
+    width: 190px;
+    height: 190px;
+    display: block;
+    /* soft outer aura; hue is nudged per-state from JS */
+    filter: drop-shadow(0 0 18px rgba(120, 180, 255, 0.25));
+    transition: filter 0.5s;
+}
