@@ -22,7 +22,7 @@
 /* ── Human 3D avatar (TalkingHead renderer) ─────────────────────────── */
 #avatar-human {
     width: min(320px, 82vw);
-    height: 380px;
+    height: 440px;
     border-radius: 18px;
     overflow: hidden;
     /* subtle glass panel so the person sits inside the plasma UI */

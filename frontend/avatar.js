@@ -535,10 +535,13 @@
             /[äöüß]|\b(und|ich|nicht|das|ist|ein|eine|der|die)\b/i.test(text || '') ? 'de' : 'en';
 
         import('talkinghead').then(async ({ TalkingHead }) => {
+            // Camera framing: full body by default; override with
+            // <canvas id="avatar" data-avatar-view="upper|mid|head">.
+            const view = (avatarCanvas.dataset.avatarView || 'full').toLowerCase();
             head = new TalkingHead(holder, {
                 lipsyncModules: ['en', 'de'],
                 lipsyncLang: 'en',
-                cameraView: 'upper',
+                cameraView: ['full', 'mid', 'upper', 'head'].includes(view) ? view : 'full',
                 cameraRotateEnable: false,
                 cameraPanEnable: false,
                 cameraZoomEnable: false,
