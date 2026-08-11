@@ -956,6 +956,9 @@ async function sendAudio(blob) {
         if (data.reply)      addTurn('assistant', data.reply);
         if (data.image_b64)  addImageTurn(data.image_b64);
         if (data.error && !data.transcript) addTurn('error', data.error);
+        // Play the requested body movement (avatar_move skill) alongside the
+        // reply, so she waves *while* saying "waving at you".
+        if (data.gesture && window.avatarGesture) window.avatarGesture(data.gesture);
         if (data.audio_b64) {
             setStatus('speaking');
             await playBase64Audio(data.audio_b64, data.reply);

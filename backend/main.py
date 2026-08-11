@@ -622,6 +622,15 @@ async def voice_chat(
     except Exception as _e:
         log.debug("locate image attach skipped: %s", _e)
 
+    # If the avatar_move skill asked for a gesture, ship it so the 3D avatar
+    # actually performs it while the reply is spoken.
+    gesture = None
+    try:
+        from backend.skills import avatar_move as _move_skill
+        gesture = _move_skill.pop_last_gesture()
+    except Exception as _e:
+        log.debug("gesture attach skipped: %s", _e)
+
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
     tts_ms = 0.0
@@ -662,6 +671,7 @@ async def voice_chat(
         "total_ms": total_ms,
         "audio_b64": audio_b64,
         "image_b64": locate_image_b64,
+        "gesture": gesture,
     }
 
 

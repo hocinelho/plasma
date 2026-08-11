@@ -134,6 +134,29 @@ only defined while the human renderer is active; `playBase64Audio()` in
 `index.html` calls it first and falls back to plain `<audio>` playback (and
 the amplitude-driven `avatarLevel` path) when it's absent.
 
+### Voice-commanded movement
+
+Ask her to move — *"wave at me"*, *"give me a thumbs up"*, *"winke mal"* —
+and she does. The chain:
+
+1. `backend/skills/avatar_move.py` matches the utterance, returns the spoken
+   reply, and queues the gesture name.
+2. `backend/main.py` pops it with `pop_last_gesture()` and adds `gesture` to
+   the `/voice/chat` response.
+3. `index.html` calls `window.avatarGesture(name)` so the movement plays
+   *while* the reply is spoken.
+
+`window.avatarGesture(name, seconds=3)` is the second optional hook: it
+returns `false` for names the rig doesn't know (the underlying `playGesture`
+ignores unknown names silently, so it validates first).
+
+Available: `handup`, `thumbup`, `thumbdown`, `ok`, `index`, `shrug`,
+`namaste`, `side`, plus the `yes` / `no` head animations.
+
+The LLM system prompt also tells Plasma it *has* an on-screen body and can
+move — otherwise it replied "I am unable to physically move" and confused
+"avatar" with the film.
+
 ---
 
 ## Roadmap

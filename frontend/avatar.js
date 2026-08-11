@@ -505,6 +505,7 @@
             console.warn('[avatar] human renderer unavailable — using mascot.', err);
             if (stateTimer) clearInterval(stateTimer);
             delete window.avatarSpeak;
+            delete window.avatarGesture;
             holder.remove();
             wrap.classList.remove('human');
             avatarCanvas.style.display = '';
@@ -596,6 +597,21 @@
                     }
                 } catch (e) { /* one bad tick must not kill the loop */ }
             }, 250);
+
+            // Perform a named gesture on request (backend's avatar_move skill).
+            // Returns true only if the name is one the rig actually knows —
+            // playGesture() silently ignores unknown names, so check first.
+            window.avatarGesture = (name, seconds = 3) => {
+                if (!head || failed || !name) return false;
+                const known = (head.gestureTemplates && head.gestureTemplates[name])
+                           || (head.animEmojis && head.animEmojis[name]);
+                if (!known) return false;
+                try {
+                    head.playGesture(name, seconds);
+                    head.lookAtCamera(800);
+                    return true;
+                } catch (e) { return false; }
+            };
 
             // TTS playback + real lip-sync. Returns a Promise while handling
             // (page waits for it), or null → page falls back to plain audio.
