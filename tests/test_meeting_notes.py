@@ -57,6 +57,46 @@ def test_title_extraction(utterance, title):
 
 
 # ── transcript state ─────────────────────────────────────────────────────
+@pytest.mark.parametrize("utterance", [
+    "start meeting notes",
+    "Start the meeting notes.",
+    "record this meeting",
+    "Hey Plasma, record the meeting",
+    "take meeting notes",
+    "start recording the meeting",   # open_app owns the generic "start "
+    "start recording",
+    "stop the meeting",
+    "stop recording",
+    "end the meeting",
+    "meeting status",
+    "Protokoll starten",
+    "Meeting aufnehmen",
+    "meeting beenden",
+])
+def test_spoken_commands_route_to_this_skill(utterance):
+    """Trigger matching is longest-wins, so generic triggers in other skills
+    can steal a phrase — 'start recording the meeting' went to open_app."""
+    from backend.modules.skills.registry import SkillRegistry
+
+    registry = SkillRegistry()
+    registry.load_all()
+    skill = registry.find_by_trigger(utterance)
+    assert skill is not None and skill.name == "meeting_notes", utterance
+
+
+@pytest.mark.parametrize("utterance,expected", [
+    ("open spotify", "open_app"),
+    ("launch chrome", "open_app"),
+])
+def test_other_skills_are_not_stolen_back(utterance, expected):
+    from backend.modules.skills.registry import SkillRegistry
+
+    registry = SkillRegistry()
+    registry.load_all()
+    skill = registry.find_by_trigger(utterance)
+    assert skill is not None and skill.name == expected
+
+
 def test_transcript_joins_segments():
     assert _state().transcript.splitlines() == [
         "We need to decide the rollout.",

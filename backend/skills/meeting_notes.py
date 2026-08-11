@@ -26,8 +26,11 @@ META = {
         "start meeting", "start the meeting", "start meeting notes",
         "record the meeting", "record this meeting", "take meeting notes",
         "minute this meeting", "start taking notes",
+        # "start recording" must be listed explicitly: open_app owns the very
+        # generic trigger "start ", and matching is longest-trigger-wins.
+        "start recording", "recording the meeting", "record meeting",
         "stop meeting", "stop the meeting", "end the meeting",
-        "stop recording the meeting", "finish the meeting",
+        "stop recording", "stop recording the meeting", "finish the meeting",
         "meeting status", "are you recording",
         "summarize the meeting", "summarise the meeting", "meeting summary",
         # German
