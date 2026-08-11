@@ -24,11 +24,18 @@ KNOWN_GESTURES = frozenset({
     "yes", "no",
 })
 
-_pending: dict = {"gesture": None, "ts": 0.0}
+# Full-body Mixamo clips in frontend/animations/ (served at /animations/<n>.fbx).
+# Names must stay filename-safe: the frontend builds a URL straight from them.
+KNOWN_ANIMATIONS = frozenset({
+    "walking", "start-walking", "jump", "waving", "talking",
+    "arguing", "disappointed", "secret", "yelling",
+})
+
+_pending: dict = {"gesture": None, "animation": None, "ts": 0.0}
 
 
 def request_gesture(name: str) -> bool:
-    """Queue a gesture for the browser. Returns False for unknown names."""
+    """Queue a hand/head gesture for the browser. False for unknown names."""
     if name not in KNOWN_GESTURES:
         return False
     _pending["gesture"] = name
@@ -36,16 +43,35 @@ def request_gesture(name: str) -> bool:
     return True
 
 
-def pop_gesture(max_age_s: float = 30.0) -> str | None:
-    """Return (once) the queued gesture, if one was requested recently."""
-    name = _pending["gesture"]
+def request_animation(name: str) -> bool:
+    """Queue a full-body animation clip. False for unknown names."""
+    if name not in KNOWN_ANIMATIONS:
+        return False
+    _pending["animation"] = name
+    _pending["ts"] = time.monotonic()
+    return True
+
+
+def _pop(key: str, max_age_s: float) -> str | None:
+    name = _pending[key]
     if name and (time.monotonic() - _pending["ts"]) <= max_age_s:
-        _pending["gesture"] = None
+        _pending[key] = None
         return name
     return None
 
 
+def pop_gesture(max_age_s: float = 30.0) -> str | None:
+    """Return (once) the queued gesture, if one was requested recently."""
+    return _pop("gesture", max_age_s)
+
+
+def pop_animation(max_age_s: float = 30.0) -> str | None:
+    """Return (once) the queued full-body animation."""
+    return _pop("animation", max_age_s)
+
+
 def clear() -> None:
-    """Drop any queued gesture (used by tests)."""
+    """Drop anything queued (used by tests)."""
     _pending["gesture"] = None
+    _pending["animation"] = None
     _pending["ts"] = 0.0

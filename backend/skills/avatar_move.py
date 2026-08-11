@@ -17,7 +17,11 @@ from __future__ import annotations
 
 import random
 
-from backend.modules.avatar_state import pop_gesture, request_gesture
+from backend.modules.avatar_state import (
+    pop_gesture,
+    request_animation,
+    request_gesture,
+)
 
 META = {
     "name": "avatar_move",
@@ -28,7 +32,10 @@ META = {
         "move", "can you move", "do some movement", "move something",
         "nod", "shake your head", "shrug", "thumbs up", "thumbs down",
         "point at", "show me a gesture", "do a gesture", "raise your hand",
-        "dance", "can you walk", "walk", "jump", "run around", "turn around",
+        "dance", "can you walk", "walk", "jump", "hop", "whisper",
+        "tell me a secret", "yell", "shout", "argue", "look disappointed",
+        "lauf", "laufen", "geh mal", "spring", "springen", "hüpf",
+        "flüster", "geheimnis", "schrei",
         # German
         "winke", "winken", "wink mal", "beweg dich", "bewegung",
         "nicke", "nicken", "kopfschütteln", "schulterzucken",
@@ -66,20 +73,43 @@ _SURPRISE_REPLIES = [
     ("How's this?", "Wie ist das?"),
 ]
 
-# Whole-body motion needs animation clips that aren't installed yet. Say so
-# plainly instead of letting the model invent a walk it can't perform.
+# Full-body Mixamo clips → (English reply, German reply). These play the whole
+# body rather than just the arms, so they cover walking, jumping and so on.
+ANIMATIONS = {
+    "walking":      ("Walking!", "Ich laufe!"),
+    "start-walking": ("Off I go!", "Los geht's!"),
+    "jump":         ("Jumping!", "Ich springe!"),
+    "waving":       ("Waving!", "Ich winke!"),
+    "talking":      ("Here's me talking.", "So rede ich."),
+    "arguing":      ("Making my case!", "Ich argumentiere!"),
+    "disappointed": ("Aww.", "Schade."),
+    "secret":       ("Come closer, it's a secret.", "Komm näher, ein Geheimnis."),
+    "yelling":      ("Loud and clear!", "Laut und deutlich!"),
+}
+
+# Phrase → animation clip. Checked before the hand gestures, since "walk"
+# has no gesture equivalent.
+ANIMATION_KEYWORDS = {
+    "walking": ["walk", "walking", "lauf", "laufen", "geh mal", "gehen"],
+    "jump": ["jump", "jumping", "hop", "spring", "springen", "hüpf"],
+    "waving": ["wave your whole", "big wave", "wave properly"],
+    "talking": ["talk with your hands", "gesticulate", "rede mit den händen"],
+    "arguing": ["argue", "arguing", "argumentier", "streit"],
+    "disappointed": ["be sad", "look disappointed", "sei traurig", "enttäuscht"],
+    "secret": ["tell me a secret", "whisper", "flüster", "geheimnis"],
+    "yelling": ["yell", "shout", "schrei", "ruf laut"],
+}
+
+# Motions we still have no clip for — decline honestly rather than faking it.
 UNSUPPORTED = [
-    "walk", "walking", "jump", "jumping", "run", "running", "dance", "dancing",
-    "turn around", "sit down", "stand up", "spin",
-    "lauf", "laufen", "geh", "gehen", "spring", "springen", "tanz", "tanzen",
-    "dreh dich", "setz dich",
+    "dance", "dancing", "tanz", "tanzen",
+    "run", "running", "renn", "sit down", "setz dich", "backflip", "cartwheel",
 ]
 _UNSUPPORTED_REPLY = (
-    "I can't walk or dance yet — that needs full-body animations. "
-    "But I can wave, nod, shrug, point or give you a thumbs up.",
-    "Laufen oder tanzen kann ich noch nicht — dafür fehlen mir die "
-    "Ganzkörper-Animationen. Winken, nicken, Schultern zucken, zeigen oder "
-    "Daumen hoch geht aber.",
+    "I don't have a clip for that yet. I can walk, jump, wave, nod, shrug, "
+    "point or give you a thumbs up.",
+    "Dafür habe ich noch keine Animation. Ich kann laufen, springen, winken, "
+    "nicken, Schultern zucken, zeigen oder Daumen hoch geben.",
 )
 
 # Phrase → gesture. Checked longest-first so "thumbs down" beats "thumbs".
@@ -100,6 +130,7 @@ KEYWORDS = {
 
 # When the user just says "move" / "dance" / "do something", pick from these.
 _SURPRISE = ["handup", "thumbup", "ok", "index", "shrug", "namaste"]
+
 
 def pop_last_gesture(max_age_s: float = 30.0) -> str | None:
     """Return (once) the most recently requested gesture if it's still fresh.
@@ -124,17 +155,42 @@ def _pick(utterance: str) -> tuple[str, bool]:
     return random.choice(_SURPRISE), False
 
 
+def _best_match(text: str, table: dict[str, list[str]]) -> tuple[int, str] | None:
+    """Longest matching phrase in `table`, as (phrase_length, name)."""
+    matches = [
+        (len(phrase), name)
+        for name, phrases in table.items()
+        for phrase in phrases
+        if phrase in text
+    ]
+    return max(matches) if matches else None
+
+
+def _pick_animation(text: str) -> str | None:
+    best = _best_match(text, ANIMATION_KEYWORDS)
+    return best[1] if best else None
+
+
 def run(args: dict | None = None) -> str:
     args = args or {}
     utterance = args.get("utterance", "")
     german_wanted = args.get("language") == "de"
-
     text = utterance.lower()
-    specific_match = any(
-        phrase in text for phrases in KEYWORDS.values() for phrase in phrases
-    )
-    # "Can you walk?" — be honest, unless they also named something we CAN do.
-    if not specific_match and any(word in text for word in UNSUPPORTED):
+
+    # One rule for both kinds of movement: the longest matching phrase wins.
+    # Without this a full-body clip would always pre-empt a hand gesture, so
+    # "just wave" would walk simply because "walk" was checked first.
+    anim_hit = _best_match(text, ANIMATION_KEYWORDS)
+    gesture_hit = _best_match(text, KEYWORDS)
+
+    if anim_hit and (not gesture_hit or anim_hit >= gesture_hit):
+        clip = anim_hit[1]
+        request_animation(clip)
+        english, german = ANIMATIONS[clip]
+        return german if german_wanted else english
+
+    # Asked for something we have no clip for — say so instead of faking it.
+    if not gesture_hit and any(word in text for word in UNSUPPORTED):
         return _UNSUPPORTED_REPLY[1 if german_wanted else 0]
 
     gesture, specific = _pick(utterance)

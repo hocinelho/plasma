@@ -627,12 +627,14 @@ async def voice_chat(
     # Read from the shared store, not from the skill module: the registry loads
     # skill files under a synthetic module name, so the skill's own globals are
     # a different object from `backend.skills.avatar_move` imported here.
-    gesture = None
+    gesture = animation = None
     try:
-        from backend.modules.avatar_state import pop_gesture
+        from backend.modules.avatar_state import pop_animation, pop_gesture
         gesture = pop_gesture()
-        if gesture:
-            log.info("Avatar gesture requested: %s", gesture)
+        animation = pop_animation()
+        if gesture or animation:
+            log.info("Avatar movement requested: gesture=%s animation=%s",
+                     gesture, animation)
     except Exception as _e:
         log.debug("gesture attach skipped: %s", _e)
 
@@ -677,6 +679,7 @@ async def voice_chat(
         "audio_b64": audio_b64,
         "image_b64": locate_image_b64,
         "gesture": gesture,
+        "animation": animation,
     }
 
 

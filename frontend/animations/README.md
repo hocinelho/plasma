@@ -26,6 +26,15 @@ The player renames every animation track from `mixamorigHips.position` to
 the avatar is scale 1). That only works with a genuine Mixamo FBX export —
 which is why the format and the "Without Skin" option are not optional.
 
+## Installed clips
+
+`walking`, `start-walking`, `jump`, `waving`, `talking`, `arguing`,
+`disappointed`, `secret`, `yelling`.
+
+After adding a file, register the name in `backend/modules/avatar_state.py`
+(`KNOWN_ANIMATIONS`) and `backend/skills/avatar_move.py` (`ANIMATIONS` +
+`ANIMATION_KEYWORDS`), or nothing will trigger it.
+
 ## Naming
 
 Use short, lowercase, descriptive filenames — they become part of the URL

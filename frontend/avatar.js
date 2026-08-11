@@ -506,6 +506,7 @@
             if (stateTimer) clearInterval(stateTimer);
             delete window.avatarSpeak;
             delete window.avatarGesture;
+            delete window.avatarAnimation;
             holder.remove();
             wrap.classList.remove('human');
             avatarCanvas.style.display = '';
@@ -611,6 +612,22 @@
                     head.lookAtCamera(800);
                     return true;
                 } catch (e) { return false; }
+            };
+
+            // Play a full-body Mixamo clip from /animations/<name>.fbx.
+            // Unlike gestures (arms only) this animates the whole skeleton.
+            window.avatarAnimation = (name, seconds = 8) => {
+                if (!head || failed || !name) return false;
+                // The name goes straight into a URL — keep it strictly safe.
+                if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return false;
+                try {
+                    const p = head.playAnimation(`/animations/${name}.fbx`, null, seconds);
+                    if (p && p.catch) p.catch(e => console.warn('[avatar] animation failed:', name, e));
+                    return true;
+                } catch (e) {
+                    console.warn('[avatar] animation failed:', name, e);
+                    return false;
+                }
             };
 
             // TTS playback + real lip-sync. Returns a Promise while handling

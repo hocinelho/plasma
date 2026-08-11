@@ -150,8 +150,26 @@ and she does. The chain:
 returns `false` for names the rig doesn't know (the underlying `playGesture`
 ignores unknown names silently, so it validates first).
 
-Available: `handup`, `thumbup`, `thumbdown`, `ok`, `index`, `shrug`,
-`namaste`, `side`, plus the `yes` / `no` head animations.
+Available gestures (arms/head only): `handup`, `thumbup`, `thumbdown`, `ok`,
+`index`, `shrug`, `namaste`, `side`, plus the `yes` / `no` head animations.
+
+**Full-body movement** uses Mixamo clips in `frontend/animations/`, played via
+the third hook `window.avatarAnimation(name, seconds=8)` (response field
+`animation`). Installed: `walking`, `start-walking`, `jump`, `waving`,
+`talking`, `arguing`, `disappointed`, `secret`, `yelling`. To add more, follow
+`frontend/animations/README.md`, then list the name in
+`avatar_state.KNOWN_ANIMATIONS` and `avatar_move.ANIMATIONS`.
+
+Gestures and clips share one selection rule — **the longest matching phrase
+wins** — so a full-body clip never silently pre-empts a hand gesture.
+
+> **Gotcha worth remembering:** anything a skill hands back to the HTTP layer
+> must live in `backend/modules/avatar_state.py`, not in the skill's own
+> globals. `SkillRegistry` loads skill files under a synthetic module name, so
+> the skill's module object is *not* the one `main.py` imports — state stored
+> in the skill is written to one copy and read from another. This silently
+> broke every gesture until it was fixed; `backend/skills/locate.py` still has
+> the same pattern for its annotated image.
 
 The LLM system prompt also tells Plasma it *has* an on-screen body and can
 move — otherwise it replied "I am unable to physically move" and confused

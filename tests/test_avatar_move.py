@@ -1,6 +1,7 @@
 """Tests for the avatar_move skill (voice-commanded avatar gestures)."""
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -94,20 +95,68 @@ def test_request_gesture_rejects_unknown_names():
     assert avatar_move.pop_last_gesture() is None
 
 
-@pytest.mark.parametrize("utterance", [
-    "can you walk", "jump", "can you dance for me", "lauf mal", "spring",
+@pytest.mark.parametrize("utterance,clip", [
+    ("can you walk", "walking"),
+    ("lauf mal", "walking"),
+    ("jump", "jump"),
+    ("spring mal", "jump"),
+    ("tell me a secret", "secret"),
+    ("yell at me", "yelling"),
 ])
-def test_whole_body_motion_is_declined_honestly(utterance):
-    """No animation clips installed — say so, don't fake it with a hand wave."""
+def test_full_body_clips_are_requested(utterance, clip):
+    avatar_move.run({"utterance": utterance})
+    assert avatar_state.pop_animation() == clip
+    # Full-body clips shouldn't also fire an arm gesture.
+    assert avatar_state.pop_gesture() is None
+
+
+@pytest.mark.parametrize("utterance", ["can you dance for me", "do a backflip"])
+def test_motions_without_a_clip_are_declined_honestly(utterance):
+    """No clip for it — say so, don't fake it with an unrelated hand wave."""
     reply = avatar_move.run({"utterance": utterance})
     assert reply == avatar_move._UNSUPPORTED_REPLY[0]
+    assert avatar_state.pop_animation() is None
     assert avatar_move.pop_last_gesture() is None
 
 
-def test_supported_gesture_still_wins_when_mentioned_alongside_walking():
-    reply = avatar_move.run({"utterance": "instead of walking, just wave"})
-    assert reply == avatar_move.GESTURES["handup"][0]
-    assert avatar_move.pop_last_gesture() == "handup"
+def test_german_thumbs_down_not_mistaken_for_running():
+    """'daumen runter' contains 'run' — must not trip the unsupported list."""
+    reply = avatar_move.run({"utterance": "daumen runter", "language": "de"})
+    assert reply == avatar_move.GESTURES["thumbdown"][1]
+    assert avatar_move.pop_last_gesture() == "thumbdown"
+
+
+def test_every_animation_has_a_file_on_disk():
+    """A clip name with no .fbx behind it would 404 in the browser."""
+    anim_dir = Path(__file__).resolve().parents[1] / "frontend" / "animations"
+    for name in avatar_move.ANIMATIONS:
+        assert (anim_dir / f"{name}.fbx").is_file(), f"missing clip: {name}.fbx"
+
+
+def test_animation_names_are_url_safe():
+    """avatar.js builds /animations/<name>.fbx and rejects anything odd."""
+    for name in avatar_state.KNOWN_ANIMATIONS:
+        assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", name), name
+
+
+def test_longest_phrase_wins_across_gestures_and_animations():
+    """One rule for both kinds of movement, so neither silently pre-empts.
+
+    'shake your head' (15) beats the 'hop' inside 'hope' etc., and a bare
+    'walk' still reaches the full-body clip.
+    """
+    avatar_move.run({"utterance": "shake your head"})
+    assert avatar_move.pop_last_gesture() == "no"
+    assert avatar_state.pop_animation() is None
+
+    avatar_move.run({"utterance": "walk"})
+    assert avatar_state.pop_animation() == "walking"
+    assert avatar_move.pop_last_gesture() is None
+
+
+def test_animations_map_to_known_names():
+    for name in avatar_move.ANIMATIONS:
+        assert name in avatar_state.KNOWN_ANIMATIONS
 
 
 def test_every_known_gesture_is_playable_by_the_renderer():
