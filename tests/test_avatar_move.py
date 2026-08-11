@@ -8,15 +8,36 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from backend.modules import avatar_state  # noqa: E402
 from backend.skills import avatar_move  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _clear_pending():
     """Never leak a queued gesture between tests."""
-    avatar_move.pop_last_gesture()
+    avatar_state.clear()
     yield
-    avatar_move.pop_last_gesture()
+    avatar_state.clear()
+
+
+def test_gesture_survives_the_skill_registry_boundary():
+    """Regression: the registry loads skills under a synthetic module name.
+
+    A skill that kept the queued gesture in its own globals wrote it to a
+    different module object than main.py imports, so the avatar never moved.
+    Drive the skill exactly as production does and assert it arrives.
+    """
+    from backend.modules.skills.registry import SkillRegistry
+
+    registry = SkillRegistry()
+    registry.load_all()
+    skill = registry.find_by_trigger("wave at me")
+    assert skill is not None and skill.name == "avatar_move"
+
+    skill.invoke({"utterance": "wave at me", "language": "en"})
+
+    # main.py reads the shared store — this is the assertion that used to fail.
+    assert avatar_state.pop_gesture() == "handup"
 
 
 def test_self_test_passes():
@@ -69,8 +90,30 @@ def test_stale_gesture_is_not_returned():
 
 
 def test_request_gesture_rejects_unknown_names():
-    assert avatar_move.request_gesture("moonwalk") is False
+    assert avatar_state.request_gesture("moonwalk") is False
     assert avatar_move.pop_last_gesture() is None
+
+
+@pytest.mark.parametrize("utterance", [
+    "can you walk", "jump", "can you dance for me", "lauf mal", "spring",
+])
+def test_whole_body_motion_is_declined_honestly(utterance):
+    """No animation clips installed — say so, don't fake it with a hand wave."""
+    reply = avatar_move.run({"utterance": utterance})
+    assert reply == avatar_move._UNSUPPORTED_REPLY[0]
+    assert avatar_move.pop_last_gesture() is None
+
+
+def test_supported_gesture_still_wins_when_mentioned_alongside_walking():
+    reply = avatar_move.run({"utterance": "instead of walking, just wave"})
+    assert reply == avatar_move.GESTURES["handup"][0]
+    assert avatar_move.pop_last_gesture() == "handup"
+
+
+def test_every_known_gesture_is_playable_by_the_renderer():
+    """Names must exist in the renderer, or playGesture silently does nothing."""
+    for name in avatar_move.GESTURES:
+        assert name in avatar_state.KNOWN_GESTURES
 
 
 def test_replies_have_no_emoji_since_tts_speaks_them():

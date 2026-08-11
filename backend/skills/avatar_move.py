@@ -2,8 +2,13 @@
 
 The skill returns the *spoken* reply; the actual movement is passed to the
 browser out-of-band: `run()` records the requested gesture and `backend/main.py`
-pops it with `pop_last_gesture()` and ships it in the chat response as
-`gesture`. The frontend (frontend/avatar.js) plays it on the 3D avatar.
+pops it and ships it in the chat response as `gesture`. The frontend
+(frontend/avatar.js) plays it on the 3D avatar.
+
+The queued gesture lives in `backend.modules.avatar_state`, NOT in this module:
+the skill registry imports skill files under a synthetic module name, so this
+file's globals are a different object from the `backend.skills.avatar_move` that
+main.py imports. Shared state has to sit somewhere both reach normally.
 
 Only gestures the avatar renderer actually knows are ever recorded — see
 GESTURES below, which mirrors TalkingHead's gestureTemplates + animated emojis.
@@ -11,7 +16,8 @@ GESTURES below, which mirrors TalkingHead's gestureTemplates + animated emojis.
 from __future__ import annotations
 
 import random
-import time
+
+from backend.modules.avatar_state import pop_gesture, request_gesture
 
 META = {
     "name": "avatar_move",
@@ -22,7 +28,7 @@ META = {
         "move", "can you move", "do some movement", "move something",
         "nod", "shake your head", "shrug", "thumbs up", "thumbs down",
         "point at", "show me a gesture", "do a gesture", "raise your hand",
-        "dance",
+        "dance", "can you walk", "walk", "jump", "run around", "turn around",
         # German
         "winke", "winken", "wink mal", "beweg dich", "bewegung",
         "nicke", "nicken", "kopfschütteln", "schulterzucken",
@@ -60,6 +66,22 @@ _SURPRISE_REPLIES = [
     ("How's this?", "Wie ist das?"),
 ]
 
+# Whole-body motion needs animation clips that aren't installed yet. Say so
+# plainly instead of letting the model invent a walk it can't perform.
+UNSUPPORTED = [
+    "walk", "walking", "jump", "jumping", "run", "running", "dance", "dancing",
+    "turn around", "sit down", "stand up", "spin",
+    "lauf", "laufen", "geh", "gehen", "spring", "springen", "tanz", "tanzen",
+    "dreh dich", "setz dich",
+]
+_UNSUPPORTED_REPLY = (
+    "I can't walk or dance yet — that needs full-body animations. "
+    "But I can wave, nod, shrug, point or give you a thumbs up.",
+    "Laufen oder tanzen kann ich noch nicht — dafür fehlen mir die "
+    "Ganzkörper-Animationen. Winken, nicken, Schultern zucken, zeigen oder "
+    "Daumen hoch geht aber.",
+)
+
 # Phrase → gesture. Checked longest-first so "thumbs down" beats "thumbs".
 KEYWORDS = {
     "handup": ["wave", "waving", "say hi", "say hello", "raise your hand",
@@ -79,25 +101,12 @@ KEYWORDS = {
 # When the user just says "move" / "dance" / "do something", pick from these.
 _SURPRISE = ["handup", "thumbup", "ok", "index", "shrug", "namaste"]
 
-_last_gesture: dict = {"name": None, "ts": 0.0}
-
-
 def pop_last_gesture(max_age_s: float = 30.0) -> str | None:
-    """Return (once) the most recently requested gesture if it's still fresh."""
-    name = _last_gesture["name"]
-    if name and (time.monotonic() - _last_gesture["ts"]) <= max_age_s:
-        _last_gesture["name"] = None
-        return name
-    return None
+    """Return (once) the most recently requested gesture if it's still fresh.
 
-
-def request_gesture(name: str) -> bool:
-    """Queue a gesture for the browser. Returns False for unknown names."""
-    if name not in GESTURES:
-        return False
-    _last_gesture["name"] = name
-    _last_gesture["ts"] = time.monotonic()
-    return True
+    Thin wrapper over the shared store so callers can use either entry point.
+    """
+    return pop_gesture(max_age_s)
 
 
 def _pick(utterance: str) -> tuple[str, bool]:
@@ -117,10 +126,21 @@ def _pick(utterance: str) -> tuple[str, bool]:
 
 def run(args: dict | None = None) -> str:
     args = args or {}
-    gesture, specific = _pick(args.get("utterance", ""))
+    utterance = args.get("utterance", "")
+    german_wanted = args.get("language") == "de"
+
+    text = utterance.lower()
+    specific_match = any(
+        phrase in text for phrases in KEYWORDS.values() for phrase in phrases
+    )
+    # "Can you walk?" — be honest, unless they also named something we CAN do.
+    if not specific_match and any(word in text for word in UNSUPPORTED):
+        return _UNSUPPORTED_REPLY[1 if german_wanted else 0]
+
+    gesture, specific = _pick(utterance)
     request_gesture(gesture)
     english, german = GESTURES[gesture] if specific else random.choice(_SURPRISE_REPLIES)
-    return german if args.get("language") == "de" else english
+    return german if german_wanted else english
 
 
 def self_test() -> bool:

@@ -624,10 +624,15 @@ async def voice_chat(
 
     # If the avatar_move skill asked for a gesture, ship it so the 3D avatar
     # actually performs it while the reply is spoken.
+    # Read from the shared store, not from the skill module: the registry loads
+    # skill files under a synthetic module name, so the skill's own globals are
+    # a different object from `backend.skills.avatar_move` imported here.
     gesture = None
     try:
-        from backend.skills import avatar_move as _move_skill
-        gesture = _move_skill.pop_last_gesture()
+        from backend.modules.avatar_state import pop_gesture
+        gesture = pop_gesture()
+        if gesture:
+            log.info("Avatar gesture requested: %s", gesture)
     except Exception as _e:
         log.debug("gesture attach skipped: %s", _e)
 
