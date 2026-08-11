@@ -44,3 +44,8 @@ opencv-python>=4.10.0
 # Install manually to let Plasma recognize WHO it sees:
 #   pip install deepface
 # Plasma works fine without it (face naming silently disabled; tracking still works).
+
+# --- Meeting minutes (Word export) ---
+# Lets Plasma write meeting minutes to .docx. Without it the transcript and
+# summary are still saved, only the Word file is skipped.
+python-docx>=1.1.0
