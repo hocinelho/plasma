@@ -157,7 +157,7 @@ app.add_middleware(
 
 # Static assets for the 3D human avatar (TalkingHead + three.js + GLB models).
 _frontend_dir = Path(__file__).resolve().parents[1] / "frontend"
-for _static in ("vendor", "avatars"):
+for _static in ("vendor", "avatars", "animations"):
     _static_dir = _frontend_dir / _static
     if _static_dir.is_dir():
         app.mount(f"/{_static}", StaticFiles(directory=_static_dir), name=_static)
