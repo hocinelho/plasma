@@ -119,6 +119,25 @@ def test_motions_without_a_clip_are_declined_honestly(utterance):
     assert avatar_move.pop_last_gesture() is None
 
 
+@pytest.mark.parametrize("utterance", [
+    "Work. Work for me.",      # Whisper heard "Walk. Walk for me."
+    "work walk",
+])
+def test_misheard_walk_still_walks(utterance):
+    """Whisper reliably hears 'walk' as 'work'; the imperative forms recover it."""
+    avatar_move.run({"utterance": utterance})
+    assert avatar_state.pop_animation() == "walking"
+
+
+@pytest.mark.parametrize("utterance", [
+    "does this work", "does the camera work", "work on my code",
+    "is my network working", "how does that work",
+])
+def test_genuine_work_questions_are_not_hijacked(utterance):
+    """The 'work'→walk recovery must not swallow real questions about working."""
+    assert avatar_move._pick_animation(utterance.lower()) is None
+
+
 def test_german_thumbs_down_not_mistaken_for_running():
     """'daumen runter' contains 'run' — must not trip the unsupported list."""
     reply = avatar_move.run({"utterance": "daumen runter", "language": "de"})

@@ -36,6 +36,8 @@ META = {
         "tell me a secret", "yell", "shout", "argue", "look disappointed",
         "lauf", "laufen", "geh mal", "spring", "springen", "hüpf",
         "flüster", "geheimnis", "schrei",
+        # Whisper commonly hears "walk" as "work" — catch the imperative forms.
+        "work for me", "work walk", "work. work",
         # German
         "winke", "winken", "wink mal", "beweg dich", "bewegung",
         "nicke", "nicken", "kopfschütteln", "schulterzucken",
@@ -90,7 +92,11 @@ ANIMATIONS = {
 # Phrase → animation clip. Checked before the hand gestures, since "walk"
 # has no gesture equivalent.
 ANIMATION_KEYWORDS = {
-    "walking": ["walk", "walking", "lauf", "laufen", "geh mal", "gehen"],
+    # "work for me" / "work walk" are Whisper mishearing "walk" — a very common
+    # confusion. Only the imperative forms are listed, so a genuine question
+    # like "does it work?" is left alone.
+    "walking": ["walk", "walking", "lauf", "laufen", "geh mal", "gehen",
+                "work for me", "work walk", "work. work"],
     "jump": ["jump", "jumping", "hop", "spring", "springen", "hüpf"],
     "waving": ["wave your whole", "big wave", "wave properly"],
     "talking": ["talk with your hands", "gesticulate", "rede mit den händen"],
