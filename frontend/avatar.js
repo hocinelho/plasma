@@ -546,8 +546,23 @@
                 cameraPanEnable: false,
                 cameraZoomEnable: false,
                 avatarMood: 'neutral',
-                lightAmbientIntensity: 2,
-                lightDirectIntensity: 22,
+                // Cinematic 3-point-ish lighting: a warm key from the front
+                // left, soft fill, and a cool rim that separates her from the
+                // dark UI. Flattering on skin instead of the flat default.
+                lightAmbientColor: 0xfff2e6,
+                lightAmbientIntensity: 1.6,
+                lightDirectColor: 0xfff0dd,
+                lightDirectIntensity: 28,
+                lightDirectPhi: 0.9,
+                lightDirectTheta: 1.6,
+                lightSpotColor: 0x66aaff,
+                lightSpotIntensity: 12,
+                lightSpotPhi: 0.5,
+                lightSpotTheta: 3.6,
+                lightSpotDispersion: 1.4,
+                // Sharper render + smoother motion than the defaults.
+                modelPixelRatio: 1.5,
+                modelFPS: 60,
                 statsNode: null,
             });
             await head.showAvatar({

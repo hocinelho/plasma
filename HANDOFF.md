@@ -25,19 +25,22 @@
 - `avatar.js` loads **before** the main inline script and establishes the globals; index.html's `playBase64Audio(b64, text)` calls `window.avatarSpeak` first, falls back to plain `<audio>` + `avatarLevel` amplitude lip-sync.
 - Character is swappable: any full-body GLB **with ARKit/Oculus viseme blend shapes + Mixamo-compatible rig** (Ready Player Me / Avaturn style) → drop in `frontend/avatars/`, change URL in `avatar.js` `showAvatar()`.
 - Hocine's uploaded models: `girl_mechanic.glb` (rigged body, **no face shapes** → can't talk), `ROY_CHAR.obj` (OBJ = static, **no rig/shapes possible**). Neither usable without Blender rigging work.
-- **readyplayer.me is blocked/unreachable for Hocine** — suggest Avaturn (selfie → avatar) or MakeHuman/MPFB (offline) instead.
+- **Ready Player Me is DEAD** — Netflix acquired it (Dec 2025) and the creator/API/PlayerZero went offline **31 Jan 2026**. That's why hocine couldn't open it; it isn't a network block. Existing exported GLBs still work. Replacements: Avaturn, Avatar SDK / MetaPerson (cartoon style, selfie→GLB, first avatar free), VRoid (anime VRM), MakeHuman/MPFB (offline).
+- **Hocine's quality target: Pixar/Disney-style stylized characters** (sent reference renders 2026-07-15). Those references are 2D images, not riggable models. Tradeoff triangle: stylized art / working face rig / free — pick two. See "What's next" below.
 - Full docs in `docs/avatar-design.md` (concept, contract, states, asset table, swap guide).
 
 ---
 
 ## What's next — agreed option menu (Hocine to pick; none started)
 
-### Changing the character
-1. Drop-in GLB swap (works today, minutes)
-2. Avaturn selfie avatar (RPM alternative, not blocked)
-3. MakeHuman/MPFB offline character design
-4. VRoid Studio anime style (needs one-time Blender conversion)
-5. **UI avatar picker** — dropdown listing GLBs in `frontend/avatars/` (to build)
+### Changing the character (target: Pixar/Disney-stylized look)
+1. Drop-in GLB swap (works today, minutes) — needs viseme blend shapes
+2. **Avatar SDK / MetaPerson** — has a *cartoon* style, selfie→GLB w/ Mixamo rig, first avatar free
+3. **VRM route** (VRoid Studio / VRoid Hub) — thousands of free stylized characters; VRM *guarantees* mouth blendshapes by spec; needs a one-time VRM→GLB conversion (or switch renderer to three-vrm)
+4. Avaturn (realistic-leaning), MakeHuman/MPFB (offline, free)
+5. Character Creator 4 (Reallusion) — paid (~$300), the actual industry route to that render quality with full ARKit visemes
+6. Sketchfab stylized model + Blender viseme sculpting — free but hours of manual work
+7. **UI avatar picker** — dropdown listing GLBs in `frontend/avatars/` (to build)
 
 ### Adding movement
 1. Map more built-in TalkingHead gestures/poses to states (shrug on unknown, thumbs-up on success) — small
