@@ -29,6 +29,10 @@ SEGMENT_SECONDS = 25
 # Below this RMS a segment is treated as silence and never sent to Whisper —
 # it would otherwise hallucinate text out of room noise.
 SILENCE_RMS = 120.0
+# Plasma speaks a confirmation ("Recording now: ...") the moment recording
+# starts, and the microphone hears it. Ignore the first seconds so her own
+# voice doesn't open the minutes.
+START_GRACE_SECONDS = 7.0
 
 MEETINGS_DIR: Path = config.PLASMA_DIR / "meetings"
 
@@ -141,10 +145,14 @@ class MeetingRecorder:
         buf: list = []
         samples_per_segment = SAMPLE_RATE * SEGMENT_SECONDS
         buffered = 0
+        grace_until = time.monotonic() + START_GRACE_SECONDS
         try:
             while not self._stop.is_set():
                 chunk = cap.get_chunk(timeout=0.5)
                 if chunk is None:
+                    continue
+                # Drop the spoken confirmation instead of minuting it.
+                if time.monotonic() < grace_until:
                     continue
                 buf.append(chunk)
                 buffered += len(chunk)

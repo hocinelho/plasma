@@ -97,6 +97,56 @@ def test_other_skills_are_not_stolen_back(utterance, expected):
     assert skill is not None and skill.name == expected
 
 
+class _AliveThread:
+    """Stand-in for the recorder thread, so no microphone is needed."""
+
+    def is_alive(self):
+        return True
+
+
+@pytest.fixture
+def _pretend_recording():
+    original = recorder.recorder._thread
+    recorder.recorder._thread = _AliveThread()
+    yield
+    recorder.recorder._thread = original
+
+
+def test_hands_free_triggers_are_muted_during_a_meeting(_pretend_recording):
+    """Wake word and clap fire on whatever the room says.
+
+    During a meeting that made Plasma talk over the meeting and send the
+    room's words to the LLM as commands.
+    """
+    from backend.modules.voice.wake_monitor import _hands_free_suppressed
+
+    assert _hands_free_suppressed() is True
+
+
+def test_hands_free_triggers_work_again_once_the_meeting_ends():
+    from backend.modules.voice.wake_monitor import _hands_free_suppressed
+
+    assert recorder.recorder.is_recording is False
+    assert _hands_free_suppressed() is False
+
+
+def test_suppression_never_raises_if_the_meeting_module_is_unavailable(monkeypatch):
+    """The wake loop must not die because of a meeting import problem."""
+    import builtins
+
+    from backend.modules.voice import wake_monitor
+
+    real_import = builtins.__import__
+
+    def boom(name, *a, **kw):
+        if "meeting" in name:
+            raise ImportError("simulated")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", boom)
+    assert wake_monitor._hands_free_suppressed() is False
+
+
 def test_transcript_joins_segments():
     assert _state().transcript.splitlines() == [
         "We need to decide the rollout.",

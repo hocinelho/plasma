@@ -23,6 +23,19 @@ recording confidential spoken word without consent is a criminal offence**
 the start and get their agreement. Plasma's "recording now" reply is worded
 to prompt exactly that; don't remove it.
 
+## While a meeting is running
+
+**Wake word and clap are muted.** They are hands-free triggers that fire on
+whatever the room says — during a meeting that made Plasma answer the room's
+words as if they were commands and talk over the discussion.
+
+So while recording, the only way to reach her is **deliberate push-to-talk**:
+hold SPACE (or the talk button), say "stop the meeting", release. That is
+also how you stop.
+
+The first few seconds after "start recording" are discarded, so her own
+spoken confirmation doesn't become the first line of the minutes.
+
 ## What the document contains
 
 1. **Summary** — 2–4 sentences.
@@ -66,3 +79,6 @@ can be rebuilt from its JSONL with `recorder.load(meeting_id)`.
   of a long meeting is a bigger piece of work.
 - Whisper mishears names and jargon; the transcript is a good record, not a
   legal one.
+- If Plasma speaks during a meeting (a timer, a reminder, a proactive alert),
+  the microphone hears her and that line lands in the transcript. Muting
+  hands-free triggers removes the common case, not every case.

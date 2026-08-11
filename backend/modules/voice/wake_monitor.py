@@ -22,6 +22,20 @@ from backend.core.config import config
 log = logging.getLogger("plasma.wake_monitor")
 
 
+def _hands_free_suppressed() -> bool:
+    """True while a meeting recording is running.
+
+    Wake word and clap are *hands-free* triggers: they fire on whatever the
+    room happens to say. During a meeting that is exactly wrong, so they are
+    muted until the meeting ends. Deliberate push-to-talk is unaffected.
+    """
+    try:
+        from backend.modules.meeting.recorder import recorder as _meeting
+        return _meeting.is_recording
+    except Exception:
+        return False
+
+
 class WakeMonitor:
     """Singleton service: mic → WakeWordDetector → WebSocket broadcast."""
 
@@ -130,6 +144,15 @@ class WakeMonitor:
             while not self._stop_event.is_set():
                 chunk = cap.get_chunk(timeout=0.5)
                 if chunk is None:
+                    continue
+
+                # While a meeting is being recorded, hands-free triggers are
+                # suppressed. Meeting speech (and Plasma's own replies coming
+                # back through the mic) otherwise fire the wake word and clap
+                # detector constantly, so she talks over the meeting and the
+                # room's words get sent to the LLM as if they were commands.
+                # Push-to-talk still works — that is how you stop the meeting.
+                if _hands_free_suppressed():
                     continue
 
                 if detector:
