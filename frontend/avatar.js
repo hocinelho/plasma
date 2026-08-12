@@ -586,6 +586,45 @@
                 lipsyncLang: 'en',
             });
 
+            // ── Stage mode ────────────────────────────────────────────────
+            // Just her, filling the screen, wandering. Everything else hides.
+            let wanderTimer = null;
+
+            function wander() {
+                clearTimeout(wanderTimer);
+                if (!document.body.classList.contains('stage')) return;
+                // Drift within the middle of the screen, biased small so she
+                // never walks off the edge. Translate the container rather
+                // than resizing it — resizing forces a WebGL reallocation.
+                const x = (Math.random() * 2 - 1) * 22;   // % of width
+                const scale = 0.94 + Math.random() * 0.12;
+                holder.style.transform = `translateX(${x}%) scale(${scale})`;
+                // Take a step in that direction so it reads as walking, not sliding.
+                const step = x > 4 ? 'walk-right' : x < -4 ? 'walk-left' : 'walking';
+                if (clips.animations && clips.animations.includes(step)) {
+                    playClip(step, 2.4, { ambient: true });
+                }
+                wanderTimer = setTimeout(wander, 9000 + Math.random() * 11000);
+            }
+
+            window.avatarStage = (on) => {
+                const body = document.body;
+                if (on === undefined) on = !body.classList.contains('stage');
+                body.classList.toggle('stage', !!on);
+                if (on) {
+                    lastView = 'full';
+                    try { head.setView('full'); } catch (e) { /* keep framing */ }
+                    wanderTimer = setTimeout(wander, 4000);
+                } else {
+                    clearTimeout(wanderTimer);
+                    holder.style.transform = '';
+                    reframe();
+                }
+                // The panel changed size either way — let the renderer catch up.
+                setTimeout(() => { try { head.onResize(); } catch (e) {} }, 60);
+                return !!on;
+            };
+
             // Re-frame on rotation: the panel changes shape, and a framing
             // chosen for portrait crops badly in landscape.
             let lastView = view, reframeTimer = null;

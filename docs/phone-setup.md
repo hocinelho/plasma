@@ -36,8 +36,13 @@ not merely an accepted one.
 
 If the mic is blocked, install the certificate properly:
 
-1. Copy `.plasma/certs/plasma.crt` from the PC to the phone (AirDrop, email
-   to yourself, or open `https://<ip>:8443/` and download it).
+1. On the phone, open **`https://<ip>:8443/plasma.crt`** — the server hands
+   the certificate straight to it. No copying files off the PC.
+
+   (The file lives at `.plasma\certs\plasma.crt`, but it only exists after
+   `serve_phone.py` has run once, and Windows hides dot-folders in Explorer —
+   which is why it looks missing. Paste the path into the address bar, or use
+   the URL above.)
 2. iPhone: **Settings → Profile Downloaded → Install**.
 3. Then **Settings → General → About → Certificate Trust Settings** and
    switch Plasma's certificate **on**. This second step is the one people
@@ -73,3 +78,20 @@ sessions. If that becomes annoying, switch the phone to the light renderer:
 ```
 
 The mascot is 2D canvas and costs a fraction of the power.
+
+
+## Stage mode — only the avatar
+
+Tap **⛶ Full screen avatar** and everything except her disappears: she fills
+the screen, stands on the bottom edge, and wanders slowly from side to side,
+taking real steps as she moves. Tap her to talk; **✕** in the corner leaves.
+
+It also asks the browser for true full screen, so even the address bar goes.
+iOS Safari has no Fullscreen API — there the CSS still applies, and installing
+Plasma to the home screen gives you the same result permanently.
+
+**A limit worth stating:** a web page cannot draw over your phone's home
+screen or sit behind your app icons. No browser allows it, on iOS or Android.
+Stage mode is the closest achievable thing — she owns the whole display while
+Plasma is open. A true wallpaper/overlay companion would have to be a native
+Android app (a live wallpaper or an overlay service); iOS forbids it entirely.

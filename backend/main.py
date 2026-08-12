@@ -256,6 +256,29 @@ async def camera_page():
     return JSONResponse({"error": "camera.html not found"}, status_code=404)
 
 
+@app.get("/plasma.crt")
+async def download_certificate():
+    """Serve the self-signed certificate so the phone can install it.
+
+    iOS will not grant microphone access on a certificate it has merely been
+    told to accept — it has to be installed and trusted. Copying the file off
+    the PC by hand is awkward (it lives in a dot-folder Windows hides), so
+    let the phone fetch it from the server it is already talking to.
+    """
+    cert = Path(__file__).resolve().parents[1] / ".plasma" / "certs" / "plasma.crt"
+    if cert.exists():
+        # application/x-x509-ca-cert makes iOS offer to install it as a profile.
+        return FileResponse(
+            cert,
+            media_type="application/x-x509-ca-cert",
+            filename="plasma.crt",
+        )
+    return JSONResponse(
+        {"error": "No certificate yet — start Plasma with: python serve_phone.py"},
+        status_code=404,
+    )
+
+
 @app.get("/manifest.json")
 async def manifest():
     """PWA manifest — lets the phone install Plasma to the home screen."""

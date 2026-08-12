@@ -53,3 +53,69 @@
 @supports not (height: 1dvh) {
     #avatar-human { height: clamp(300px, 52vh, 470px); }
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STAGE MODE — the avatar alone, filling the screen.
+   Toggled by adding .stage to <body>; everything except the avatar and a
+   single exit affordance is hidden. Meant for the phone, where the whole
+   display becomes her.
+   ═══════════════════════════════════════════════════════════════════════ */
+body.stage > *:not(#avatar-wrap):not(#bg-canvas):not(#stage-exit):not(#alert-toast) {
+    display: none !important;
+}
+
+body.stage {
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    height: 100dvh;
+}
+
+body.stage #avatar-wrap {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    display: flex;
+    align-items: flex-end;      /* she stands on the floor of the screen */
+    justify-content: center;
+    z-index: 5;
+}
+
+body.stage #avatar-human {
+    /* Fill the screen. No panel chrome — she IS the screen. */
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+    background: none;
+    /* Drift is applied to this element so the WebGL canvas itself is never
+       re-laid-out — moving the container is free, resizing it is not. */
+    transition: transform 2.4s cubic-bezier(0.45, 0, 0.25, 1);
+    will-change: transform;
+}
+
+/* The living plasma backdrop stays, so she isn't floating on flat black. */
+body.stage #bg-canvas { opacity: 0.85; }
+
+#stage-exit {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 10px);
+    right: 12px;
+    z-index: 20;
+    display: none;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(120,180,255,0.35);
+    background: rgba(10,14,26,0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #cfe3ff;
+    font-size: 20px; line-height: 1;
+    cursor: pointer;
+}
+body.stage #stage-exit { display: block; }
+
+/* Tapping anywhere on the stage talks to her, so make the whole area feel
+   pressable without a visible button. */
+body.stage #avatar-wrap { cursor: pointer; -webkit-tap-highlight-color: transparent; }

@@ -221,6 +221,19 @@
             transform: scale(1.05);
         }
 
+        #stage-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 20px;
+            padding: 7px 16px;
+            font-size: 13px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #stage-btn:hover { border-color: var(--accent); color: var(--text); }
+
         /* PA-70: hide SPACE hint on pure-touch devices */
         .hint {
             font-size: 12px;
@@ -520,6 +533,7 @@
     </div>
 
     <button id="talk-btn">Hold to talk</button>
+    <button id="stage-btn" title="Show only the avatar, full screen">⛶ Full screen avatar</button>
     <!-- PA-70: hint hidden in touch mode -->
     <div class="hint">or hold <b>SPACE</b></div>
 
@@ -549,6 +563,10 @@
         <canvas id="seethrough-canvas" width="360" height="240"></canvas>
         <a id="floorplan-link" href="/floorplan" title="Draw your home's rooms">✏️ Edit floor plan</a>
     </div>
+
+    <!-- Stage mode: her alone, full screen. Exit lives outside #avatar-wrap
+         so it survives the "hide everything else" rule. -->
+    <button id="stage-exit" title="Leave full screen" aria-label="Leave full screen">✕</button>
 
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
     <div id="alert-toast"></div>
@@ -1105,6 +1123,41 @@ function showAlertToast(text) {
     clearTimeout(alertToastTimer);
     alertToastTimer = setTimeout(() => alertToast.classList.remove('show'), 5000);
 }
+
+// ── Stage mode: only the avatar, full screen ──────────────────────────
+(function initStage() {
+    const enter = document.getElementById('stage-btn');
+    const exit  = document.getElementById('stage-exit');
+    const wrap  = document.getElementById('avatar-wrap');
+    if (!enter || !exit || !wrap) return;
+
+    function setStage(on) {
+        if (!window.avatarStage) return;      // mascot/orb renderer: no stage
+        window.avatarStage(on);
+        // Ask the phone for real full screen too, so even the browser bars go.
+        try {
+            if (on && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else if (!on && document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            }
+        } catch (e) { /* iOS Safari has no Fullscreen API — the CSS still applies */ }
+    }
+
+    enter.addEventListener('click', () => setStage(true));
+    exit.addEventListener('click', (e) => { e.stopPropagation(); setStage(false); });
+    // Leaving browser full screen (swipe/back) should leave stage mode too.
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && document.body.classList.contains('stage')) {
+            window.avatarStage(false);
+        }
+    });
+    // On the stage there is no talk button, so tapping her IS the talk button.
+    wrap.addEventListener('click', () => {
+        if (!document.body.classList.contains('stage')) return;
+        if (isRecording) stopRecording(); else startRecording();
+    });
+})();
 
 function connectAlertSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
