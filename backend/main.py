@@ -258,6 +258,20 @@ async def avatar_css():
     return JSONResponse({"error": "avatar.css not found"}, status_code=404)
 
 
+@app.get("/api/avatar/animations")
+async def avatar_animations():
+    """Clips currently in frontend/animations/, so the UI can use them all.
+
+    Discovered from disk: dropping a new .fbx in that folder is enough, no
+    code change needed.
+    """
+    from backend.modules.avatar_state import idle_animations, known_animations
+    return {
+        "animations": sorted(known_animations()),
+        "idle": idle_animations(),
+    }
+
+
 @app.get("/api/network-info")
 async def network_info():
     """LAN IPs + the HTTPS phone URLs, so the UI can tell the user where to point

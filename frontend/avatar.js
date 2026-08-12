@@ -630,6 +630,45 @@
                 }
             };
 
+            // ── Free movement ─────────────────────────────────────────────
+            // Clips are discovered server-side, so any .fbx dropped into
+            // frontend/animations/ becomes usable without touching this file.
+            let clips = { animations: [], idle: [] };
+            let idleTimer = null, lastIdle = 0;
+            const IDLE_MIN_GAP_MS = 45000;   // don't fidget constantly
+
+            fetch('/api/avatar/animations')
+                .then(r => r.ok ? r.json() : null)
+                .then(data => {
+                    if (!data) return;
+                    clips = data;
+                    if (clips.idle && clips.idle.length) scheduleIdle();
+                })
+                .catch(() => { /* offline / no backend — gestures still work */ });
+
+            // Occasional ambient motion so she doesn't stand frozen between
+            // conversations. Only ever while genuinely idle, never mid-reply.
+            function scheduleIdle() {
+                clearTimeout(idleTimer);
+                const wait = IDLE_MIN_GAP_MS + Math.random() * 45000;
+                idleTimer = setTimeout(() => {
+                    const quiet = window.avatarState === 'idle'
+                               && performance.now() > lastIdle + IDLE_MIN_GAP_MS;
+                    if (quiet && clips.idle.length) {
+                        const pick = clips.idle[Math.floor(Math.random() * clips.idle.length)];
+                        window.avatarAnimation(pick, 6);
+                        lastIdle = performance.now();
+                    }
+                    scheduleIdle();
+                }, wait);
+            }
+
+            // Gesture naturally while speaking, if a "talking" clip exists.
+            function talkingClip() {
+                return clips.animations && clips.animations.includes('talking')
+                    ? 'talking' : null;
+            }
+
             // TTS playback + real lip-sync. Returns a Promise while handling
             // (page waits for it), or null → page falls back to plain audio.
             window.avatarSpeak = (b64, text) => {
@@ -641,6 +680,13 @@
                     return head.audioCtx.decodeAudioData(bytes.buffer).then(audio =>
                         new Promise(resolve => {
                             const { words, wtimes, wdurations } = estimateTimings(text, audio.duration * 1000);
+                            // Move her hands while she talks — a person
+                            // explaining something doesn't stand rigid. Only
+                            // for replies long enough to be worth it.
+                            const clip = talkingClip();
+                            if (clip && audio.duration > 3) {
+                                window.avatarAnimation(clip, Math.min(audio.duration, 20));
+                            }
                             head.speakAudio({ audio, words, wtimes, wdurations },
                                             { lipsyncLang: guessLang(text) });
                             head.speakMarker(() => resolve());

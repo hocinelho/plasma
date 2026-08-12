@@ -154,8 +154,39 @@ def test_every_animation_has_a_file_on_disk():
 
 def test_animation_names_are_url_safe():
     """avatar.js builds /animations/<name>.fbx and rejects anything odd."""
-    for name in avatar_state.KNOWN_ANIMATIONS:
+    for name in avatar_state.known_animations():
         assert re.fullmatch(r"[a-z0-9][a-z0-9-]*", name), name
+
+
+def test_clips_are_discovered_from_disk(tmp_path, monkeypatch):
+    """Dropping an .fbx in the folder must be enough to make it playable."""
+    monkeypatch.setattr(avatar_state, "ANIMATIONS_DIR", tmp_path)
+    (tmp_path / "moonwalk.fbx").write_bytes(b"x")
+    (tmp_path / "idle-breathe.fbx").write_bytes(b"x")
+    found = avatar_state.discover_animations(force=True)
+    assert "moonwalk" in found and "idle-breathe" in found
+    assert avatar_state.request_animation("moonwalk") is True
+
+
+def test_unsafe_filenames_are_ignored(tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_state, "ANIMATIONS_DIR", tmp_path)
+    (tmp_path / "Weird Name!.fbx").write_bytes(b"x")
+    (tmp_path / "-leading.fbx").write_bytes(b"x")
+    assert avatar_state.discover_animations(force=True) == frozenset()
+
+
+def test_idle_pool_is_the_idle_prefixed_clips(tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_state, "ANIMATIONS_DIR", tmp_path)
+    for n in ("idle-breathe", "idle-look", "walking"):
+        (tmp_path / f"{n}.fbx").write_bytes(b"x")
+    avatar_state.discover_animations(force=True)
+    assert avatar_state.idle_animations() == ["idle-breathe", "idle-look"]
+
+
+def test_missing_folder_falls_back_to_the_shipped_clips(tmp_path, monkeypatch):
+    monkeypatch.setattr(avatar_state, "ANIMATIONS_DIR", tmp_path / "gone")
+    avatar_state.discover_animations(force=True)
+    assert "walking" in avatar_state.known_animations()
 
 
 def test_longest_phrase_wins_across_gestures_and_animations():
@@ -175,7 +206,7 @@ def test_longest_phrase_wins_across_gestures_and_animations():
 
 def test_animations_map_to_known_names():
     for name in avatar_move.ANIMATIONS:
-        assert name in avatar_state.KNOWN_ANIMATIONS
+        assert name in avatar_state.known_animations()
 
 
 def test_every_known_gesture_is_playable_by_the_renderer():

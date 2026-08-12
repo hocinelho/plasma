@@ -12,12 +12,24 @@ animation, then in the **Download** dialog set:
 |---|---|---|
 | **Format** | `FBX Binary (.fbx)` | The loader is an `FBXLoader` — glTF/Collada won't load. |
 | **Skin** | **Without Skin** | We only want the motion; our own avatar supplies the body. Much smaller files. |
-| **Frames per Second** | `30` | Default. 60 also works, just larger. |
+| **Frames per Second** | `30` | See the fps note below — 60 works too, it is just bigger. |
 | **Keyframe Reduction** | `none` | Keeps the motion smooth. |
 
 The character you preview it on does **not** matter when downloading
 *Without Skin* — only the skeleton motion is exported, and every Mixamo rig
 uses the same bone names.
+
+## Is 60 fps better?
+
+No, not usually. Mixamo's mocap is authored around 30 fps; exporting at 60
+resamples it and interpolates the in-between frames — you get twice the
+keyframes and roughly twice the file size, but no motion detail that was not
+captured in the first place.
+
+three.js interpolates between keyframes anyway and renders at the display's
+refresh rate, so 30 fps keyframes already play back perfectly smoothly at
+60 Hz+. Use 60 only for genuinely fast motion (a punch, a fast spin) where
+30 samples per second can miss the peak of the movement. Both load fine.
 
 ## Why the settings matter
 
@@ -25,6 +37,21 @@ The player renames every animation track from `mixamorigHips.position` to
 `Hips.position` and scales positions by `0.01` (Mixamo rigs are scale 100,
 the avatar is scale 1). That only works with a genuine Mixamo FBX export —
 which is why the format and the "Without Skin" option are not optional.
+
+## Clips are auto-discovered
+
+Any `.fbx` in this folder is picked up automatically and served at
+`/animations/<name>.fbx` — no Python change needed to make it playable.
+Filenames must be lowercase letters, digits and hyphens (`idle-breathe.fbx`);
+anything else is ignored, because the name goes straight into a URL.
+
+You only need to touch `backend/skills/avatar_move.py` to give a clip a
+**voice command** and a spoken reply.
+
+**Idle motion:** clips named `idle-*.fbx` are used as ambient movement — she
+plays one at random now and then while standing idle, so she doesn't freeze
+between conversations. Drop in `idle-breathe.fbx`, `idle-look-around.fbx`
+and so on and it starts working immediately.
 
 ## Installed clips
 

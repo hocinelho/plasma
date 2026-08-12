@@ -15,7 +15,9 @@ sides reach this module through the normal import system, so both see one instan
 """
 from __future__ import annotations
 
+import re
 import time
+from pathlib import Path
 
 # Gesture names the 3D avatar can actually perform. Mirrors TalkingHead's
 # gestureTemplates (hand gestures) plus the 'yes'/'no' head animations.
@@ -24,9 +26,51 @@ KNOWN_GESTURES = frozenset({
     "yes", "no",
 })
 
-# Full-body Mixamo clips in frontend/animations/ (served at /animations/<n>.fbx).
-# Names must stay filename-safe: the frontend builds a URL straight from them.
-KNOWN_ANIMATIONS = frozenset({
+# Full-body Mixamo clips live in frontend/animations/ and are served at
+# /animations/<name>.fbx. They are DISCOVERED from disk rather than listed
+# here, so dropping a new .fbx in that folder is all it takes to add a move.
+ANIMATIONS_DIR: Path = Path(__file__).resolve().parents[2] / "frontend" / "animations"
+
+# The name is pasted straight into a URL, so only accept tame filenames.
+_SAFE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# Clips whose filename starts with this are used as ambient idle motion.
+IDLE_PREFIX = "idle"
+
+_cache: dict = {"names": frozenset(), "stamp": 0.0}
+_CACHE_TTL = 10.0
+
+
+def discover_animations(force: bool = False) -> frozenset[str]:
+    """Names of the .fbx clips currently on disk (cached briefly)."""
+    now = time.monotonic()
+    if not force and (now - _cache["stamp"]) < _CACHE_TTL and _cache["names"]:
+        return _cache["names"]
+    names = set()
+    try:
+        for path in ANIMATIONS_DIR.glob("*.fbx"):
+            stem = path.stem.lower()
+            if _SAFE_NAME.match(stem):
+                names.add(stem)
+    except OSError:
+        pass
+    result = frozenset(names)
+    _cache["names"], _cache["stamp"] = result, now
+    return result
+
+
+def known_animations() -> frozenset[str]:
+    """Every playable clip. Falls back to the shipped set if the dir is gone."""
+    return discover_animations() or BUILTIN_ANIMATIONS
+
+
+def idle_animations() -> list[str]:
+    """Clips suitable as ambient movement (filenames starting with 'idle')."""
+    return sorted(n for n in known_animations() if n.startswith(IDLE_PREFIX))
+
+
+# Shipped with the repo; used only as a fallback if the folder is unreadable.
+BUILTIN_ANIMATIONS = frozenset({
     "walking", "start-walking", "jump", "waving", "talking",
     "arguing", "disappointed", "secret", "yelling",
 })
@@ -45,7 +89,7 @@ def request_gesture(name: str) -> bool:
 
 def request_animation(name: str) -> bool:
     """Queue a full-body animation clip. False for unknown names."""
-    if name not in KNOWN_ANIMATIONS:
+    if name not in known_animations():
         return False
     _pending["animation"] = name
     _pending["ts"] = time.monotonic()
