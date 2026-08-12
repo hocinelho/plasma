@@ -33,7 +33,8 @@ def check_python() -> None:
         check(FAIL, f"Python {version}", "Plasma needs 3.11 or newer")
     elif v >= (3, 13):
         check(WARN, f"Python {version}",
-              "some dependencies have no 3.13 wheels yet; 3.11/3.12 is safer")
+              f"some dependencies have no wheels for {v.major}.{v.minor} yet "
+              "and must compile from source; 3.11/3.12 is safer")
     else:
         check(OK, f"Python {version}")
 
@@ -66,8 +67,12 @@ OPTIONAL = {
 def check_packages() -> None:
     missing = [m for m in REQUIRED if importlib.util.find_spec(m) is None]
     if missing:
+        fix = "pip install -r requirements.txt"
+        if missing == ["piper"]:
+            # Its own package name differs from the module it provides.
+            fix = "pip install piper-tts"
         check(FAIL, "required packages",
-              f"missing {', '.join(missing)} — run: pip install -r requirements.txt")
+              f"missing {', '.join(missing)} — run: {fix}")
     else:
         check(OK, "required packages", f"{len(REQUIRED)} present")
 
