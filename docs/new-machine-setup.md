@@ -76,12 +76,28 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ## 5. Check it
 
 ```powershell
+python scripts/doctor.py
+```
+
+It checks Python, the packages, your data, the avatar files and Ollama —
+without starting the app, so it works before the first launch. Anything
+broken comes with the command that fixes it:
+
+```
+  [OK  ] Python 3.12.7
+  [FAIL] TTS voice        none - run: python scripts/download_female_voice.py kristin
+  [FAIL] Ollama           not reachable at http://localhost:11434
+```
+
+When it reports no blocking problems:
+
+```powershell
 python run_plasma.py
 ```
 
-Open <http://localhost:8000/setup> — it reports which pieces are working.
-Then ask her *"what do you remember?"*: if she knows you, the memory came
-across intact.
+Then open <http://localhost:8000> and ask her *"what do you remember?"* — if
+she knows you, the memory came across intact. <http://localhost:8000/setup>
+gives a live view of the same components once the app is running.
 
 ## Which branch?
 
