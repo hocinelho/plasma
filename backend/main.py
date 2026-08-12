@@ -189,6 +189,22 @@ def _speakable(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Helper: refresh USER.md every N turns
 # ---------------------------------------------------------------------------
+def _learn_in_background(message: str, speaker: str | None) -> None:
+    """Notice durable facts in what the user just said.
+
+    Deliberately fire-and-forget *after* the reply has been sent: extraction
+    is another LLM call, and on a local model that is 20-40 s. The user must
+    never wait for it.
+    """
+    if not plasma_config.PASSIVE_LEARNING_ENABLED:
+        return
+    try:
+        from backend.modules.memory.learner import learn_from
+        asyncio.create_task(asyncio.to_thread(learn_from, message, speaker))
+    except Exception as e:
+        log.debug("Passive learning skipped: %s", e)
+
+
 def _maybe_refresh_user_md(session_id: str, every_n_turns: int = 10) -> None:
     try:
         msgs = get_memory().get_conversation(session_id, limit=1000)
@@ -622,6 +638,7 @@ async def voice_chat(
             handle_chat, session_id, transcript, detected_language, speaker
         )
         _maybe_refresh_user_md(session_id)
+        _learn_in_background(transcript, speaker)
     llm_ms = (time.monotonic() - llm_t0) * 1000.0
 
     # If the locate skill pinned the object to a box, ship the annotated frame
