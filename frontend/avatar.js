@@ -507,6 +507,8 @@
             delete window.avatarSpeak;
             delete window.avatarGesture;
             delete window.avatarAnimation;
+            delete window.avatarRoutine;
+            delete window.avatarQueueRoutine;
             holder.remove();
             wrap.classList.remove('human');
             avatarCanvas.style.display = '';
@@ -648,6 +650,34 @@
             // Perform a SEQUENCE of clips back to back — "show me everything
             // you can do" wants the whole repertoire, not one example.
             let routineTimer = null;
+            // A routine that arrives with a spoken reply is held until the
+            // audio is decoded, then paced across its length: otherwise she
+            // finishes talking in 30 s and keeps moving for another minute.
+            let pendingRoutine = null, pendingRoutineTimer = null;
+            const MIN_CLIP_SECONDS = 1.6;   // below this a move is unreadable
+
+            window.avatarQueueRoutine = (names) => {
+                if (!Array.isArray(names) || !names.length) return false;
+                pendingRoutine = names.slice();
+                // If no speech follows (TTS off/failed), play it anyway.
+                clearTimeout(pendingRoutineTimer);
+                pendingRoutineTimer = setTimeout(() => {
+                    if (pendingRoutine) {
+                        const n = pendingRoutine; pendingRoutine = null;
+                        window.avatarRoutine(n, 4);
+                    }
+                }, 1500);
+                return true;
+            };
+
+            function startPacedRoutine(totalSeconds) {
+                if (!pendingRoutine) return;
+                clearTimeout(pendingRoutineTimer);
+                const names = pendingRoutine;
+                pendingRoutine = null;
+                const each = Math.max(MIN_CLIP_SECONDS, totalSeconds / names.length);
+                window.avatarRoutine(names, each);
+            }
             function stopRoutine() {
                 if (routineTimer) { clearTimeout(routineTimer); routineTimer = null; }
             }
@@ -719,6 +749,10 @@
                             // Move her hands while she talks — a person
                             // explaining something doesn't stand rigid. Only
                             // for replies long enough to be worth it.
+                            // Start a queued showcase now that the length of
+                            // the reply is known, so the moves and the words
+                            // she is speaking stay together.
+                            startPacedRoutine(audio.duration);
                             // Ambient: skipped while a requested move is still
                             // playing, so "dance for me" isn't cut short by
                             // her starting to gesture at the reply.

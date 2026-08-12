@@ -961,8 +961,10 @@ async function sendAudio(blob) {
         if (data.gesture && window.avatarGesture) window.avatarGesture(data.gesture);
         if (data.animation && window.avatarAnimation) window.avatarAnimation(data.animation);
         // A routine performs every clip in turn (e.g. "show me all your moves").
-        if (data.routine && data.routine.length && window.avatarRoutine) {
-            window.avatarRoutine(data.routine);
+        // Queue it: the avatar starts it once it knows how long the reply is,
+        // so the moves finish when she finishes speaking.
+        if (data.routine && data.routine.length && window.avatarQueueRoutine) {
+            window.avatarQueueRoutine(data.routine);
         }
         if (data.audio_b64) {
             setStatus('speaking');

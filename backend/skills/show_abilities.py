@@ -82,9 +82,16 @@ def _friendly(name: str, german: bool) -> str:
     return name.replace("-", " ")
 
 
-def _listed_animations(german: bool) -> list[str]:
-    names = sorted(n for n in known_animations() if not n.startswith(_HIDDEN_PREFIX))
-    return [_friendly(n, german) for n in names]
+def _routine_order() -> list[str]:
+    """The order she performs them in — also the order she names them in.
+
+    Both must match: the routine is paced to the spoken reply, so if the
+    lists diverge she ends up saying "the samba" while walking backwards.
+    """
+    return sorted(
+        (n for n in known_animations() if not n.startswith(_HIDDEN_PREFIX)),
+        key=lambda n: (n.startswith("dance"), n.startswith("backflip"), n),
+    )
 
 
 def _join(items: list[str], german: bool) -> str:
@@ -100,18 +107,16 @@ def run(args: dict | None = None) -> str:
     args = args or {}
     german = args.get("language") == "de"
 
-    moves = _listed_animations(german)
+    routine = _routine_order()
+    moves = [_friendly(n, german) for n in routine]
     gestures = [
         (GESTURE_NAMES[g][1 if german else 0])
         for g in sorted(KNOWN_GESTURES) if g in GESTURE_NAMES
     ]
 
     # Perform them all, one after another — asked "show me what you can do",
-    # a single example is not an answer. Ordered so it builds to the dances.
-    routine = sorted(
-        (n for n in known_animations() if not n.startswith(_HIDDEN_PREFIX)),
-        key=lambda n: (n.startswith("dance"), n.startswith("backflip"), n),
-    )
+    # a single example is not an answer. The browser paces this to the length
+    # of the spoken reply so the show ends when she stops talking.
     if routine:
         request_routine(routine)
 
