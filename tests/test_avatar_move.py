@@ -96,6 +96,15 @@ def test_request_gesture_rejects_unknown_names():
 
 
 @pytest.mark.parametrize("utterance,clip", [
+    ("dance for me", "dance-samba"),
+    ("tanz mal", "dance-samba"),
+    ("do a backflip", "backflip"),
+    ("run", "running"),
+    ("sprint", "sprint"),
+    ("turn left", "turn-left"),
+    ("turn right", "turn-right"),
+    ("walk back", "walk-back"),
+    ("gangnam style", "dance-gangnam"),
     ("can you walk", "walking"),
     ("lauf mal", "walking"),
     ("jump", "jump"),
@@ -110,7 +119,7 @@ def test_full_body_clips_are_requested(utterance, clip):
     assert avatar_state.pop_gesture() is None
 
 
-@pytest.mark.parametrize("utterance", ["can you dance for me", "do a backflip"])
+@pytest.mark.parametrize("utterance", ["sit down please", "do a cartwheel"])
 def test_motions_without_a_clip_are_declined_honestly(utterance):
     """No clip for it — say so, don't fake it with an unrelated hand wave."""
     reply = avatar_move.run({"utterance": utterance})

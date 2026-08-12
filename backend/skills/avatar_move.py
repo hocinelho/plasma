@@ -36,6 +36,10 @@ META = {
         "tell me a secret", "yell", "shout", "argue", "look disappointed",
         "lauf", "laufen", "geh mal", "spring", "springen", "hüpf",
         "flüster", "geheimnis", "schrei",
+        # Motion pack
+        "dance", "tanz", "samba", "gangnam", "backflip", "salto",
+        "run", "rennen", "sprint", "turn left", "turn right", "walk back",
+        "dreh dich", "rückwärts",
         # Whisper commonly hears "walk" as "work" — catch the imperative forms.
         "work for me", "work walk", "work. work",
         # German
@@ -87,6 +91,19 @@ ANIMATIONS = {
     "disappointed": ("Aww.", "Schade."),
     "secret":       ("Come closer, it's a secret.", "Komm näher, ein Geheimnis."),
     "yelling":      ("Loud and clear!", "Laut und deutlich!"),
+    # Motion pack
+    "dance-samba":   ("Samba time!", "Samba!"),
+    "dance-gangnam": ("Gangnam style!", "Gangnam Style!"),
+    "backflip":      ("Backflip!", "Rückwärtssalto!"),
+    "running":       ("Running!", "Ich renne!"),
+    "sprint":        ("Sprinting!", "Ich sprinte!"),
+    "walk-back":     ("Walking backwards.", "Ich gehe rückwärts."),
+    "walk-left":     ("Stepping left.", "Nach links."),
+    "walk-right":    ("Stepping right.", "Nach rechts."),
+    "turn-left":     ("Turning left.", "Ich drehe mich nach links."),
+    "turn-right":    ("Turning right.", "Ich drehe mich nach rechts."),
+    "idle-breathing": ("Just standing here.", "Ich stehe einfach hier."),
+    "idle-standing":  ("Relaxing.", "Ich entspanne."),
 }
 
 # Phrase → animation clip. Checked before the hand gestures, since "walk"
@@ -104,18 +121,29 @@ ANIMATION_KEYWORDS = {
     "disappointed": ["be sad", "look disappointed", "sei traurig", "enttäuscht"],
     "secret": ["tell me a secret", "whisper", "flüster", "geheimnis"],
     "yelling": ["yell", "shout", "schrei", "ruf laut"],
+    # Motion pack — dance was previously declined; now she can.
+    "dance-samba": ["samba", "dance", "dancing", "tanz", "tanzen", "tanz mal"],
+    "dance-gangnam": ["gangnam", "gangnam style", "psy"],
+    "backflip": ["backflip", "back flip", "flip", "salto", "somersault"],
+    "running": ["run", "running", "renn", "rennen"],
+    "sprint": ["sprint", "sprinten", "run fast", "lauf schnell"],
+    "walk-back": ["walk back", "go back", "backwards", "rückwärts", "geh zurück"],
+    "walk-left": ["step left", "move left", "nach links", "geh links"],
+    "walk-right": ["step right", "move right", "nach rechts", "geh rechts"],
+    "turn-left": ["turn left", "dreh dich nach links", "dreh links"],
+    "turn-right": ["turn right", "dreh dich nach rechts", "dreh rechts"],
 }
 
 # Motions we still have no clip for — decline honestly rather than faking it.
 UNSUPPORTED = [
-    "dance", "dancing", "tanz", "tanzen",
-    "run", "running", "renn", "sit down", "setz dich", "backflip", "cartwheel",
+    "sit down", "setz dich", "cartwheel", "radschlag", "lie down", "leg dich",
+    "swim", "schwimm", "climb", "kletter",
 ]
 _UNSUPPORTED_REPLY = (
-    "I don't have a clip for that yet. I can walk, jump, wave, nod, shrug, "
-    "point or give you a thumbs up.",
-    "Dafür habe ich noch keine Animation. Ich kann laufen, springen, winken, "
-    "nicken, Schultern zucken, zeigen oder Daumen hoch geben.",
+    "I don't have a clip for that yet. I can walk, run, jump, dance, do a "
+    "backflip, turn, wave, nod, shrug or point.",
+    "Dafür habe ich noch keine Animation. Ich kann laufen, rennen, springen, "
+    "tanzen, einen Salto machen, mich drehen, winken, nicken oder zeigen.",
 )
 
 # Phrase → gesture. Checked longest-first so "thumbs down" beats "thumbs".

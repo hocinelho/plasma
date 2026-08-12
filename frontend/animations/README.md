@@ -55,12 +55,26 @@ and so on and it starts working immediately.
 
 ## Installed clips
 
-`walking`, `start-walking`, `jump`, `waving`, `talking`, `arguing`,
-`disappointed`, `secret`, `yelling`.
+| Group | Clips |
+|---|---|
+| Idle (ambient) | `idle-breathing`, `idle-standing` |
+| Walking | `walking`, `start-walking`, `walk-back`, `walk-left`, `walk-right` |
+| Running | `running`, `sprint` |
+| Turning | `turn-left`, `turn-right` |
+| Fun | `dance-samba`, `dance-gangnam`, `backflip`, `jump` |
+| Expressive | `talking`, `waving`, `arguing`, `disappointed`, `secret`, `yelling` |
 
-After adding a file, register the name in `backend/modules/avatar_state.py`
-(`KNOWN_ANIMATIONS`) and `backend/skills/avatar_move.py` (`ANIMATIONS` +
-`ANIMATION_KEYWORDS`), or nothing will trigger it.
+A clip is playable as soon as the file is here. To give it a **voice
+command**, add it to `ANIMATIONS` + `ANIMATION_KEYWORDS` in
+`backend/skills/avatar_move.py`.
+
+### A note on Mixamo pack downloads
+
+Mixamo packs ship as a `.zip` containing the clips **plus `X Bot.fbx`** — a
+5 MB character mesh, not an animation. Delete it: we have our own avatar, and
+it is identical in every pack. Packs also overlap heavily (four of them
+carried the same `idle`/`walking`/`jump`), so extract, de-duplicate, and keep
+one of each motion.
 
 ## Naming
 
