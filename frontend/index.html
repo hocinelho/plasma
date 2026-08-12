@@ -2,7 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+
+    <!-- Installable on a phone home screen ("Add to Home Screen").
+         iOS ignores manifest display mode, hence the apple-* tags. -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Plasma">
     <title>Plasma — Voice Assistant</title>
     <style>
         /* ── Design tokens ─────────────────────────────────── */
@@ -44,6 +54,10 @@
         html, body { height: 100%; }
 
         body {
+            /* Full-screen on iOS hides the browser chrome, so the page must
+               keep clear of the notch and the home indicator itself. */
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
             font-family: -apple-system, 'Segoe UI', sans-serif;
             font-size: var(--font-base);
             color: var(--text);

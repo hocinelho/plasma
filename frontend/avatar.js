@@ -539,13 +539,23 @@
             /[äöüß]|\b(und|ich|nicht|das|ist|ein|eine|der|die)\b/i.test(text || '') ? 'de' : 'en';
 
         import('talkinghead').then(async ({ TalkingHead }) => {
-            // Camera framing: full body by default; override with
-            // <canvas id="avatar" data-avatar-view="upper|mid|head">.
-            const view = (avatarCanvas.dataset.avatarView || 'full').toLowerCase();
+            // Camera framing. Full body is the default, but on a short panel
+            // (landscape phone) a whole standing person is only a few dozen
+            // pixels tall — frame closer instead so her face still reads.
+            // An explicit data-avatar-view always wins.
+            function pickView() {
+                const forced = (avatarCanvas.dataset.avatarView || '').toLowerCase();
+                if (['full', 'mid', 'upper', 'head'].includes(forced)) return forced;
+                const h = holder.clientHeight || 0;
+                if (h < 260) return 'upper';
+                if (h < 330) return 'mid';
+                return 'full';
+            }
+            const view = pickView();
             head = new TalkingHead(holder, {
                 lipsyncModules: ['en', 'de'],
                 lipsyncLang: 'en',
-                cameraView: ['full', 'mid', 'upper', 'head'].includes(view) ? view : 'full',
+                cameraView: view,
                 cameraRotateEnable: false,
                 cameraPanEnable: false,
                 cameraZoomEnable: false,
@@ -575,6 +585,22 @@
                 avatarMood: 'neutral',
                 lipsyncLang: 'en',
             });
+
+            // Re-frame on rotation: the panel changes shape, and a framing
+            // chosen for portrait crops badly in landscape.
+            let lastView = view, reframeTimer = null;
+            const reframe = () => {
+                clearTimeout(reframeTimer);
+                reframeTimer = setTimeout(() => {
+                    const next = pickView();
+                    if (next !== lastView) {
+                        lastView = next;
+                        try { head.setView(next); } catch (e) { /* keep the old framing */ }
+                    }
+                }, 250);
+            };
+            window.addEventListener('resize', reframe);
+            window.addEventListener('orientationchange', reframe);
 
             // Map the shared contract onto moods / gaze / gestures.
             const MOODS = { idle: 'neutral', listening: 'happy', thinking: 'neutral', speaking: 'happy' };

@@ -157,7 +157,7 @@ app.add_middleware(
 
 # Static assets for the 3D human avatar (TalkingHead + three.js + GLB models).
 _frontend_dir = Path(__file__).resolve().parents[1] / "frontend"
-for _static in ("vendor", "avatars", "animations"):
+for _static in ("vendor", "avatars", "animations", "icons"):
     _static_dir = _frontend_dir / _static
     if _static_dir.is_dir():
         app.mount(f"/{_static}", StaticFiles(directory=_static_dir), name=_static)
@@ -254,6 +254,15 @@ async def camera_page():
     if html_path.exists():
         return FileResponse(html_path)
     return JSONResponse({"error": "camera.html not found"}, status_code=404)
+
+
+@app.get("/manifest.json")
+async def manifest():
+    """PWA manifest — lets the phone install Plasma to the home screen."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "manifest.json"
+    if path.exists():
+        return FileResponse(path, media_type="application/manifest+json")
+    return JSONResponse({"error": "manifest.json not found"}, status_code=404)
 
 
 @app.get("/avatar.js")
