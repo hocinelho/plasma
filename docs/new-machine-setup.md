@@ -25,7 +25,25 @@ Copy the whole `.plasma` folder, `voices`, and `.env` to the same place on
 the new machine. If you can still reach the old laptop at all, do this before
 anything else.
 
-## 2. Set up the new machine
+## 2. Install Python first
+
+If PowerShell answers `python -m venv` with *"Python wurde nicht gefunden"* /
+*"Python was not found"* and offers the Microsoft Store, Python is not
+installed — that message is a stub Windows ships in its place. Everything
+after it (`pip`, `Activate.ps1`) then fails for the same reason.
+
+Get **Python 3.11 or 3.12** from [python.org/downloads](https://www.python.org/downloads/windows/):
+
+- tick **"Add python.exe to PATH"** on the first screen;
+- **"Install for me only"** needs no administrator rights.
+
+Close PowerShell and open it again — PATH changes only apply to new windows.
+Check with `python --version`.
+
+Avoid 3.13 for now: several of Plasma's dependencies ship no wheels for it
+yet and would have to compile from source.
+
+## 3. Set up the new machine
 
 ```powershell
 git clone https://github.com/hocinelho/plasma.git
@@ -40,7 +58,14 @@ pip install python-docx          # meeting minutes
 
 Then paste in `.plasma`, `voices` and `.env` from step 1.
 
-## 3. Things that live outside the project
+If `Activate.ps1` is refused with a *running scripts is disabled* error,
+PowerShell's execution policy is blocking it. Allow it for that window only:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+## 4. Things that live outside the project
 
 - **Ollama** — install from [ollama.ai](https://ollama.ai), then
   `ollama pull mistral:latest` (or whichever model your `.env` names).
@@ -48,7 +73,7 @@ Then paste in `.plasma`, `voices` and `.env` from step 1.
 - **A voice**, if you skipped copying `voices/`:
   `python scripts/download_female_voice.py kristin`
 
-## 4. Check it
+## 5. Check it
 
 ```powershell
 python run_plasma.py
@@ -57,6 +82,11 @@ python run_plasma.py
 Open <http://localhost:8000/setup> — it reports which pieces are working.
 Then ask her *"what do you remember?"*: if she knows you, the memory came
 across intact.
+
+## Which branch?
+
+`claude/avatar-design` — it carries the 3D avatar, the motion clips, meeting
+notes and the phone support. The other branches are older.
 
 ## Without administrator rights
 
