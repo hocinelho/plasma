@@ -614,21 +614,33 @@
                 } catch (e) { return false; }
             };
 
-            // Play a full-body Mixamo clip from /animations/<name>.fbx.
-            // Unlike gestures (arms only) this animates the whole skeleton.
-            window.avatarAnimation = (name, seconds = 8) => {
+            // Only one animation can play at a time — starting a second one
+            // replaces the first. So a clip the user actually asked for is
+            // protected until it has finished: without this, the "talking"
+            // gesturing below (or an idle clip) silently overwrote the dance
+            // or the demo she had just been asked to perform.
+            let protectedUntil = 0;
+
+            function playClip(name, seconds, { ambient = false } = {}) {
                 if (!head || failed || !name) return false;
                 // The name goes straight into a URL — keep it strictly safe.
                 if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return false;
+                // Ambient motion never interrupts a requested move.
+                if (ambient && performance.now() < protectedUntil) return false;
                 try {
                     const p = head.playAnimation(`/animations/${name}.fbx`, null, seconds);
                     if (p && p.catch) p.catch(e => console.warn('[avatar] animation failed:', name, e));
+                    if (!ambient) protectedUntil = performance.now() + seconds * 1000;
                     return true;
                 } catch (e) {
                     console.warn('[avatar] animation failed:', name, e);
                     return false;
                 }
-            };
+            }
+
+            // Play a full-body Mixamo clip from /animations/<name>.fbx.
+            // Unlike gestures (arms only) this animates the whole skeleton.
+            window.avatarAnimation = (name, seconds = 8) => playClip(name, seconds);
 
             // ── Free movement ─────────────────────────────────────────────
             // Clips are discovered server-side, so any .fbx dropped into
@@ -656,7 +668,7 @@
                                && performance.now() > lastIdle + IDLE_MIN_GAP_MS;
                     if (quiet && clips.idle.length) {
                         const pick = clips.idle[Math.floor(Math.random() * clips.idle.length)];
-                        window.avatarAnimation(pick, 6);
+                        playClip(pick, 6, { ambient: true });
                         lastIdle = performance.now();
                     }
                     scheduleIdle();
@@ -683,9 +695,12 @@
                             // Move her hands while she talks — a person
                             // explaining something doesn't stand rigid. Only
                             // for replies long enough to be worth it.
+                            // Ambient: skipped while a requested move is still
+                            // playing, so "dance for me" isn't cut short by
+                            // her starting to gesture at the reply.
                             const clip = talkingClip();
                             if (clip && audio.duration > 3) {
-                                window.avatarAnimation(clip, Math.min(audio.duration, 20));
+                                playClip(clip, Math.min(audio.duration, 20), { ambient: true });
                             }
                             head.speakAudio({ audio, words, wtimes, wdurations },
                                             { lipsyncLang: guessLang(text) });

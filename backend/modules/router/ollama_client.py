@@ -18,7 +18,11 @@ from backend.core.config import config
 
 log = logging.getLogger("plasma.ollama")
 
-DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
+# connect is deliberately long: while Ollama loads a big model it may not
+# service new connections, which is indistinguishable from it being down.
+DEFAULT_TIMEOUT = httpx.Timeout(
+    config.OLLAMA_READ_TIMEOUT, connect=config.OLLAMA_CONNECT_TIMEOUT
+)
 
 _SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
 

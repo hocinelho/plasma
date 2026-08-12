@@ -66,6 +66,11 @@ class Config:
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "orca-mini:latest")
+    # Loading a large model (7B+) into memory can hold up Ollama's accept
+    # queue for far longer than a normal connect takes, so this is generous
+    # on purpose — a short connect timeout looks exactly like "server down".
+    OLLAMA_CONNECT_TIMEOUT: float = float(os.getenv("OLLAMA_CONNECT_TIMEOUT", "60"))
+    OLLAMA_READ_TIMEOUT: float = float(os.getenv("OLLAMA_READ_TIMEOUT", "180"))
 
     # --- Local ASR (Whisper) ---
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)

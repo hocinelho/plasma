@@ -128,9 +128,13 @@ def _ollama_error_reply(e: Exception) -> str:
         )
     if "connect" in msg.lower() or "refused" in msg.lower() or "timed out" in msg.lower():
         log.warning("Ollama unreachable: %s", e)
+        # Do not just say "start Ollama": the most common cause is that
+        # Ollama IS running but is still loading a large model, which blocks
+        # new connections and looks identical to the server being down.
         return (
-            "I can't reach the local model server. Make sure Ollama is running "
-            "(start the Ollama app), then try again."
+            "The local model didn't answer in time. If you just switched to a "
+            "bigger model it may still be loading — try again in a moment. "
+            "Otherwise check that Ollama is running."
         )
     log.warning("Ollama chat failed: %s", e)
     return "Sorry, I hit a problem reaching the language model. Please try again."
