@@ -109,7 +109,6 @@ def test_request_gesture_rejects_unknown_names():
     ("lauf mal", "walking"),
     ("jump", "jump"),
     ("spring mal", "jump"),
-    ("tell me a secret", "secret"),
     ("yell at me", "yelling"),
 ])
 def test_full_body_clips_are_requested(utterance, clip):

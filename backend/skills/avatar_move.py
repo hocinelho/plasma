@@ -32,10 +32,10 @@ META = {
         "move", "can you move", "do some movement", "move something",
         "nod", "shake your head", "shrug", "thumbs up", "thumbs down",
         "point at", "show me a gesture", "do a gesture", "raise your hand",
-        "dance", "can you walk", "walk", "jump", "hop", "whisper",
-        "tell me a secret", "yell", "shout", "argue", "look disappointed",
+        "dance", "can you walk", "walk", "jump", "hop",
+        "yell", "shout", "argue", "look disappointed",
         "lauf", "laufen", "geh mal", "spring", "springen", "hüpf",
-        "flüster", "geheimnis", "schrei",
+        "schrei",
         # Motion pack
         "dance", "tanz", "samba", "gangnam", "backflip", "salto",
         "run", "rennen", "sprint", "turn left", "turn right", "walk back",
@@ -119,7 +119,9 @@ ANIMATION_KEYWORDS = {
     "talking": ["talk with your hands", "gesticulate", "rede mit den händen"],
     "arguing": ["argue", "arguing", "argumentier", "streit"],
     "disappointed": ["be sad", "look disappointed", "sei traurig", "enttäuscht"],
-    "secret": ["tell me a secret", "whisper", "flüster", "geheimnis"],
+    # "tell me a secret" belongs to the tell_secret skill, which says an
+    # actual secret and plays this same clip.
+    "secret": ["whisper something to me", "lean in"],
     "yelling": ["yell", "shout", "schrei", "ruf laut"],
     # Motion pack — dance was previously declined; now she can.
     "dance-samba": ["samba", "dance", "dancing", "tanz", "tanzen", "tanz mal"],
