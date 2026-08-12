@@ -75,7 +75,7 @@ BUILTIN_ANIMATIONS = frozenset({
     "arguing", "disappointed", "secret", "yelling",
 })
 
-_pending: dict = {"gesture": None, "animation": None, "ts": 0.0}
+_pending: dict = {"gesture": None, "animation": None, "routine": None, "ts": 0.0}
 
 
 def request_gesture(name: str) -> bool:
@@ -94,6 +94,30 @@ def request_animation(name: str) -> bool:
     _pending["animation"] = name
     _pending["ts"] = time.monotonic()
     return True
+
+
+def request_routine(names: list[str]) -> list[str]:
+    """Queue a SEQUENCE of clips, performed one after another.
+
+    Used by "show me everything you can do": a single clip answers that
+    question with one example, which is not what was asked.
+    Unknown names are dropped rather than failing the whole routine.
+    """
+    playable = [n for n in names if n in known_animations()]
+    if not playable:
+        return []
+    _pending["routine"] = playable
+    _pending["ts"] = time.monotonic()
+    return playable
+
+
+def pop_routine(max_age_s: float = 30.0) -> list[str] | None:
+    """Return (once) the queued sequence of clips."""
+    names = _pending["routine"]
+    if names and (time.monotonic() - _pending["ts"]) <= max_age_s:
+        _pending["routine"] = None
+        return names
+    return None
 
 
 def _pop(key: str, max_age_s: float) -> str | None:
@@ -118,4 +142,5 @@ def clear() -> None:
     """Drop anything queued (used by tests)."""
     _pending["gesture"] = None
     _pending["animation"] = None
+    _pending["routine"] = None
     _pending["ts"] = 0.0

@@ -11,7 +11,7 @@ import random
 from backend.modules.avatar_state import (
     KNOWN_GESTURES,
     known_animations,
-    request_animation,
+    request_routine,
 )
 
 META = {
@@ -106,21 +106,25 @@ def run(args: dict | None = None) -> str:
         for g in sorted(KNOWN_GESTURES) if g in GESTURE_NAMES
     ]
 
-    # Demonstrate one full-body move while listing, so it's a show, not a menu.
-    demo = [n for n in known_animations() if not n.startswith(_HIDDEN_PREFIX)]
-    if demo:
-        request_animation(random.choice(demo))
+    # Perform them all, one after another — asked "show me what you can do",
+    # a single example is not an answer. Ordered so it builds to the dances.
+    routine = sorted(
+        (n for n in known_animations() if not n.startswith(_HIDDEN_PREFIX)),
+        key=lambda n: (n.startswith("dance"), n.startswith("backflip"), n),
+    )
+    if routine:
+        request_routine(routine)
 
     if german:
         return (
             f"Ganzkörper kann ich: {_join(moves, True)}. "
             f"Dazu mit Händen und Kopf: {_join(gestures, True)}. "
-            f"Sag einfach, was ich machen soll."
+            f"Ich zeige dir jetzt alles der Reihe nach."
         )
     return (
         f"Full body, I can: {_join(moves, False)}. "
         f"With my hands and head: {_join(gestures, False)}. "
-        f"Just tell me which one you want."
+        f"Watch, I'll go through them all now."
     )
 
 

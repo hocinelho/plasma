@@ -640,7 +640,31 @@
 
             // Play a full-body Mixamo clip from /animations/<name>.fbx.
             // Unlike gestures (arms only) this animates the whole skeleton.
-            window.avatarAnimation = (name, seconds = 8) => playClip(name, seconds);
+            window.avatarAnimation = (name, seconds = 8) => {
+                stopRoutine();          // a new single request cancels a showcase
+                return playClip(name, seconds);
+            };
+
+            // Perform a SEQUENCE of clips back to back — "show me everything
+            // you can do" wants the whole repertoire, not one example.
+            let routineTimer = null;
+            function stopRoutine() {
+                if (routineTimer) { clearTimeout(routineTimer); routineTimer = null; }
+            }
+            window.avatarRoutine = (names, secondsEach = 4) => {
+                if (!head || failed || !Array.isArray(names) || !names.length) return false;
+                stopRoutine();
+                const queue = names.filter(n => /^[a-z0-9][a-z0-9-]*$/.test(n));
+                if (!queue.length) return false;
+                let i = 0;
+                const step = () => {
+                    if (i >= queue.length) { routineTimer = null; return; }
+                    playClip(queue[i++], secondsEach);
+                    routineTimer = setTimeout(step, secondsEach * 1000);
+                };
+                step();
+                return true;
+            };
 
             // ── Free movement ─────────────────────────────────────────────
             // Clips are discovered server-side, so any .fbx dropped into

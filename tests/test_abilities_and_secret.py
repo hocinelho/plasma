@@ -50,9 +50,38 @@ def test_list_follows_the_folder(monkeypatch):
     assert "idle-x" not in reply
 
 
-def test_it_demonstrates_a_move_while_listing():
+def test_it_performs_every_move_not_just_one():
+    """Asked to show what she can do, one example is not an answer."""
     show_abilities.run({})
-    assert avatar_state.pop_animation() is not None
+    routine = avatar_state.pop_routine()
+    assert routine is not None
+    listed = {n for n in avatar_state.known_animations()
+              if not n.startswith(avatar_state.IDLE_PREFIX)}
+    assert set(routine) == listed
+    assert len(routine) > 5
+
+
+def test_the_routine_ends_on_the_showy_moves():
+    show_abilities.run({})
+    routine = avatar_state.pop_routine()
+    assert routine[-1].startswith("dance")
+
+
+def test_ambient_idle_clips_are_not_performed():
+    show_abilities.run({})
+    routine = avatar_state.pop_routine() or []
+    assert not any(n.startswith(avatar_state.IDLE_PREFIX) for n in routine)
+
+
+def test_routine_rejects_unknown_clips():
+    assert avatar_state.request_routine(["not-a-clip", "walking"]) == ["walking"]
+    assert avatar_state.pop_routine() == ["walking"]
+
+
+def test_routine_is_popped_only_once():
+    avatar_state.request_routine(["walking", "jump"])
+    assert avatar_state.pop_routine() == ["walking", "jump"]
+    assert avatar_state.pop_routine() is None
 
 
 def test_german_listing():

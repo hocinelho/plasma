@@ -960,6 +960,10 @@ async function sendAudio(blob) {
         // reply, so she waves *while* saying "waving at you".
         if (data.gesture && window.avatarGesture) window.avatarGesture(data.gesture);
         if (data.animation && window.avatarAnimation) window.avatarAnimation(data.animation);
+        // A routine performs every clip in turn (e.g. "show me all your moves").
+        if (data.routine && data.routine.length && window.avatarRoutine) {
+            window.avatarRoutine(data.routine);
+        }
         if (data.audio_b64) {
             setStatus('speaking');
             await playBase64Audio(data.audio_b64, data.reply);
