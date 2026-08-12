@@ -61,6 +61,11 @@ OPTIONAL = {
     "docx": ("meeting minutes as Word files", "pip install python-docx"),
     "openwakeword": ("the 'hey Plasma' wake word", "pip install openwakeword"),
     "cv2": ("camera vision", "pip install opencv-python"),
+    # Only serve_phone.py needs this, so it is not fatal for a desktop run —
+    # but it IS fatal for the phone, and finding that out from a traceback
+    # instead of from here is the exact failure this script exists to prevent.
+    "cryptography": ("Plasma on your phone (serve_phone.py)",
+                     "pip install cryptography"),
 }
 
 

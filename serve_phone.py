@@ -83,7 +83,24 @@ def main() -> None:
     port = int(os.getenv("PLASMA_HTTPS_PORT", "8443"))
     cert_dir = root / ".plasma" / "certs"
     regen = "--force-cert" in sys.argv
-    cert_path, key_path = ensure_cert(cert_dir, regenerate=regen)
+    try:
+        cert_path, key_path = ensure_cert(cert_dir, regenerate=regen)
+    except ModuleNotFoundError as exc:
+        if exc.name != "cryptography":
+            raise
+        # Without a certificate there is no HTTPS, and without HTTPS a phone
+        # will not grant microphone access — so this is fatal, but it is a
+        # one-line fix and deserves to read like one rather than a traceback.
+        print(
+            "\n  Cannot make the HTTPS certificate: the 'cryptography' package\n"
+            "  is not installed in this environment.\n\n"
+            "      pip install -r requirements.txt\n\n"
+            "  (or just: pip install cryptography)\n\n"
+            "  Plasma still runs on this computer without it — python run_plasma.py.\n"
+            "  Only the phone needs HTTPS.\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
 
     ips = local_ips() or ["<this-computer-ip>"]
     blocked = _firewall_rule_missing(port)
