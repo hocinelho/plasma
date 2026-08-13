@@ -1105,6 +1105,9 @@ function connectWakeSocket() {
             if (msg.type === 'wake') {
                 console.log(`[wake] ${msg.source || 'wake_word'} detected (score=${msg.score?.toFixed(2)})`);
                 wakeBurst();   // whole-background "waking up" surge (word OR clap)
+                // Anything that wants to react to being woken listens for this
+                // rather than reaching into the socket handler.
+                window.dispatchEvent(new CustomEvent('plasma-wake', { detail: msg }));
                 if (!isRecording && !isBusy) {
                     startRecording();
                     clearTimeout(wakeStopTimer);
@@ -1167,6 +1170,50 @@ function showAlertToast(text) {
     wrap.addEventListener('click', () => {
         if (!document.body.classList.contains('stage')) return;
         if (isRecording) stopRecording(); else startRecording();
+    });
+
+    // ── Summon mode: arrive already on stage, already listening ────────
+    // "Hey Siri, Plasma" runs a Shortcut that opens /?stage=1, and she is
+    // simply there — full screen, microphone live, no tapping. On iPhone
+    // this is as close to a Siri-style summon as anything can get: no app,
+    // native or web, may draw over the home screen (see docs/phone-setup.md),
+    // so the summon is what we make instant, not the overlay.
+    const params = new URLSearchParams(location.search);
+    const summoned = params.get('stage') === '1';
+    if (!summoned) return;
+
+    document.body.classList.add('summoned');
+
+    // The renderer defines avatarStage() only once the .glb has loaded, and
+    // the mic only exists once permission is granted — so wait for each
+    // rather than firing into a page that isn't ready.
+    function whenReady(test, act, timeoutMs = 30000) {
+        const deadline = performance.now() + timeoutMs;
+        (function poll() {
+            if (test()) return act();
+            if (performance.now() > deadline) return;   // give up quietly
+            setTimeout(poll, 120);
+        })();
+    }
+
+    whenReady(() => !!window.avatarStage, () => setStage(true));
+
+    if (params.get('listen') !== '0') {
+        // getUserMedia was already requested at load; once the recorder
+        // exists the permission has been granted and we can open the mic
+        // without a tap. If it was denied, tapping her still works.
+        whenReady(() => !!mediaRecorder && !isBusy, () => {
+            startRecording();
+            clearTimeout(wakeStopTimer);
+            wakeStopTimer = setTimeout(
+                () => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
+        });
+    }
+
+    // Summoned and then wandered off the stage? The wake word brings her
+    // back, so "hey Plasma" behaves the same as the Shortcut did.
+    window.addEventListener('plasma-wake', () => {
+        if (!document.body.classList.contains('stage')) setStage(true);
     });
 })();
 

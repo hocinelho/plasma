@@ -109,6 +109,8 @@ def main() -> None:
     print("  Plasma is serving over HTTPS. On your phone, open:")
     print()
     print(f"      >>> https://{ips[0]}:{port}/          <-- the avatar")
+    print(f"          https://{ips[0]}:{port}/?stage=1  <-- summon: full screen, listening")
+    print(f"          https://{ips[0]}:{port}/wallpaper <-- save her as your wallpaper")
     print(f"          https://{ips[0]}:{port}/camera    <-- phone as a camera")
     if len(ips) > 1:
         print()

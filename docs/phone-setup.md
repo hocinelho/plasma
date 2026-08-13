@@ -100,6 +100,48 @@ the whole display while Plasma is open.
 For her on the home screen itself, use the wallpaper studio below.
 
 
+## Summoning her, like Siri
+
+You can't have her floating over your icons, but you *can* have her arrive the
+way Siri does: say a phrase, and she is there — full screen, already
+listening, nothing to tap.
+
+Open **`/?stage=1`** and that is exactly what happens. Add `&listen=0` if you
+would rather she waited for a tap.
+
+### "Hey Siri, Plasma"
+
+On iPhone, Siri becomes her wake word:
+
+1. **Shortcuts** app → **+** → *Add Action* → search **Open URLs**
+2. Paste `https://<your-pc-ip>:8443/?stage=1`
+3. Rename the shortcut to **Plasma** (tap the name at the top)
+4. Done
+
+Now *"Hey Siri, Plasma"* brings her up full screen and listening. The
+shortcut name is the phrase, so call it whatever you want to say.
+
+Two extras worth setting up while you're there:
+
+- **Back Tap** — Settings → Accessibility → Touch → Back Tap → *Double Tap* →
+  pick the Plasma shortcut. Two taps on the back of the phone summons her.
+- **Action Button** (iPhone 15 Pro and later) — Settings → Action Button →
+  *Shortcut* → Plasma.
+
+On Android the same thing works from a home screen shortcut, and Google
+Assistant routines can open the URL by voice.
+
+### Why Siri and not "hey Plasma"
+
+Her own wake word runs on the PC's microphone and needs Plasma to already be
+open and in the foreground on the phone. A phone browser cannot bring itself
+to the front — no web page can, on any platform. Siri can, so on the phone
+Siri does the summoning and Plasma does everything after it.
+
+Once she is up, "hey Plasma" and the clap work normally, and if you leave the
+stage the wake word brings her back to it.
+
+
 ## Wallpaper studio — her on your home screen
 
 Open **`/wallpaper`** (or tap *🖼 Make a wallpaper* on the main page) and you
