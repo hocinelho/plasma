@@ -256,6 +256,20 @@ async def camera_page():
     return JSONResponse({"error": "camera.html not found"}, status_code=404)
 
 
+@app.get("/wallpaper")
+async def wallpaper_page():
+    """Serve the wallpaper studio — pose the avatar and save her as a PNG.
+
+    No browser, on any phone, can draw over the home screen. A wallpaper is
+    the closest achievable thing, so this page renders her at the device's
+    real pixel size against a transparent (or chosen) background.
+    """
+    html_path = Path(__file__).resolve().parents[1] / "frontend" / "wallpaper.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    return JSONResponse({"error": "wallpaper.html not found"}, status_code=404)
+
+
 @app.get("/plasma.crt")
 async def download_certificate():
     """Serve the self-signed certificate so the phone can install it.

@@ -837,7 +837,14 @@ class TalkingHead {
       this.scene = this.opt.avatarOnlyScene;
       this.camera = this.opt.avatarOnlyCamera;
     } else {
-      this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      // PLASMA PATCH: preserveDrawingBuffer lets /wallpaper read the rendered
+      // frame back with canvas.toDataURL(). Without it the driver is free to
+      // discard the buffer after compositing and the export comes back blank.
+      // Reading through the canvas (rather than an off-screen render target)
+      // means the saved PNG goes through the very same tone-mapping and
+      // colour-space output as the picture on screen, so what you save is
+      // exactly what you were looking at.
+      this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
       this.renderer.setPixelRatio( this.opt.modelPixelRatio * window.devicePixelRatio );
       this.renderer.setSize(this.nodeAvatar.clientWidth, this.nodeAvatar.clientHeight);
       this.renderer.outputColorSpace = THREE.SRGBColorSpace;

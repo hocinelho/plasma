@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Plasma — Wallpaper Studio</title>
+
+    <!-- Same local import map as index.html: three + TalkingHead, no CDN. -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "/vendor/three/three.module.js",
+        "three/addons/": "/vendor/three/addons/",
+        "talkinghead": "/vendor/talkinghead/talkinghead.mjs"
+      }
+    }
+    </script>
+
+    <style>
+        :root {
+            --bg: #0a0e1a;
+            --panel: #141b2e;
+            --text: #e6edf7;
+            --muted: #8a94a7;
+            --accent: #4a9eff;
+            --border: #2a3450;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            display: flex; align-items: baseline; gap: 10px;
+            padding: 10px 14px 6px;
+            flex: 0 0 auto;
+        }
+        header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.2px; }
+        header .hint { font-size: 12px; color: var(--muted); }
+        header a { color: var(--accent); text-decoration: none; margin-left: auto; font-size: 12px; }
+
+        /* ── Preview: a phone screen at the real aspect ratio ───────────── */
+        #stage {
+            flex: 1 1 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 0;           /* let it actually shrink inside the flex column */
+            padding: 6px;
+        }
+        #screen {
+            position: relative;
+            /* aspect-ratio is set from JS to match this device's real screen */
+            height: 100%;
+            border-radius: 22px;
+            overflow: hidden;
+            background: #1a1f30;
+            box-shadow: 0 0 0 1px var(--border), 0 12px 40px rgba(0,0,0,0.55);
+        }
+        #backdrop {
+            position: absolute; inset: 0;
+            background-size: cover;
+            background-position: center;
+        }
+        /* The checkerboard shows through wherever the wallpaper is transparent. */
+        #screen.alpha #backdrop {
+            background-image:
+                linear-gradient(45deg, #2a3044 25%, transparent 25%, transparent 75%, #2a3044 75%),
+                linear-gradient(45deg, #2a3044 25%, #222738 25%, #222738 75%, #2a3044 75%);
+            background-size: 22px 22px;
+            background-position: 0 0, 11px 11px;
+        }
+        #avatar-human {
+            position: absolute; inset: 0;
+            /* Transform, never resize: moving the container is free, resizing
+               it forces the WebGL buffer to be reallocated. The export applies
+               the identical transform arithmetically, so preview == result. */
+            transform-origin: 50% 50%;
+            will-change: transform;
+        }
+        #avatar-human canvas { display: block; width: 100%; height: 100%; }
+
+        #loading {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--muted); font-size: 13px;
+        }
+
+        /* ── Controls ───────────────────────────────────────────────────── */
+        #controls {
+            flex: 0 0 auto;
+            background: var(--panel);
+            border-top: 1px solid var(--border);
+            padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 6px 14px;
+            max-height: 40dvh;
+            overflow-y: auto;
+        }
+        label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+        select, input[type=range], input[type=color] {
+            width: 100%;
+            background: #0d1424;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            padding: 6px 8px;
+            font: inherit;
+            font-size: 13px;
+        }
+        input[type=range] { padding: 0; height: 26px; accent-color: var(--accent); }
+        input[type=color] { height: 32px; padding: 2px; }
+        .row { display: flex; gap: 8px; align-items: center; }
+        .row > * { flex: 1 1 auto; }
+        .check { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text); }
+        .check input { width: 17px; height: 17px; accent-color: var(--accent); flex: 0 0 auto; }
+
+        button {
+            font: inherit; font-size: 13px; font-weight: 600;
+            color: var(--text);
+            background: #1b2338;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 12px;
+            cursor: pointer;
+            width: 100%;
+        }
+        button.primary { background: var(--accent); border-color: var(--accent); color: #04101f; }
+        button:disabled { opacity: 0.5; cursor: default; }
+
+        .span-all { grid-column: 1 / -1; }
+
+        /* ── Result sheet ───────────────────────────────────────────────── */
+        #result {
+            position: fixed; inset: 0; z-index: 30;
+            background: rgba(6, 9, 18, 0.94);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding: calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
+        }
+        #result.on { display: flex; }
+        #result img {
+            flex: 1 1 auto;
+            min-height: 0;
+            max-width: 100%;
+            object-fit: contain;
+            border-radius: 16px;
+            box-shadow: 0 0 0 1px var(--border);
+        }
+        #result p { font-size: 13px; text-align: center; color: var(--text); max-width: 30em; }
+        #result p b { color: var(--accent); }
+        #result .actions { display: flex; gap: 10px; width: 100%; max-width: 420px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Wallpaper Studio</h1>
+    <span class="hint">pose her, then save to Photos</span>
+    <a href="/">&larr; Plasma</a>
+</header>
+
+<div id="stage">
+    <div id="screen" class="alpha">
+        <div id="backdrop"></div>
+        <div id="loading">Loading the avatar…</div>
+    </div>
+</div>
+
+<div id="controls">
+    <div>
+        <label for="pose">Motion &mdash; freeze it where you like it</label>
+        <select id="pose"><option value="">standing (default)</option></select>
+    </div>
+    <div>
+        <label for="mood">Expression</label>
+        <select id="mood">
+            <option value="neutral">neutral</option>
+            <option value="happy" selected>happy</option>
+            <option value="love">warm</option>
+            <option value="sad">thoughtful</option>
+            <option value="angry">serious</option>
+        </select>
+    </div>
+    <div>
+        <label for="size">Size <span id="size-val">100%</span></label>
+        <input type="range" id="size" min="40" max="170" value="100">
+    </div>
+    <div>
+        <label for="posx">Left / right</label>
+        <input type="range" id="posx" min="-50" max="50" value="-24">
+    </div>
+    <div>
+        <label for="posy">Up / down</label>
+        <input type="range" id="posy" min="-40" max="40" value="0">
+    </div>
+    <div>
+        <label for="bgmode">Background</label>
+        <select id="bgmode">
+            <option value="alpha" selected>transparent (keeps your own wallpaper)</option>
+            <option value="photo">a photo from this phone…</option>
+            <option value="color">solid colour</option>
+        </select>
+    </div>
+    <div class="row">
+        <label class="check"><input type="checkbox" id="freeze"> Freeze</label>
+        <label class="check"><input type="checkbox" id="mirror"> Mirror</label>
+    </div>
+    <div>
+        <label for="bgcolor">Colour</label>
+        <input type="color" id="bgcolor" value="#0a0e1a">
+    </div>
+    <div class="span-all">
+        <button id="make" class="primary" disabled>Make wallpaper</button>
+    </div>
+</div>
+
+<input type="file" id="photo" accept="image/*" hidden>
+
+<div id="result">
+    <img id="result-img" alt="Your wallpaper">
+    <p id="result-how"></p>
+    <div class="actions">
+        <button id="again">Back to editing</button>
+    </div>
+</div>
+
+<script type="module">
+import { TalkingHead } from 'talkinghead';
+
+const screenEl  = document.getElementById('screen');
+const backdrop  = document.getElementById('backdrop');
+const loading   = document.getElementById('loading');
+const poseSel   = document.getElementById('pose');
+const moodSel   = document.getElementById('mood');
+const sizeEl    = document.getElementById('size');
+const sizeVal   = document.getElementById('size-val');
+const posxEl    = document.getElementById('posx');
+const posyEl    = document.getElementById('posy');
+const bgModeEl  = document.getElementById('bgmode');
+const bgColorEl = document.getElementById('bgcolor');
+const mirrorEl  = document.getElementById('mirror');
+const freezeEl  = document.getElementById('freeze');
+const photoEl   = document.getElementById('photo');
+const makeBtn   = document.getElementById('make');
+const resultEl  = document.getElementById('result');
+const resultImg = document.getElementById('result-img');
+const resultHow = document.getElementById('result-how');
+
+// ── The device's real screen, in real pixels ────────────────────────────
+// screen.width/height are CSS pixels of the *display*, so they survive the
+// browser's chrome collapsing — unlike innerHeight. Orientation-independent:
+// a wallpaper is always portrait.
+const dpr = Math.min(window.devicePixelRatio || 1, 3);
+const cssW = Math.min(screen.width, screen.height);
+const cssH = Math.max(screen.width, screen.height);
+const OUT_W = Math.round(cssW * dpr);
+const OUT_H = Math.round(cssH * dpr);
+screenEl.style.aspectRatio = `${cssW} / ${cssH}`;
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+           || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+// ── Avatar ──────────────────────────────────────────────────────────────
+const holder = document.createElement('div');
+holder.id = 'avatar-human';
+screenEl.appendChild(holder);
+
+let head = null;
+
+function applyTransform() {
+    const s = sizeEl.value / 100;
+    sizeVal.textContent = sizeEl.value + '%';
+    const flip = mirrorEl.checked ? ' scaleX(-1)' : '';
+    holder.style.transform =
+        `translate(${posxEl.value}%, ${posyEl.value}%) scale(${s})${flip}`;
+}
+
+function applyBackground() {
+    const mode = bgModeEl.value;
+    screenEl.classList.toggle('alpha', mode === 'alpha');
+    if (mode === 'color') {
+        backdrop.style.background = bgColorEl.value;
+    } else if (mode === 'photo' && photoURL) {
+        backdrop.style.background = `url("${photoURL}") center / cover`;
+    } else if (mode !== 'alpha') {
+        backdrop.style.background = bgColorEl.value;
+    } else {
+        backdrop.style.background = '';   // CSS checkerboard takes over
+    }
+}
+
+let photoURL = null;
+bgModeEl.addEventListener('change', () => {
+    if (bgModeEl.value === 'photo' && !photoURL) photoEl.click();
+    applyBackground();
+});
+photoEl.addEventListener('change', () => {
+    const f = photoEl.files && photoEl.files[0];
+    if (!f) { bgModeEl.value = 'alpha'; applyBackground(); return; }
+    if (photoURL) URL.revokeObjectURL(photoURL);
+    photoURL = URL.createObjectURL(f);
+    bgModeEl.value = 'photo';
+    applyBackground();
+});
+bgColorEl.addEventListener('input', applyBackground);
+
+for (const el of [sizeEl, posxEl, posyEl, mirrorEl]) {
+    el.addEventListener('input', applyTransform);
+}
+
+// Loop the clip and let you stop it on the frame you want. TalkingHead's
+// playPose() would be the obvious choice, but it only ever takes keyframe 0 —
+// for "waving" that is arms-down, i.e. not the wave. Playing the motion and
+// freezing it gives you every frame of every clip to choose from instead.
+const POSE_HOLD_SECONDS = 3600;
+
+function showPose(name) {
+    if (!head) return;
+    if (freezeEl.checked) { freezeEl.checked = false; head.start(); }
+    if (!name) { try { head.stopAnimation(); } catch (e) {} return; }
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) return;   // goes straight into a URL
+    try {
+        const p = head.playAnimation(`/animations/${name}.fbx`, null, POSE_HOLD_SECONDS);
+        if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* keep whatever she was doing */ }
+}
+
+poseSel.addEventListener('change', () => showPose(poseSel.value));
+moodSel.addEventListener('change', () => {
+    try { head.setMood(moodSel.value); } catch (e) {}
+});
+freezeEl.addEventListener('change', () => {
+    if (!head) return;
+    try { freezeEl.checked ? head.stop() : head.start(); } catch (e) {}
+});
+
+// ── Export ──────────────────────────────────────────────────────────────
+// Render the avatar alone, transparent, at the phone's real pixel size, then
+// composite the background and the same transform the preview showed.
+function renderAvatarAt(w, h) {
+    const r = head.renderer, cam = head.camera;
+    r.setPixelRatio(1);
+    r.setSize(w, h, false);              // false: don't touch the CSS size
+    cam.aspect = w / h;
+    cam.updateProjectionMatrix();
+    r.render(head.scene, cam);           // direct: works even while frozen
+    const url = r.domElement.toDataURL('image/png');
+    // Put the on-screen renderer back exactly as it was.
+    r.setPixelRatio(head.opt.modelPixelRatio * (window.devicePixelRatio || 1));
+    head.onResize();
+    r.render(head.scene, cam);
+    return url;
+}
+
+function loadImage(src) {
+    return new Promise((res, rej) => {
+        const img = new Image();
+        img.onload = () => res(img);
+        img.onerror = rej;
+        img.src = src;
+    });
+}
+
+/** Which edges the silhouette runs off, so we can warn about a cropped hand.
+ *  Only the four one-pixel borders are read back, not the whole frame. */
+function clippedEdges(canvas) {
+    const g = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    const solid = (data) => {
+        for (let i = 3; i < data.length; i += 4) if (data[i] > 24) return true;
+        return false;
+    };
+    const edges = [];
+    if (solid(g.getImageData(0, 0, 1, h).data))       edges.push('left');
+    if (solid(g.getImageData(w - 1, 0, 1, h).data))   edges.push('right');
+    if (solid(g.getImageData(0, 0, w, 1).data))       edges.push('top');
+    return edges;
+}
+
+/** Draw `img` over the whole canvas, cropping rather than squashing. */
+function drawCover(ctx, img, w, h) {
+    const scale = Math.max(w / img.width, h / img.height);
+    const dw = img.width * scale, dh = img.height * scale;
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+}
+
+async function makeWallpaper() {
+    makeBtn.disabled = true;
+    makeBtn.textContent = 'Rendering…';
+    try {
+        const avatarURL = renderAvatarAt(OUT_W, OUT_H);
+        const avatarImg = await loadImage(avatarURL);
+
+        const out = document.createElement('canvas');
+        out.width = OUT_W;
+        out.height = OUT_H;
+        const ctx = out.getContext('2d');
+
+        // The identical CSS transform, in numbers: translate is a percentage
+        // of the element's own size, scale is about its centre.
+        const s = sizeEl.value / 100;
+        const dw = OUT_W * s, dh = OUT_H * s;
+        const dx = (OUT_W - dw) / 2 + OUT_W * (posxEl.value / 100);
+        const dy = (OUT_H - dh) / 2 + OUT_H * (posyEl.value / 100);
+
+        ctx.save();
+        if (mirrorEl.checked) {
+            ctx.translate(dx + dw, dy);
+            ctx.scale(-1, 1);
+            ctx.drawImage(avatarImg, 0, 0, dw, dh);
+        } else {
+            ctx.drawImage(avatarImg, dx, dy, dw, dh);
+        }
+        ctx.restore();
+
+        // Check for a cropped hand while she is still the only thing on the
+        // canvas — then slide the background in underneath her.
+        const edges = clippedEdges(out);
+
+        const mode = bgModeEl.value;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-over';
+        if (mode === 'color') {
+            ctx.fillStyle = bgColorEl.value;
+            ctx.fillRect(0, 0, OUT_W, OUT_H);
+        } else if (mode === 'photo' && photoURL) {
+            drawCover(ctx, await loadImage(photoURL), OUT_W, OUT_H);
+        }
+        // 'alpha' leaves the canvas transparent behind her.
+        ctx.restore();
+
+        resultImg.src = out.toDataURL('image/png');
+        const how = isIOS
+            ? '<b>Press and hold</b> the picture above, then <b>Save to Photos</b>. ' +
+              'Then Settings &rarr; Wallpaper &rarr; Add New Wallpaper &rarr; Photos.'
+            : '<b>Long-press</b> the picture above and save it, then set it as your ' +
+              'home screen wallpaper from your gallery.';
+        resultHow.innerHTML = edges.length
+            ? how + `<br><br>She runs off the ${edges.join(' and ')} edge — go back and ` +
+                    'shrink her or move her in, unless you meant that.'
+            : how;
+        resultEl.classList.add('on');
+    } catch (err) {
+        console.error('[wallpaper] export failed', err);
+        alert('Could not render the wallpaper: ' + err);
+    } finally {
+        makeBtn.disabled = false;
+        makeBtn.textContent = 'Make wallpaper';
+    }
+}
+
+makeBtn.addEventListener('click', makeWallpaper);
+document.getElementById('again').addEventListener('click',
+    () => resultEl.classList.remove('on'));
+
+// ── Boot ────────────────────────────────────────────────────────────────
+(async () => {
+    try {
+        head = new TalkingHead(holder, {
+            lipsyncModules: [],
+            cameraView: 'full',
+            cameraRotateEnable: false,
+            cameraPanEnable: false,
+            cameraZoomEnable: false,
+            avatarMood: 'happy',
+            // Same lighting as the main UI, so she looks like herself here.
+            lightAmbientColor: 0xfff2e6,
+            lightAmbientIntensity: 1.6,
+            lightDirectColor: 0xfff0dd,
+            lightDirectIntensity: 28,
+            lightDirectPhi: 0.9,
+            lightDirectTheta: 1.6,
+            lightSpotColor: 0x66aaff,
+            lightSpotIntensity: 12,
+            lightSpotPhi: 0.5,
+            lightSpotTheta: 3.6,
+            lightSpotDispersion: 1.4,
+            modelPixelRatio: 1.5,
+            modelFPS: 60,
+            statsNode: null,
+        });
+        await head.showAvatar({
+            url: '/avatars/brunette.glb',
+            body: 'F',
+            avatarMood: 'happy',
+        });
+        loading.remove();
+        makeBtn.disabled = false;
+        applyTransform();
+        applyBackground();
+
+        const res = await fetch('/api/avatar/animations');
+        if (res.ok) {
+            const data = await res.json();
+            for (const name of (data.animations || [])) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name.replace(/-/g, ' ');
+                poseSel.appendChild(opt);
+            }
+        }
+    } catch (err) {
+        console.error('[wallpaper] avatar failed to load', err);
+        loading.textContent = 'The 3D avatar could not load — is Plasma running?';
+    }
+})();
+</script>
+</body>
+</html>

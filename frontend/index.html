@@ -234,6 +234,16 @@
         }
         #stage-btn:hover { border-color: var(--accent); color: var(--text); }
 
+        #wallpaper-btn {
+            display: inline-block;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 12px;
+            margin-bottom: 10px;
+            transition: color 0.2s;
+        }
+        #wallpaper-btn:hover { color: var(--accent); }
+
         /* PA-70: hide SPACE hint on pure-touch devices */
         .hint {
             font-size: 12px;
@@ -534,6 +544,7 @@
 
     <button id="talk-btn">Hold to talk</button>
     <button id="stage-btn" title="Show only the avatar, full screen">⛶ Full screen avatar</button>
+    <a id="wallpaper-btn" href="/wallpaper" title="Save her as your phone wallpaper">🖼 Make a wallpaper</a>
     <!-- PA-70: hint hidden in touch mode -->
     <div class="hint">or hold <b>SPACE</b></div>
 

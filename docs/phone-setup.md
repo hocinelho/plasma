@@ -91,7 +91,48 @@ iOS Safari has no Fullscreen API — there the CSS still applies, and installing
 Plasma to the home screen gives you the same result permanently.
 
 **A limit worth stating:** a web page cannot draw over your phone's home
-screen or sit behind your app icons. No browser allows it, on iOS or Android.
-Stage mode is the closest achievable thing — she owns the whole display while
-Plasma is open. A true wallpaper/overlay companion would have to be a native
-Android app (a live wallpaper or an overlay service); iOS forbids it entirely.
+screen. No browser allows it, on iOS or Android — it is not a Plasma
+limitation, and no setting unlocks it. A live overlay companion would have to
+be a native Android app (a live wallpaper or an overlay service); iOS forbids
+even that. Stage mode is the closest achievable *interactive* thing: she owns
+the whole display while Plasma is open.
+
+For her on the home screen itself, use the wallpaper studio below.
+
+
+## Wallpaper studio — her on your home screen
+
+Open **`/wallpaper`** (or tap *🖼 Make a wallpaper* on the main page) and you
+get a picture of her sized to your exact screen, ready to set as the home
+screen background. She stands behind your app icons rather than in front of
+them — that difference is the browser limit above, and it is the only one.
+
+| Control | What it does |
+|---|---|
+| Motion | plays any clip from `frontend/animations/` on a loop |
+| Freeze | stops it dead, so you keep the frame you like |
+| Expression | her face — neutral, happy, warm, thoughtful, serious |
+| Size / left-right / up-down | where she stands and how much of the screen she takes |
+| Mirror | flips her, for when she should face the other way |
+| Background | transparent, a photo from your phone, or a solid colour |
+
+Then **Make wallpaper**, long-press the result, and save it to Photos. On
+iPhone: *Settings → Wallpaper → Add New Wallpaper → Photos*.
+
+**Freeze is the point.** TalkingHead can hold a clip's first keyframe as a
+static pose, but keyframe 0 of `waving` is arms-down — the wave hasn't
+happened yet. Playing the motion and stopping it where you want gives you
+every frame of all 21 clips to pick from instead of 21 opening frames.
+
+A few details that matter:
+
+- The export is rendered at your screen's true pixel size (e.g. 1179×2556 on
+  an iPhone 14 Pro), not at the size of the preview, so it is sharp.
+- **Transparent** background is usually what you want: it keeps your own
+  wallpaper and simply adds her to it, so save it and set it over the top.
+  Solid colour and photo backgrounds bake a background in.
+- If she runs off an edge, the result screen says so. A cropped hand is the
+  easiest mistake to make and the hardest to notice at thumbnail size.
+- Leave the bottom-left of your home screen free of icons (iOS 18+ lets you
+  place icons wherever you like) and she reads as standing among them rather
+  than behind them.
