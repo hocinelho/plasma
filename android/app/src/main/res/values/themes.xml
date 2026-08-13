@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Plasma" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="android:windowBackground">#0a0e1a</item>
+    </style>
+</resources>

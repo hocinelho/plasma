@@ -1179,10 +1179,18 @@ function showAlertToast(text) {
     // native or web, may draw over the home screen (see docs/phone-setup.md),
     // so the summon is what we make instant, not the overlay.
     const params = new URLSearchParams(location.search);
-    const summoned = params.get('stage') === '1';
+    // ?overlay=1 is summon mode with the background taken away — it is what
+    // the Android companion loads into its floating window, where your home
+    // screen shows through instead of the plasma nebula.
+    const overlay = params.get('overlay') === '1';
+    const summoned = overlay || params.get('stage') === '1';
     if (!summoned) return;
 
     document.body.classList.add('summoned');
+    if (overlay) {
+        document.documentElement.classList.add('overlay');
+        document.body.classList.add('overlay');
+    }
 
     // The renderer defines avatarStage() only once the .glb has loaded, and
     // the mic only exists once permission is granted — so wait for each

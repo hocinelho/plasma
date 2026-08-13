@@ -119,3 +119,37 @@ body.stage #stage-exit { display: block; }
 /* Tapping anywhere on the stage talks to her, so make the whole area feel
    pressable without a visible button. */
 body.stage #avatar-wrap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   OVERLAY MODE — stage mode with the floor taken away.
+   Everything that paints a background is removed, so the page is nothing
+   but the avatar on transparent pixels. Meant to be loaded inside the
+   Android companion's floating window (android/), where the "background"
+   is your actual home screen showing through. On its own in a browser it
+   simply looks like she is standing on white.
+   ═══════════════════════════════════════════════════════════════════════ */
+html.overlay, body.overlay {
+    background: none !important;
+    background-color: transparent !important;
+}
+
+body.overlay {
+    /* The host window is small and already positioned — no insets to respect,
+       and nothing may be clipped away from her. */
+    padding: 0;
+    margin: 0;
+}
+
+/* The plasma nebula is the one thing that must not survive: it is opaque,
+   and it would show up as a dark rectangle floating on the home screen. */
+body.overlay #bg-canvas { display: none !important; }
+
+/* The Android window owns dismissal (drag it away, or use the notification),
+   so the in-page exit button would be a second, confusing control. */
+body.overlay #stage-exit { display: none !important; }
+
+/* Drifting is for a full screen. In a small floating window she would walk
+   straight out of her own window, so she stands still and the user moves
+   the window instead. */
+body.overlay #avatar-human { transform: none !important; }

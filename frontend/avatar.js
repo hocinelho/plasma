@@ -593,6 +593,9 @@
             function wander() {
                 clearTimeout(wanderTimer);
                 if (!document.body.classList.contains('stage')) return;
+                // In the Android floating window there is nowhere to wander
+                // to — she would walk out of her own window.
+                if (document.body.classList.contains('overlay')) return;
                 // Drift within the middle of the screen, biased small so she
                 // never walks off the edge. Translate the container rather
                 // than resizing it — resizing forces a WebGL reallocation.

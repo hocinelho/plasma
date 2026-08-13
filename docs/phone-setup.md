@@ -90,14 +90,19 @@ It also asks the browser for true full screen, so even the address bar goes.
 iOS Safari has no Fullscreen API — there the CSS still applies, and installing
 Plasma to the home screen gives you the same result permanently.
 
-**A limit worth stating:** a web page cannot draw over your phone's home
-screen. No browser allows it, on iOS or Android — it is not a Plasma
-limitation, and no setting unlocks it. A live overlay companion would have to
-be a native Android app (a live wallpaper or an overlay service); iOS forbids
-even that. Stage mode is the closest achievable *interactive* thing: she owns
-the whole display while Plasma is open.
+**A limit worth stating:** a *web page* cannot draw over your phone's home
+screen. No browser allows it, on iOS or Android. Stage mode is the closest a
+browser gets: she owns the whole display while Plasma is open.
 
-For her on the home screen itself, use the wallpaper studio below.
+Beyond the browser the two platforms differ, and the difference is absolute:
+
+| | Floating over the home screen |
+|---|---|
+| **Android** | Yes — a native app with `SYSTEM_ALERT_WINDOW`. See [`android/`](../android/README.md). |
+| **iPhone** | No. iOS exposes no overlay API to *any* app, including App Store apps. |
+
+So on Android you can have exactly the thing; on iPhone the closest are the
+wallpaper studio and the Siri summon, both below.
 
 
 ## Summoning her, like Siri
