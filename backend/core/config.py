@@ -71,6 +71,20 @@ class Config:
     # on purpose — a short connect timeout looks exactly like "server down".
     OLLAMA_CONNECT_TIMEOUT: float = float(os.getenv("OLLAMA_CONNECT_TIMEOUT", "60"))
     OLLAMA_READ_TIMEOUT: float = float(os.getenv("OLLAMA_READ_TIMEOUT", "180"))
+    # How long Ollama holds the model in memory after a request. Ollama's own
+    # default is 5 minutes, which means the startup warm-up wears off and the
+    # first question after a break pays the whole model load again — tens of
+    # seconds on a 14B, and it reads as her freezing. "-1" keeps it resident
+    # for good; set a duration if you need the RAM back.
+    OLLAMA_KEEP_ALIVE: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+    # Cap on reply length, in tokens. A spoken answer costs time twice — once
+    # to generate, once to speak — so a rambling model is slow at both ends.
+    # ~160 tokens is a comfortable few sentences. 0 disables the cap.
+    OLLAMA_NUM_PREDICT: int = int(os.getenv("OLLAMA_NUM_PREDICT", "160"))
+    # Context window. 0 leaves it to the model's own default; raise it only if
+    # long conversations start losing the thread, since a bigger window costs
+    # memory and slows every token.
+    OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "0"))
 
     # --- Local ASR (Whisper) ---
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)

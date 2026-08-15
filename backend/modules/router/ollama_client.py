@@ -27,6 +27,40 @@ DEFAULT_TIMEOUT = httpx.Timeout(
 _SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
 
 
+def _runtime_options() -> dict:
+    """The per-request knobs that decide how fast she feels.
+
+    `keep_alive` is the one that matters most and is easiest to miss. Ollama
+    unloads an idle model after five minutes by default, so the startup warm-up
+    only helps the first few questions — ask her something after lunch and you
+    pay the full model load again, which on a 14B is tens of seconds and reads
+    as "she froze". Sending it on every request keeps her resident.
+
+    `num_predict` caps how much she can say. A voice assistant that answers in
+    400 words is not thorough, it is slow: every extra word costs generation
+    time AND speech time, twice over.
+    """
+    opts: dict = {}
+    if config.OLLAMA_NUM_PREDICT > 0:
+        opts["num_predict"] = config.OLLAMA_NUM_PREDICT
+    if config.OLLAMA_NUM_CTX > 0:
+        opts["num_ctx"] = config.OLLAMA_NUM_CTX
+    return opts
+
+
+def _payload(model: str, messages: list[dict], stream: bool) -> dict:
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": stream,
+        "keep_alive": config.OLLAMA_KEEP_ALIVE,
+    }
+    opts = _runtime_options()
+    if opts:
+        payload["options"] = opts
+    return payload
+
+
 def _build_messages(
     system_prompt: str | None,
     history: list[dict] | None,
@@ -52,7 +86,7 @@ def chat(
     model = model or config.OLLAMA_MODEL
     url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
     messages = _build_messages(system_prompt, history, user_message)
-    payload = {"model": model, "messages": messages, "stream": False}
+    payload = _payload(model, messages, stream=False)
     log.info(f"Ollama call (full): model={model} history_len={len(history or [])}")
 
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
@@ -83,7 +117,7 @@ def chat_first_sentence(
     model = model or config.OLLAMA_MODEL
     url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
     messages = _build_messages(system_prompt, history, user_message)
-    payload = {"model": model, "messages": messages, "stream": True}
+    payload = _payload(model, messages, stream=True)
     log.info(f"Ollama call (streaming): model={model} history_len={len(history or [])}")
 
     collected = ""
