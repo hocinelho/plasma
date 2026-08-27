@@ -110,6 +110,10 @@ while the rest is still being written, which would make time-to-first-sound
 from Ollama; what is missing is chunked synthesis and a streaming response to
 the browser. **This is not built yet** and is the largest remaining win.
 
+It is deliberately parked until the company server is available (agreed
+2026-08-27) — see the PARKED section of [`../HANDOFF.md`](../HANDOFF.md) for
+the design and what it touches.
+
 `CHAT_FIRST_SENTENCE_ONLY=true` is a blunt version of it available today: she
 answers with only her first sentence. It is fast and it truncates real
 answers, which is why it is off by default.

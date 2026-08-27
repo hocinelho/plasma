@@ -1,7 +1,45 @@
 # Plasma — Session Handoff
 
 > Read this at the start of every new session. Update it at the end.
-> Last updated: **2026-07-15** — avatar session by Claude (Claude Code on the web)
+> Last updated: **2026-08-27** — phone / wallpaper / Android / performance session
+> Previous: 2026-07-15 — avatar session
+
+---
+
+## What was done this session (2026-08-27)
+
+Branch: `claude/avatar-design`. All pushed.
+
+| Commit | What |
+|---|---|
+| `1349240` | `piper-tts` was missing from `requirements.txt` entirely — TTS could never install |
+| `e042423` | `serve_phone.py` died with a raw traceback when `cryptography` was absent; now prints the fix. `doctor.py` had said "everything checks out" moments before — it wasn't checking it |
+| `28093bc` | **Wallpaper studio** at `/wallpaper` — pose her, freeze a clip mid-motion, export a PNG at the phone's true pixel size on a transparent background |
+| `7da2347` | **Summon mode** `/?stage=1` — arrives full screen with the mic already open; an iOS Shortcut makes "Hey Siri, Plasma" the wake phrase |
+| `93d8784` | **Android companion** (`android/`) — floating avatar over the home screen, a transparent WebView on `/?overlay=1`. **Never compiled or run — no Android SDK available.** |
+| `65ef603` | `keep_alive` + `num_predict` on every Ollama request; `docs/performance.md` |
+
+### Platform facts worth not re-deriving
+- **A web page cannot draw over a phone's home screen.** No browser, either OS.
+- **iOS has no overlay API at all** — not for web, not for native App Store
+  apps. Siri can do it because Siri *is* the OS. The ceiling on iPhone is the
+  wallpaper (`/wallpaper`) plus the Siri summon (`/?stage=1`).
+- **Android can** — `SYSTEM_ALERT_WINDOW`, the permission behind Messenger's
+  chat heads. That is what `android/` uses. Hocine's phone in his screenshots
+  is an **iPhone**, so the Android app only helps if he gets a second device.
+- TalkingHead's `playPose()` only ever takes **keyframe 0** — for `waving`
+  that is arms-down, before the wave. Hence "play the clip and freeze it" in
+  the wallpaper studio.
+- The vendored TalkingHead carries one local patch: `preserveDrawingBuffer:
+  true`, without which every wallpaper export comes back blank. A test pins it
+  (`tests/test_wallpaper.py`) because a vendor refresh would silently drop it.
+
+### Environment note
+The container was reset mid-session and came back with a **stale checkout on a
+branch that never existed on the remote** (`claude/avatar-design-fia8sd`).
+Nothing was lost — everything lives on `origin/claude/avatar-design`. If the
+tree ever looks truncated (e.g. `index.html` at 270 lines instead of ~1700),
+that is the cause: `git fetch origin` and re-checkout, don't re-create work.
 
 ---
 
@@ -28,6 +66,75 @@
 - **Ready Player Me is DEAD** — Netflix acquired it (Dec 2025) and the creator/API/PlayerZero went offline **31 Jan 2026**. That's why hocine couldn't open it; it isn't a network block. Existing exported GLBs still work. Replacements: Avaturn, Avatar SDK / MetaPerson (cartoon style, selfie→GLB, first avatar free), VRoid (anime VRM), MakeHuman/MPFB (offline).
 - **Hocine's quality target: Pixar/Disney-style stylized characters** (sent reference renders 2026-07-15). Those references are 2D images, not riggable models. Tradeoff triangle: stylized art / working face rig / free — pick two. See "What's next" below.
 - Full docs in `docs/avatar-design.md` (concept, contract, states, asset table, swap guide).
+
+---
+
+## ⏸ PARKED — waiting on the company server (agreed 2026-08-27)
+
+Hocine will get access to a **company server: strong compute, ~20 TB storage**.
+Two pieces of work were deliberately deferred until then. Do not start either
+on the laptop — both are bottlenecked by hardware, not by code.
+
+### 1. Sentence-by-sentence speech (the real fix for lag)
+
+The largest remaining performance win, and it is **not built**. Today nothing
+is heard until *all three* stages finish: Whisper transcribes, the model
+writes the **whole** reply, Piper renders the **whole** reply, and only then
+does audio reach the browser.
+
+```
+now:     time-to-first-sound = asr + llm(entire reply) + tts(entire reply)   ~6-12 s
+target:  time-to-first-sound = asr + llm(first sentence) + tts(one sentence) ~1-2 s
+```
+
+What it needs:
+
+- `chat_first_sentence()` in `backend/modules/router/ollama_client.py`
+  already streams tokens from Ollama — reuse it, but yield sentences instead
+  of collecting the whole reply.
+- A sentence splitter over the token stream (flush on `.!?` + whitespace,
+  with a hard flush after N characters so a model that never punctuates
+  cannot stall it).
+- `/voice/chat/stream` returning NDJSON:
+  `{transcript}` → `{chunk, index, text, audio_b64}` per sentence → `{done}`.
+  Keep `/voice/chat` as-is so nothing that exists today breaks.
+- Frontend `sendAudio()` consumes the stream, queues the chunks and plays
+  them back to back, calling `avatarSpeak(b64, text)` per chunk so lip-sync
+  still lines up.
+
+Care needed: the avatar contract (`avatarSpeak`) is per-utterance, so the
+gesture/routine pacing that keys off `audio.duration` has to be re-based on
+the *first* chunk, not the whole reply.
+
+### 2. A genuinely strong model
+
+The server changes what is possible. Ranked by what its hardware allows:
+
+| If the server has | Run | Why |
+|---|---|---|
+| 1× 24 GB GPU | `qwen3:30b-a3b` | MoE, ~3B active per token — big-model answers at small-model speed |
+| 2× 48 GB+ / 96 GB VRAM | `glm-4.5-air` (106B, 12B active) | frontier-adjacent, still fast enough to speak |
+| a real rack | `glm-4.6` (355B) or Kimi K2 | what Hocine actually asked for; ~1T params for K2 |
+| no GPU, lots of RAM | `qwen3:14b` | dense, honest fallback |
+
+20 TB is far more than the models need (the largest are tens of GB) — the
+storage matters for **Whisper `large-v3`**, meeting recordings, and keeping
+every model pulled at once rather than juggling them.
+
+Serve it with `OLLAMA_HOST=0.0.0.0` on the server and point the laptop at it:
+`OLLAMA_BASE_URL=http://<server>:11434`. No code change — see
+[`docs/distributed-setup.md`](docs/distributed-setup.md).
+
+**Before touching either:** open `/analytics` and read the real `asr_ms` /
+`llm_ms` / `tts_ms` per turn. Plasma already logs all three. Do not optimise
+by guessing — [`docs/performance.md`](docs/performance.md) explains how to
+read them.
+
+### Also still unanswered
+- Hocine's laptop specs (GPU / VRAM / RAM) were never established. Ask, or
+  have him run `python scripts/doctor.py`.
+- **Her asking *him* questions** — the missing half of "realistic
+  interaction". Offered, never steered on flavour or frequency.
 
 ---
 
