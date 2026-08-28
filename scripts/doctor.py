@@ -69,6 +69,33 @@ OPTIONAL = {
 }
 
 
+def check_speech() -> None:
+    """Importing faster-whisper is not the same as being able to use it.
+
+    find_spec() only says the package is on disk. Actually importing it loads
+    ctranslate2 and PyTorch, which load native DLLs — and a locked-down work
+    machine can refuse those (Windows application-control policy, WinError
+    4551). That failure is invisible until the first time you speak, so force
+    it here where it can be explained.
+    """
+    if importlib.util.find_spec("faster_whisper") is None:
+        return                      # already reported by check_packages
+    try:
+        import faster_whisper       # noqa: F401
+        check(OK, "speech recognition", "faster-whisper loads")
+    except Exception as e:
+        text = str(e)
+        if "4551" in text or "application control" in text.lower() \
+                or "anwendungssteuerungsrichtlinie" in text.lower():
+            detail = ("blocked by this computer's application control policy "
+                      "(an IT restriction, not Plasma). Everything else still "
+                      "works — type instead of talking, or ask IT to allow "
+                      "the .venv folder")
+        else:
+            detail = f"installed but will not load: {text[:120]}"
+        check(WARN, "speech recognition", detail)
+
+
 def check_packages() -> None:
     missing = [m for m in REQUIRED if importlib.util.find_spec(m) is None]
     if missing:
@@ -152,7 +179,7 @@ def check_ollama() -> None:
 
 def main() -> int:
     print(f"\nPlasma doctor — {ROOT}\n" + "=" * 62)
-    for fn in (check_python, check_packages, check_data, check_avatar, check_ollama):
+    for fn in (check_python, check_packages, check_speech, check_data, check_avatar, check_ollama):
         try:
             fn()
         except Exception as e:                       # never die mid-report

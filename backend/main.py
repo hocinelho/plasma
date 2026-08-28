@@ -411,6 +411,11 @@ async def save_floorplan(body: FloorPlanBody):
 async def health():
     ollama = ollama_health()
     tts = tts_health()
+    # Speech recognition can be absent without the rest of Plasma being
+    # affected, so report it rather than claiming "ok" for something that
+    # cannot run on this machine.
+    from backend.modules.voice.asr import available as speech_available
+    speech_ok, speech_why = speech_available()
     return {
         "status": "ok",
         "config": plasma_config.summary(),
@@ -418,9 +423,10 @@ async def health():
             "backend": "ok",
             "memory": "ok",
             "router": "ok" if ollama.get("reachable") else "ollama_unreachable",
-            "asr": "ok",
+            "asr": "ok" if speech_ok else "unavailable",
             "tts": "ok" if tts.get("loaded") else "not_loaded",
         },
+        "asr": {"available": speech_ok, "reason": speech_why},
         "ollama": ollama,
         "tts": tts,
     }

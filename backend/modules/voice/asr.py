@@ -14,12 +14,68 @@ import time
 from typing import Optional
 
 import numpy as np
-from faster_whisper import WhisperModel
 
 log = logging.getLogger("plasma.asr")
 
 DEFAULT_MODEL = "small.en"
 DEFAULT_SAMPLE_RATE = 16_000
+
+# faster-whisper is imported lazily, not at module load.
+#
+# It pulls in ctranslate2, which pulls in torch, which loads native DLLs — and
+# any one of those can fail for reasons that have nothing to do with Plasma:
+# a missing wheel, or a corporate application-control policy refusing to load
+# an unsigned .dll from a user directory (Windows raises WinError 4551).
+#
+# Imported at the top, such a failure took down the entire backend: no avatar,
+# no chat, no wallpaper, because speech recognition could not start. Speech is
+# one feature among many, so its absence is now reported and survived.
+_import_error: Exception | None = None
+
+
+def _whisper_model_class():
+    """Return faster_whisper.WhisperModel, or raise a readable error."""
+    global _import_error
+    try:
+        from faster_whisper import WhisperModel
+        _import_error = None
+        return WhisperModel
+    except Exception as e:                # ImportError, OSError, anything
+        _import_error = e
+        raise SpeechUnavailable(_explain(e)) from e
+
+
+def _explain(e: Exception) -> str:
+    """Turn the import failure into something a person can act on."""
+    text = str(e)
+    if "4551" in text or "application control" in text.lower() \
+            or "anwendungssteuerungsrichtlinie" in text.lower():
+        return (
+            "Speech recognition is blocked by this computer's application "
+            "control policy — Windows refused to load one of PyTorch's DLLs. "
+            "This is an IT restriction, not a Plasma problem. Everything else "
+            "works; use the text box instead of the microphone, or ask IT to "
+            "allow the .venv folder."
+        )
+    if isinstance(e, ModuleNotFoundError):
+        return (
+            f"Speech recognition needs a package that is not installed "
+            f"({e.name}). Run: pip install -r requirements.txt"
+        )
+    return f"Speech recognition could not start: {e}"
+
+
+class SpeechUnavailable(RuntimeError):
+    """Raised when Whisper cannot be loaded at all. Carries a readable reason."""
+
+
+def available() -> tuple[bool, str]:
+    """(usable, reason). Cheap — does not load the model, only the library."""
+    try:
+        _whisper_model_class()
+        return True, ""
+    except SpeechUnavailable as e:
+        return False, str(e)
 
 
 class WhisperASR:
@@ -35,6 +91,7 @@ class WhisperASR:
         compute_type: str = "int8",
     ):
         from backend.core.config import config
+        WhisperModel = _whisper_model_class()      # raises SpeechUnavailable
         self.model_name = model_name or config.WHISPER_MODEL or DEFAULT_MODEL
         log.info(f"Loading faster-whisper model '{self.model_name}' ({compute_type} on {device})...")
         t0 = time.time()
