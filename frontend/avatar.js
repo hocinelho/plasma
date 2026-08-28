@@ -509,6 +509,8 @@
             delete window.avatarAnimation;
             delete window.avatarRoutine;
             delete window.avatarQueueRoutine;
+            delete window.avatarSetModel;
+            delete window.avatarModels;
             holder.remove();
             wrap.classList.remove('human');
             avatarCanvas.style.display = '';
@@ -552,6 +554,10 @@
                 return 'full';
             }
             const view = pickView();
+            // Declared here rather than beside the resize handler below: the
+            // model loader re-applies the framing after every character swap,
+            // and it runs before that point.
+            let lastView = view;
             head = new TalkingHead(holder, {
                 lipsyncModules: ['en', 'de'],
                 lipsyncLang: 'en',
@@ -579,12 +585,38 @@
                 modelFPS: 60,
                 statsNode: null,
             });
-            await head.showAvatar({
-                url: '/avatars/brunette.glb',
-                body: 'F',
-                avatarMood: 'neutral',
-                lipsyncLang: 'en',
-            });
+            // ── Which character ───────────────────────────────────────────
+            // The chosen one is remembered per browser, so the phone and the
+            // PC can each wear a different face. A saved name that no longer
+            // exists on disk falls back rather than leaving an empty stage.
+            const MODEL_KEY = 'plasma.avatar.model';
+            const DEFAULT_MODEL = { url: '/avatars/brunette.glb', body: 'F' };
+
+            function savedModel() {
+                try { return localStorage.getItem(MODEL_KEY) || ''; }
+                catch (e) { return ''; }          // private mode / storage off
+            }
+
+            let models = [];                      // filled in below, async
+            let currentModel = savedModel();
+
+            function modelByFile(file) {
+                return models.find(m => m.file === file) || null;
+            }
+
+            async function loadModel(spec) {
+                await head.showAvatar({
+                    url: spec.url,
+                    body: spec.body || 'F',
+                    avatarMood: 'neutral',
+                    lipsyncLang: 'en',
+                });
+                // showAvatar() replaces the armature, so anything that was
+                // configured against the old one has to be re-applied.
+                try { head.setView(lastView); } catch (e) { /* keep framing */ }
+            }
+
+            await loadModel(DEFAULT_MODEL);
 
             // ── Stage mode ────────────────────────────────────────────────
             // Just her, filling the screen, wandering. Everything else hides.
@@ -630,7 +662,7 @@
 
             // Re-frame on rotation: the panel changes shape, and a framing
             // chosen for portrait crops badly in landscape.
-            let lastView = view, reframeTimer = null;
+            let reframeTimer = null;
             const reframe = () => {
                 clearTimeout(reframeTimer);
                 reframeTimer = setTimeout(() => {
@@ -764,13 +796,72 @@
                 return true;
             };
 
-            // ── Free movement ─────────────────────────────────────────────
-            // Clips are discovered server-side, so any .fbx dropped into
-            // frontend/animations/ becomes usable without touching this file.
+            // Ambient-motion state, declared before the character picker
+            // because the picker restarts idling after a swap.
             let clips = { animations: [], idle: [] };
             let idleTimer = null, lastIdle = 0;
             const IDLE_MIN_GAP_MS = 45000;   // don't fidget constantly
 
+            // ── Choosing a character ──────────────────────────────────────
+            // Every character plays the same clips: TalkingHead retargets the
+            // Mixamo skeleton onto whichever rig is loaded, so swapping the
+            // face never costs you the motion set.
+            //
+            // Returns a promise so a picker can show progress — these models
+            // are 2-36 MB and a slow one takes a visible moment.
+            let switching = false;
+
+            window.avatarSetModel = async (file) => {
+                if (!head || failed || switching) return false;
+                const spec = modelByFile(file);
+                if (!spec) return false;
+                switching = true;
+                stopRoutine();
+                clearTimeout(idleTimer);
+                try {
+                    await loadModel(spec);
+                    currentModel = file;
+                    try { localStorage.setItem(MODEL_KEY, file); } catch (e) { /* no storage */ }
+                    // The new rig starts neutral; put her back in the mood the
+                    // page is actually in, and resume ambient motion.
+                    try { head.setMood(MOODS[window.avatarState] || 'neutral'); } catch (e) {}
+                    if (clips.idle && clips.idle.length) scheduleIdle();
+                    window.dispatchEvent(new CustomEvent('plasma-avatar-changed',
+                                                         { detail: { file } }));
+                    return true;
+                } catch (e) {
+                    console.warn('[avatar] could not load model:', file, e);
+                    return false;
+                } finally {
+                    switching = false;
+                }
+            };
+
+            window.avatarModels = () => ({ models: models.slice(), current: currentModel });
+
+            fetch('/api/avatar/models')
+                .then(r => r.ok ? r.json() : null)
+                .then(async (data) => {
+                    if (!data || !Array.isArray(data.models) || !data.models.length) return;
+                    models = data.models;
+                    if (!modelByFile(currentModel)) currentModel = data.default || models[0].file;
+                    // Only reload if the remembered choice isn't what already
+                    // loaded — otherwise every page load fetches a model twice.
+                    const wanted = modelByFile(currentModel);
+                    if (wanted && wanted.url !== DEFAULT_MODEL.url) {
+                        await window.avatarSetModel(currentModel);
+                    } else {
+                        currentModel = models.find(m => m.url === DEFAULT_MODEL.url)?.file
+                                    || currentModel;
+                    }
+                    window.dispatchEvent(new CustomEvent('plasma-avatar-list',
+                                                         { detail: { models, current: currentModel } }));
+                })
+                .catch(() => { /* no backend — the default character still works */ });
+
+            // ── Free movement ─────────────────────────────────────────────
+            // Clips are discovered server-side, so any .fbx dropped into
+            // frontend/animations/ becomes usable without touching this file.
             fetch('/api/avatar/animations')
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {

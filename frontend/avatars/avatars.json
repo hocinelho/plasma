@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Optional labels for the character picker. Everything here is optional —",
+    "a .glb with no entry still shows up, named after its filename.",
+    "",
+    "Only 'brunette.glb' ships with Plasma. The other entries are ready for the",
+    "sample characters in the TalkingHead repo, so they get proper names the",
+    "moment you drop them in:",
+    "  git clone --depth 1 https://github.com/met4citizen/TalkingHead",
+    "  copy TalkingHead/avatars/*.glb into this folder",
+    "",
+    "'body' is F or M and only picks which built-in pose variants the renderer",
+    "uses. The Mixamo clips in ../animations/ are retargeted onto whatever rig",
+    "is loaded, so every character can do every move either way."
+  ],
+  "_default": "brunette.glb",
+
+  "brunette.glb": {
+    "label": "Brunette",
+    "body": "F",
+    "note": "Ready Player Me. Ships with Plasma. Licence: CC BY-NC 4.0 — non-commercial only."
+  },
+  "avaturn.glb": {
+    "label": "Avaturn (realistic)",
+    "body": "F",
+    "note": "Avaturn sample. Realistic. Non-commercial."
+  },
+  "avatarsdk.glb": {
+    "label": "MetaPerson",
+    "body": "M",
+    "note": "Avatar SDK / MetaPerson sample. Non-commercial, and the shirt carries their logo."
+  },
+  "vroid.glb": {
+    "label": "VRoid (anime)",
+    "body": "F",
+    "note": "VRoid Studio sample. Stylized anime. Permissive licence."
+  },
+  "mpfb.glb": {
+    "label": "MakeHuman",
+    "body": "F",
+    "note": "MPFB/MakeHuman sample. CC0 — the only one here that is free for any use, including commercial. 36 MB."
+  }
+}

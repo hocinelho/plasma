@@ -69,6 +69,63 @@ def idle_animations() -> list[str]:
     return sorted(n for n in known_animations() if n.startswith(IDLE_PREFIX))
 
 
+# ---------------------------------------------------------------------------
+# Characters
+# ---------------------------------------------------------------------------
+AVATARS_DIR: Path = Path(__file__).resolve().parents[2] / "frontend" / "avatars"
+
+
+def discover_models(folder: Path | None = None) -> dict:
+    """The characters available to the picker, read from disk.
+
+    Same principle as the clips: dropping a `.glb` in the folder is enough. An
+    optional `avatars.json` beside them supplies labels, body type and a note,
+    none of which can be inferred from a filename.
+
+    Every character plays every clip — the renderer retargets the Mixamo
+    skeleton onto whichever rig is loaded — so this list only changes her face,
+    never what she can do.
+
+    Returns `{"models": [...], "default": str | None}`. A broken or missing
+    avatars.json costs you the labels, never the characters.
+    """
+    import json
+
+    folder = folder or AVATARS_DIR
+    if not folder.is_dir():
+        return {"models": [], "default": None}
+
+    meta: dict = {}
+    meta_file = folder / "avatars.json"
+    if meta_file.is_file():
+        try:
+            loaded = json.loads(meta_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                meta = loaded
+        except Exception:
+            pass                      # labels are a nicety; characters are not
+
+    models = []
+    for glb in sorted(folder.glob("*.glb")):
+        entry = meta.get(glb.name)
+        entry = entry if isinstance(entry, dict) else {}
+        label = str(entry.get("label") or "").strip()
+        models.append({
+            "file": glb.name,
+            "url": f"/avatars/{glb.name}",
+            # Readable fallback so an unlisted file never shows up blank.
+            "label": label or glb.stem.replace("-", " ").replace("_", " ").title(),
+            # TalkingHead uses this only to pick built-in pose variants.
+            "body": entry.get("body") if entry.get("body") in ("F", "M") else "F",
+            "note": str(entry.get("note") or ""),
+        })
+
+    default = meta.get("_default")
+    if not any(m["file"] == default for m in models):
+        default = models[0]["file"] if models else None
+    return {"models": models, "default": default}
+
+
 # Shipped with the repo; used only as a fallback if the folder is unreadable.
 BUILTIN_ANIMATIONS = frozenset({
     "walking", "start-walking", "jump", "waving", "talking",

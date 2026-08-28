@@ -334,6 +334,22 @@ async def avatar_animations():
     }
 
 
+@app.get("/api/avatar/models")
+async def avatar_models():
+    """Characters available in frontend/avatars/, for the picker.
+
+    Discovered from disk like the animation clips are: dropping a .glb in that
+    folder is enough. An optional avatars.json sitting beside them supplies
+    nicer labels and the body type, since neither can be read from a filename.
+
+    Every character here plays the same Mixamo clips — the renderer retargets
+    them onto whichever skeleton is loaded — so the motion set does not change
+    when you switch.
+    """
+    from backend.modules.avatar_state import discover_models
+    return discover_models()
+
+
 @app.get("/api/network-info")
 async def network_info():
     """LAN IPs + the HTTPS phone URLs, so the UI can tell the user where to point

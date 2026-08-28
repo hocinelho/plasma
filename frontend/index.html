@@ -244,6 +244,28 @@
         }
         #wallpaper-btn:hover { color: var(--accent); }
 
+        #avatar-picker {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        #avatar-picker[hidden] { display: none; }
+        #avatar-select {
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 5px 10px;
+            font: inherit;
+            font-size: 13px;
+            max-width: 45vw;
+        }
+        #avatar-select:disabled { opacity: 0.6; }
+        #avatar-picker-status { font-size: 11px; min-width: 6em; }
+
         /* PA-70: hide SPACE hint on pure-touch devices */
         .hint {
             font-size: 12px;
@@ -544,6 +566,12 @@
 
     <button id="talk-btn">Hold to talk</button>
     <button id="stage-btn" title="Show only the avatar, full screen">⛶ Full screen avatar</button>
+    <!-- Hidden until the model list arrives; pointless with only one character. -->
+    <div id="avatar-picker" hidden>
+        <label for="avatar-select">Character</label>
+        <select id="avatar-select"></select>
+        <span id="avatar-picker-status"></span>
+    </div>
     <a id="wallpaper-btn" href="/wallpaper" title="Save her as your phone wallpaper">🖼 Make a wallpaper</a>
     <!-- PA-70: hint hidden in touch mode -->
     <div class="hint">or hold <b>SPACE</b></div>
@@ -1137,6 +1165,47 @@ function showAlertToast(text) {
     clearTimeout(alertToastTimer);
     alertToastTimer = setTimeout(() => alertToast.classList.remove('show'), 5000);
 }
+
+// ── Character picker ──────────────────────────────────────────────────
+// avatar.js discovers the models and owns the swapping; this only draws the
+// control. It stays hidden unless there is genuinely a choice to make.
+(function initAvatarPicker() {
+    const wrap = document.getElementById('avatar-picker');
+    const select = document.getElementById('avatar-select');
+    const status = document.getElementById('avatar-picker-status');
+    if (!wrap || !select) return;
+
+    window.addEventListener('plasma-avatar-list', (e) => {
+        const { models, current } = e.detail || {};
+        if (!models || models.length < 2) return;      // nothing to choose
+        select.innerHTML = '';
+        for (const m of models) {
+            const opt = document.createElement('option');
+            opt.value = m.file;
+            opt.textContent = m.label;
+            if (m.note) opt.title = m.note;
+            select.appendChild(opt);
+        }
+        select.value = current;
+        wrap.hidden = false;
+    });
+
+    select.addEventListener('change', async () => {
+        if (!window.avatarSetModel) return;
+        const file = select.value;
+        // These models run from 2 MB to 36 MB, so a slow one is a visible
+        // wait — say so rather than letting the page look frozen.
+        select.disabled = true;
+        status.textContent = 'loading…';
+        const ok = await window.avatarSetModel(file);
+        select.disabled = false;
+        status.textContent = ok ? '' : 'could not load';
+        if (!ok) {
+            const state = window.avatarModels ? window.avatarModels() : null;
+            if (state) select.value = state.current;   // put the choice back
+        }
+    });
+})();
 
 // ── Stage mode: only the avatar, full screen ──────────────────────────
 (function initStage() {
