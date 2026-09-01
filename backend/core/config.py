@@ -30,7 +30,37 @@ except Exception:
     pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env")
+
+# Where .env was actually read from, and a hint if it was not found. Recorded
+# rather than logged here because logging is not configured yet at import time;
+# main.py reports both at startup.
+#
+# load_dotenv() returns quietly when the file is absent, so a misplaced .env
+# produces no error at all — every setting silently falls back to its default.
+# That is expensive to debug: the symptom is "she uses the wrong model and has
+# no voice", which looks like two unrelated bugs rather than one missing file.
+# It bites hardest after `git clone` puts the repo in a nested folder, leaving
+# .env one level up beside .venv.
+ENV_FILE: Path = PROJECT_ROOT / ".env"
+ENV_LOADED: bool = ENV_FILE.is_file()
+ENV_HINT: str = ""
+
+if ENV_LOADED:
+    load_dotenv(ENV_FILE)
+else:
+    _stray = PROJECT_ROOT.parent / ".env"
+    if _stray.is_file():
+        # Deliberately not loaded. Reading configuration from outside the
+        # project would be worse than saying plainly what is wrong.
+        ENV_HINT = (
+            f"No .env at {ENV_FILE} — but there is one at {_stray}. "
+            f"Move it into {PROJECT_ROOT}."
+        )
+    else:
+        ENV_HINT = (
+            f"No .env at {ENV_FILE} — every setting is using its default. "
+            f"Copy .env.example to .env."
+        )
 
 
 class Config:

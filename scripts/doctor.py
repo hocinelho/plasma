@@ -118,8 +118,16 @@ def check_packages() -> None:
 # ── Your data ────────────────────────────────────────────────────────────
 def check_data() -> None:
     env = ROOT / ".env"
+    stray = ROOT.parent / ".env"
     if env.exists():
-        check(OK, ".env", "present")
+        check(OK, ".env", f"loaded from {env}")
+    elif stray.exists():
+        # The nested-clone trap: .env ends up beside .venv, one level above the
+        # repo. Nothing errors — every setting quietly uses its default, which
+        # looks like several unrelated bugs at once.
+        check(FAIL, ".env",
+              f"in the WRONG FOLDER. Found {stray}, but Plasma reads {env}. "
+              f"Move it: move \"{stray}\" \"{env}\"")
     else:
         check(FAIL, ".env", "missing — copy .env.example to .env and fill it in")
 

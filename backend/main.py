@@ -73,6 +73,14 @@ log = logging.getLogger("plasma")
 async def lifespan(app: FastAPI):
     log.info("Plasma backend starting up...")
 
+    # Say which settings file is in force, before anything reports a value
+    # that came from a default nobody chose.
+    from backend.core.config import ENV_FILE, ENV_LOADED, ENV_HINT
+    if ENV_LOADED:
+        log.info("Settings loaded from %s", ENV_FILE)
+    else:
+        log.warning("⚠ %s", ENV_HINT)
+
     async def _warm_ollama():
         try:
             import httpx
