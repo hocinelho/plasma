@@ -17,6 +17,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# Read .env the same way the app does, so checks that depend on settings
+# (which LLM model is configured, which voice) see what Plasma will see.
+# Without this the model check silently skipped: OLLAMA_MODEL was unset in the
+# environment even though .env defines it.
+try:
+    from dotenv import load_dotenv
+    if (ROOT / ".env").is_file():
+        load_dotenv(ROOT / ".env")
+except Exception:
+    pass
+
 OK, WARN, FAIL = "OK  ", "WARN", "FAIL"
 _results: list[tuple[str, str, str]] = []
 
@@ -152,7 +163,19 @@ def check_data() -> None:
           "present" if wake.exists() else
           "missing — 'hey Plasma' won't work (push-to-talk still does)")
 
-    voices = list((ROOT / "voices").glob("*.onnx")) if (ROOT / "voices").is_dir() else []
+    voices_dir = ROOT / "voices"
+    if voices_dir.exists() and not voices_dir.is_dir():
+        # A stray `move` of several files into a non-existent destination
+        # produces one file named "voices" instead of a folder. Everything
+        # then reports "no voice" while a large file sits in plain sight.
+        size_mb = voices_dir.stat().st_size / 1_048_576
+        check(FAIL, "TTS voice",
+              f"'{voices_dir}' is a FILE ({size_mb:.0f} MB), not a folder — "
+              f"delete it and re-download: del \"{voices_dir}\" then "
+              f"python scripts/download_female_voice.py kristin")
+        return
+
+    voices = list(voices_dir.glob("*.onnx")) if voices_dir.is_dir() else []
     if voices:
         check(OK, "TTS voice", ", ".join(v.stem for v in voices))
     else:

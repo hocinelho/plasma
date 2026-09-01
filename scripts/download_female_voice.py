@@ -67,6 +67,15 @@ def download_female_voice(name: str = DEFAULT, verbose: bool = True) -> Path:
         raise ValueError(f"Unknown voice {name!r}. Choose from: {', '.join(VOICES)}")
 
     subpath, stem, _desc = VOICES[name]
+    if VOICES_DIR.exists() and not VOICES_DIR.is_dir():
+        # A `move` of several files into a destination that does not exist
+        # yet leaves one file named "voices" where the folder should be.
+        # mkdir would raise FileExistsError, which explains nothing.
+        raise NotADirectoryError(
+            f"{VOICES_DIR} is a file, not a folder "
+            f"({VOICES_DIR.stat().st_size / 1_048_576:.0f} MB). "
+            f"Delete it and run this again."
+        )
     VOICES_DIR.mkdir(parents=True, exist_ok=True)
     opener = _make_opener()
     onnx_path = VOICES_DIR / f"{stem}.onnx"
