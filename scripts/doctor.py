@@ -190,6 +190,29 @@ def check_ollama() -> None:
         check(FAIL, "Ollama",
               f"not reachable at {url} — start the Ollama app, or point "
               "OLLAMA_BASE_URL at the machine running it")
+        return
+
+    # Reachable is not the same as ready. A model named in .env but never
+    # pulled fails with a bare 404 at the first question, long after this
+    # script has said everything looks fine.
+    wanted = os.getenv("OLLAMA_MODEL", "")
+    if not wanted:
+        return
+    try:
+        import json as _json
+        import urllib.request
+        with urllib.request.urlopen(f"{url.rstrip('/')}/api/tags", timeout=5) as r:
+            installed = [m.get("name", "") for m in _json.load(r).get("models", [])]
+    except Exception:
+        return                       # cannot tell — stay quiet rather than guess
+
+    bare = wanted.split(":")[0]
+    if any(m == wanted or m.split(":")[0] == bare for m in installed):
+        check(OK, "LLM model", wanted)
+    else:
+        check(FAIL, "LLM model",
+              f"'{wanted}' is set in .env but not installed — run: "
+              f"ollama pull {wanted}   (installed: {', '.join(installed) or 'none'})")
 
 
 def main() -> int:
