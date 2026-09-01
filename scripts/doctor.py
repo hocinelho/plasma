@@ -38,6 +38,13 @@ def check_python() -> None:
     else:
         check(OK, f"Python {version}")
 
+    nested = ROOT / ROOT.name / "run_plasma.py"
+    if nested.is_file():
+        check(FAIL, "duplicate checkout",
+              f"there is another Plasma inside this one, at {nested.parent}. "
+              f"Settings and updates you apply in one will not affect the "
+              f"other. Use the inner one: cd {nested.parent}")
+
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
     if in_venv:
         check(OK, "virtual environment", sys.prefix)
