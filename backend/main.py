@@ -744,6 +744,7 @@ async def voice_chat(
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
     tts_ms = 0.0
+    tts_error = None
     if plasma_config.TTS_ENABLED:
         try:
             tts_t0 = time.monotonic()
@@ -754,6 +755,10 @@ async def voice_chat(
                 log.info(f"TTS audio encoded: {len(audio_b64)} b64 chars")
         except Exception as e:
             log.warning(f"TTS synthesis failed: {e}")
+            # Silence with no explanation reads as "the app is broken". The
+            # reason is in the server log, which nobody watching the browser
+            # is looking at — so send it along with the reply.
+            tts_error = str(e)
 
     total_ms = (time.monotonic() - t_start) * 1000.0
 
@@ -780,6 +785,7 @@ async def voice_chat(
         "tts_ms": tts_ms,
         "total_ms": total_ms,
         "audio_b64": audio_b64,
+        "tts_error": tts_error,
         "image_b64": locate_image_b64,
         "gesture": gesture,
         "animation": animation,

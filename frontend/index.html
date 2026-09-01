@@ -1040,6 +1040,15 @@ async function sendAudio(blob) {
         if (data.audio_b64) {
             setStatus('speaking');
             await playBase64Audio(data.audio_b64, data.reply);
+        } else if (data.tts_error) {
+            // She answered but has no voice. The reason is in the server log,
+            // which nobody watching this page is reading — and silence on its
+            // own looks like the app is broken rather than unconfigured.
+            // Said once per session; repeating it every turn is noise.
+            if (!window.__ttsErrorShown) {
+                window.__ttsErrorShown = true;
+                addTurn('error', 'No speech: ' + data.tts_error);
+            }
         }
         setStatus('idle');
     } catch (err) {
