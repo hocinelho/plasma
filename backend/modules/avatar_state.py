@@ -132,15 +132,20 @@ BUILTIN_ANIMATIONS = frozenset({
     "arguing", "disappointed", "secret", "yelling",
 })
 
-_pending: dict = {"gesture": None, "animation": None, "routine": None, "ts": 0.0}
-
+# Each slot keeps its OWN timestamp. With a single shared one, queueing any
+# movement refreshed the age of every other slot, so a stale entry could never
+# expire — it just waited for the next request and rode along with it.
+_pending: dict = {
+    "gesture": None, "animation": None, "routine": None,
+    "gesture_ts": 0.0, "animation_ts": 0.0, "routine_ts": 0.0,
+}
 
 def request_gesture(name: str) -> bool:
     """Queue a hand/head gesture for the browser. False for unknown names."""
     if name not in KNOWN_GESTURES:
         return False
     _pending["gesture"] = name
-    _pending["ts"] = time.monotonic()
+    _pending["gesture_ts"] = time.monotonic()
     return True
 
 
@@ -149,7 +154,7 @@ def request_animation(name: str) -> bool:
     if name not in known_animations():
         return False
     _pending["animation"] = name
-    _pending["ts"] = time.monotonic()
+    _pending["animation_ts"] = time.monotonic()
     return True
 
 
@@ -164,25 +169,29 @@ def request_routine(names: list[str]) -> list[str]:
     if not playable:
         return []
     _pending["routine"] = playable
-    _pending["ts"] = time.monotonic()
+    _pending["routine_ts"] = time.monotonic()
     return playable
 
 
 def pop_routine(max_age_s: float = 30.0) -> list[str] | None:
     """Return (once) the queued sequence of clips."""
-    names = _pending["routine"]
-    if names and (time.monotonic() - _pending["ts"]) <= max_age_s:
-        _pending["routine"] = None
-        return names
-    return None
+    return _pop("routine", max_age_s)
 
 
-def _pop(key: str, max_age_s: float) -> str | None:
-    name = _pending[key]
-    if name and (time.monotonic() - _pending["ts"]) <= max_age_s:
-        _pending[key] = None
-        return name
-    return None
+def _pop(key: str, max_age_s: float):
+    """Return the queued value once, or None. Expired entries are DISCARDED.
+
+    Leaving an expired entry in place was the other half of the showcase bug:
+    it stayed queued indefinitely, waiting for something to make it look fresh
+    again.
+    """
+    value = _pending[key]
+    if not value:
+        return None
+    _pending[key] = None                       # consumed either way
+    if (time.monotonic() - _pending[f"{key}_ts"]) > max_age_s:
+        return None                            # too old to still be meant
+    return value
 
 
 def pop_gesture(max_age_s: float = 30.0) -> str | None:
@@ -196,8 +205,7 @@ def pop_animation(max_age_s: float = 30.0) -> str | None:
 
 
 def clear() -> None:
-    """Drop anything queued (used by tests)."""
-    _pending["gesture"] = None
-    _pending["animation"] = None
-    _pending["routine"] = None
-    _pending["ts"] = 0.0
+    """Drop anything queued (tests, and after skill self-tests run)."""
+    for key in ("gesture", "animation", "routine"):
+        _pending[key] = None
+        _pending[f"{key}_ts"] = 0.0

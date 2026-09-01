@@ -88,9 +88,20 @@ class SkillRegistry:
             description = meta.get("description", "")
             triggers = list(meta.get("triggers", []))
 
-            # Unit-test gate
+            # Unit-test gate.
+            #
+            # self_test() normally calls run(), and some run()s have side
+            # effects: tell_secret and show_abilities queue avatar movement.
+            # Loading the skills therefore left "secret" plus the whole 19-clip
+            # showcase waiting in the queue, and the first thing the user said
+            # — "hello" — popped it and she performed her entire repertoire.
+            #
+            # The queue is cleared after every self_test rather than blocking
+            # requests during it, because avatar_move's self_test legitimately
+            # verifies that queueing works by queueing and popping.
             self_test = getattr(module, "self_test", None)
             if callable(self_test):
+                from backend.modules import avatar_state
                 try:
                     if not self_test():
                         log.error(f"Skill '{name}' failed self_test — NOT loaded")
@@ -98,6 +109,9 @@ class SkillRegistry:
                 except Exception as e:
                     log.exception(f"Skill '{name}' self_test crashed: {e}")
                     return False
+                finally:
+                    # Nothing a self-test staged is meant for the user.
+                    avatar_state.clear()
 
             # Register in memory DB for skill-search queries
             self._memory.register_skill(
