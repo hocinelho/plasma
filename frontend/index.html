@@ -1355,6 +1355,12 @@ let visionWS = null;
 let visionTimer = null;
 let visionCanvas = null;
 const VISION_FPS = 6;
+// The last error the server explained before closing. Kept so the close
+// handler shows the cause instead of painting "reconnecting…" over it — the
+// missing-dependency message used to survive for about one frame.
+let visionLastError = null;
+let visionRetries = 0;
+const VISION_MAX_RETRIES = 5;
 
 // Persistent colour per track id so a tracked object keeps its box colour.
 const trackColors = {};
@@ -1464,11 +1470,19 @@ async function startVision() {
     trackToggle.classList.add('show');
     visionCanvas = document.createElement('canvas');
 
+    visionLastError = null;
+    visionRetries = 0;
+    connectVisionSocket();
+}
+
+function connectVisionSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     visionWS = new WebSocket(`${proto}://${location.host}/ws/perception-input`);
 
     visionWS.onopen = () => {
+        visionRetries = 0;              // a good connection resets the budget
         visionStatus.textContent = 'watching…';
+        clearInterval(visionTimer);
         visionTimer = setInterval(sendVisionFrame, Math.round(1000 / VISION_FPS));
     };
     visionWS.onmessage = (ev) => {
@@ -1484,11 +1498,40 @@ async function startVision() {
                 visionStatus.textContent = line;
                 if (trackCheck.checked) updateTrackTargets(msg.objects, msg.frame_w, msg.frame_h);
             } else if (msg.type === 'error') {
-                visionStatus.textContent = '⚠ ' + msg.message;
+                // Remember it: the socket usually closes right after, and the
+                // close handler must not paint over the only explanation of
+                // what went wrong.
+                visionLastError = msg.hint ? `${msg.message} — ${msg.hint}` : msg.message;
+                visionStatus.textContent = '⚠ ' + visionLastError;
             }
         } catch (e) { /* ignore */ }
     };
-    visionWS.onclose = () => { if (visionOn) visionStatus.textContent = 'reconnecting…'; };
+    visionWS.onclose = () => {
+        clearInterval(visionTimer); visionTimer = null;
+        if (!visionOn) return;
+        if (visionLastError) {
+            // A real failure, already explained. Retrying would just fail
+            // again every second and hide the reason.
+            visionStatus.textContent = '⚠ ' + visionLastError;
+            visionOn = false;
+            visionBtn.classList.remove('active');
+            visionBtn.textContent = '👁 Watch me';
+            return;
+        }
+        // A genuine drop. It used to SAY "reconnecting…" without ever
+        // reconnecting, so tracking stayed dead until you clicked twice.
+        if (visionRetries >= VISION_MAX_RETRIES) {
+            visionStatus.textContent = 'connection lost — click to try again';
+            visionOn = false;
+            visionBtn.classList.remove('active');
+            visionBtn.textContent = '👁 Watch me';
+            return;
+        }
+        const wait = Math.min(8000, 500 * Math.pow(2, visionRetries));
+        visionRetries += 1;
+        visionStatus.textContent = `reconnecting… (${visionRetries}/${VISION_MAX_RETRIES})`;
+        setTimeout(() => { if (visionOn) connectVisionSocket(); }, wait);
+    };
     visionWS.onerror = e => console.warn('[vision] WS error', e);
 }
 

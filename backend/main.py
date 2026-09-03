@@ -1266,7 +1266,25 @@ async def websocket_perception_input(ws: WebSocket):
             _identify_task.cancel()
         log.info("Perception-input WS client disconnected")
     except ImportError as exc:
+        # The usual cause: the vision extras were never installed. Say which.
+        log.warning("Perception unavailable — missing dependency: %s", exc)
         try:
-            await ws.send_json({"type": "error", "message": str(exc), "hint": "pip install mediapipe deepface opencv-python"})
+            await ws.send_json({
+                "type": "error",
+                "message": f"Face and hand tracking needs a package that isn't installed ({exc}).",
+                "hint": "pip install mediapipe deepface opencv-python",
+            })
+        except Exception:
+            pass
+    except Exception as exc:
+        # Anything else used to close the socket silently, leaving the page
+        # showing "reconnecting…" forever with no way to find out why.
+        log.exception("Perception-input WS failed: %s", exc)
+        try:
+            await ws.send_json({
+                "type": "error",
+                "message": f"Tracking stopped: {exc}",
+                "hint": "see the Plasma console for the full error",
+            })
         except Exception:
             pass
