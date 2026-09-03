@@ -40,6 +40,7 @@ Environment variables, all optional:
 | `PLASMA_OVERLAY_CORNER` | `bottom-right` | or `bottom-left`, `top-right`, `top-left` |
 | `PLASMA_OVERLAY_MARGIN` | `24` | pixels from the screen edge |
 | `PLASMA_OVERLAY_WATCH` | `1` (on) | set `0` to skip the camera prompt entirely |
+| `PLASMA_OVERLAY_CHROMA` | `#010101` | the colour punched out to make the window see-through — see below |
 
 ```powershell
 $env:PLASMA_OVERLAY_CORNER = "top-left"
@@ -47,14 +48,46 @@ $env:PLASMA_OVERLAY_WATCH = "0"
 python scripts\desktop_overlay.py
 ```
 
+## How the transparency works, and how to fix it if it looks wrong
+
+pywebview's own `transparent=True` is **not enough on Windows**, which is why
+the first version showed her in a white box. It makes the WebView2 *control*
+transparent but never gives the WinForms *window* any transparency — no
+`TransparencyKey`, no `AllowsTransparency`, no layered style (checked against
+pywebview 6.2.1's `winforms.py`). So the page's transparent pixels revealed
+the form's own opaque background instead of your desktop.
+
+Instead the window is told to paint one exact colour (`PLASMA_OVERLAY_CHROMA`,
+default `#010101`), and Windows is asked to drop every pixel of that colour
+via `WS_EX_LAYERED` + `LWA_COLORKEY`. Those regions become fully see-through
+**and click-through**, so clicks around her land on whatever is behind.
+
+The default is near-black rather than the classic magenta because
+anti-aliased pixels along her silhouette get blended with the key colour. A
+faint dark fringe on a character with black hair and a navy outfit is
+invisible; a magenta one would not be.
+
+**If parts of her go transparent**, some pixel in the render matched the key
+exactly. Pick a colour that does not occur in her:
+
+```powershell
+$env:PLASMA_OVERLAY_CHROMA = "#010203"
+python scripts\desktop_overlay.py
+```
+
+**If the box is still solid**, the colour key never got applied — the script
+prints a line saying so. That means the window could not be found by title,
+which would be worth reporting.
+
 ## Known limits
 
-- **She is a window, not a true overlay.** Windows has no equivalent of a
-  guaranteed click-through layer without deep native hooking, so this window
-  can be focused and clicked like any other. It stays on top and it is
-  transparent everywhere but her — that is the part that matters for "she's
-  just there" — but it is not literally painted into the desktop the way a
-  wallpaper is.
+- **Anti-aliased edges pick up a faint fringe** of the key colour. That is
+  inherent to colour-key transparency; only a full per-pixel-alpha compositor
+  (what Electron does) avoids it, which is a much larger dependency than this
+  warrants.
+- **She is a window, not a wallpaper.** She floats above your apps; she cannot
+  be painted *between* your desktop icons and the wallpaper. For that, use the
+  wallpaper studio at `/wallpaper`.
 - **Dragging vs. tapping.** `easy_drag` (pywebview's frameless-window drag)
   and "tap her to talk" share the same click. A plain click still reaches
   the page as a click; only an actual drag moves the window. There is no

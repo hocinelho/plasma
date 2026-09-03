@@ -42,6 +42,14 @@ class TestWatchParam:
         assert summon[guard_at:watch_at + 40].count("if (") == 1
 
 
+class TestWakingIsVisible:
+    def test_waking_moves_her_body_not_just_the_backdrop(self):
+        """wakeBurst() only lights the background canvas — which the desktop
+        overlay does not even draw, so waking was invisible there."""
+        block = INDEX.split("wakeBurst();", 1)[1][:600]
+        assert "window.avatarGesture(" in block
+
+
 class TestServerCanAlwaysReachHer:
     def test_docs_mention_camera_reactions(self):
         doc = (ROOT / "docs" / "phone-setup.md").read_text(encoding="utf-8")

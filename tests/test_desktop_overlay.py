@@ -59,6 +59,31 @@ class TestComputePosition:
         assert 0 <= y <= 1080 - 420
 
 
+class TestColorKey:
+    """The white box behind her was pywebview's transparent=True not actually
+    making the Windows form transparent. The fix is a Win32 colour key, and
+    its one piece of easy-to-invert arithmetic is COLORREF's byte order."""
+
+    def test_colorref_is_bgr_not_rgb(self):
+        # Pure red #ff0000 → COLORREF 0x0000FF, NOT 0xFF0000.
+        assert overlay.colorref_from_hex("#ff0000") == 0x0000FF
+        assert overlay.colorref_from_hex("#0000ff") == 0xFF0000
+
+    def test_the_default_chroma_round_trips(self):
+        assert overlay.colorref_from_hex(overlay.DEFAULT_CHROMA) == 0x010101
+
+    def test_green_lands_in_the_middle_byte(self):
+        assert overlay.colorref_from_hex("#00ff00") == 0x00FF00
+
+    def test_the_default_chroma_is_a_valid_pywebview_colour(self):
+        """It is passed straight to create_window as background_color."""
+        assert _FakeWebview._valid_color.match(overlay.DEFAULT_CHROMA)
+
+    def test_it_is_a_no_op_off_windows(self):
+        """This container is Linux — the call must decline, not explode."""
+        assert overlay._apply_color_key("Plasma Overlay", "#010101") is False
+
+
 class TestScreenSizeFallback:
     def test_falls_back_to_a_sane_default_without_tkinter(self, monkeypatch):
         """This container has no display and no tkinter — exactly the

@@ -1188,6 +1188,12 @@ function connectWakeSocket() {
             if (msg.type === 'wake') {
                 console.log(`[wake] ${msg.source || 'wake_word'} detected (score=${msg.score?.toFixed(2)})`);
                 wakeBurst();   // whole-background "waking up" surge (word OR clap)
+                // ...and she reacts with her body, not just the backdrop.
+                // Waking used to be a background colour change only, which is
+                // easy to miss entirely on the desktop overlay where the
+                // backdrop is not even drawn. A head-lift reads as "I heard
+                // you" from across the room.
+                if (window.avatarGesture) window.avatarGesture('yes', 1.2);
                 // Anything that wants to react to being woken listens for this
                 // rather than reaching into the socket handler.
                 window.dispatchEvent(new CustomEvent('plasma-wake', { detail: msg }));
