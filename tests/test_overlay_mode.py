@@ -38,9 +38,14 @@ class TestOverlayPage:
         """The Android window owns dismissal; two controls would confuse."""
         assert "body.overlay #stage-exit { display: none !important; }" in CSS
 
-    def test_she_does_not_wander_out_of_a_small_window(self):
+    def test_she_does_not_wander_on_her_own(self):
+        """She used to drift side to side on a timer in stage mode — in a
+        190px Android window that walked her out of her own window. She now
+        never moves without being asked to or reacting to something, in any
+        stage: no autonomous position drift anywhere in the renderer."""
         js = (ROOT / "frontend" / "avatar.js").read_text(encoding="utf-8")
-        assert "classList.contains('overlay')" in js
+        assert "holder.style.transform = `translateX" not in js
+        assert "function wander(" not in js
 
 
 class TestAndroidManifest:

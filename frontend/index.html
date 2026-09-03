@@ -1351,6 +1351,19 @@ function showAlertToast(text) {
     window.addEventListener('plasma-wake', () => {
         if (!document.body.classList.contains('stage')) setStage(true);
     });
+
+    // ?watch=1: turn the camera on too, so she reacts to what she sees —
+    // "raise a hand, she waves back" (see main.py's /ws/perception-input).
+    // The stage/overlay UI hides the normal camera toggle button, so this is
+    // the only way to reach it there. Off by default even in stage mode: a
+    // camera permission prompt should never arrive as a surprise, only when
+    // asked for explicitly in the URL — which is what the desktop overlay
+    // launcher (scripts/desktop_overlay.py) does on your behalf.
+    if (params.get('watch') === '1') {
+        // A short delay so the mic and camera permission prompts don't both
+        // land in the same instant.
+        setTimeout(() => { if (typeof startVision === 'function') startVision(); }, 400);
+    }
 })();
 
 function connectAlertSocket() {
@@ -1361,6 +1374,12 @@ function connectAlertSocket() {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'alert') {
                 if (msg.text) showAlertToast(msg.text);
+                // Guarded the same way as the audio below: a camera reaction
+                // (someone raised a hand) must not interrupt an actual
+                // conversation that is already in progress.
+                if (msg.gesture && !isBusy && !isRecording && window.avatarGesture) {
+                    window.avatarGesture(msg.gesture);
+                }
                 if (msg.audio_b64 && !isBusy && !isRecording) {
                     // Proactive speech: light up the galaxy, then settle back.
                     avatarState = 'speaking';

@@ -83,8 +83,10 @@ The mascot is 2D canvas and costs a fraction of the power.
 ## Stage mode — only the avatar
 
 Tap **⛶ Full screen avatar** and everything except her disappears: she fills
-the screen, stands on the bottom edge, and wanders slowly from side to side,
-taking real steps as she moves. Tap her to talk; **✕** in the corner leaves.
+the screen and stands on the bottom edge. She does not pace or wander on her
+own — the only things that move her are what you ask for (a voice command, a
+routine) or what she reacts to (see **Camera reactions** below). Tap her to
+talk; **✕** in the corner leaves.
 
 It also asks the browser for true full screen, so even the address bar goes.
 iOS Safari has no Fullscreen API — there the CSS still applies, and installing
@@ -103,6 +105,33 @@ Beyond the browser the two platforms differ, and the difference is absolute:
 
 So on Android you can have exactly the thing; on iPhone the closest are the
 wallpaper studio and the Siri summon, both below.
+
+
+## Camera reactions — raise a hand, she waves back
+
+Add **`&watch=1`** to any of the URLs above (`/?stage=1&watch=1`,
+`/?overlay=1&watch=1`) and she turns the camera on and starts watching, on
+top of everything else that URL already does.
+
+Right now there is one reaction: **raise a hand where the camera can see
+it, and she waves back and says hello.** It needs your hand held up for
+about half a second — one stray frame doesn't count — and won't fire again
+for 15 seconds after, so keeping your hand up doesn't make her wave on a
+loop.
+
+It only reacts between conversations. If you're already talking with her,
+a hand in frame is ignored rather than interrupting her.
+
+`watch` is a separate switch from `stage`/`overlay` on purpose: turning on
+a camera is worth asking for explicitly, never a surprise that comes
+bundled with going full screen. The
+[Windows desktop overlay](desktop-overlay.md) turns it on by default,
+since "she watches for you" is the point of that one.
+
+This reuses the same hand-tracking that already powers finger-counting and
+"show me a thumbs up" from the main page's *Watch me* button — see
+[`../HANDOFF.md`](../HANDOFF.md) for what's built and what a "thumbs up
+means yes" reaction (as opposed to a hello) would still take.
 
 
 ## Summoning her, like Siri

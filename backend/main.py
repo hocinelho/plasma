@@ -1144,6 +1144,15 @@ async def websocket_perception_input(ws: WebSocket):
     last_sleepy_alert_t  = 0.0
     sleepy_frames        = 0
 
+    # Raise a hand at the camera → she waves back and says hello. Debounced
+    # the same way sleepy detection is (a few consecutive frames so a single
+    # misread doesn't fire it) but also cooled down (so a hand held up for a
+    # while doesn't wave every single frame) — see reactions.DebouncedTrigger.
+    from backend.modules.vision.reactions import DebouncedTrigger
+    _WAVE_FRAMES      = 3       # ~0.5 s at 6 fps
+    _WAVE_COOLDOWN_S  = 15.0
+    wave_trigger = DebouncedTrigger(frames=_WAVE_FRAMES, cooldown_s=_WAVE_COOLDOWN_S)
+
     # DeepFace (TF) takes ~30-60 s to load on the first call.
     # Running identify() as a fire-and-forget task keeps frames flowing
     # while TF initialises; we collect the result on the next iteration.
@@ -1224,6 +1233,16 @@ async def websocket_perception_input(ws: WebSocket):
                             sleepy_frames = 0
                 else:
                     sleepy_frames = 0
+
+                # ── proactive: wave back when a hand goes up ────────────────
+                hands = perception.get("hands", [])
+                hand_raised = any(h.get("raised") for h in hands)
+                if wave_trigger.observe(hand_raised, now):
+                    lang = "de" if de else "en"
+                    greeting = "Hallo!" if de else "Hello!"
+                    # gesture="handup" is the same wave avatar_move uses for
+                    # "wave at me" — one animation, two ways to ask for it.
+                    proactive_tts.fire(greeting, lang, gesture="handup")
 
                 # ── object detection + tracking (opt-in via track:true) ────
                 # Throttled to TRACK_FPS so it never competes with face/hand

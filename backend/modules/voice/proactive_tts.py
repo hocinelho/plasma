@@ -52,13 +52,19 @@ class ProactiveTTS:
 
     # ── public API (thread-safe) ─────────────────────────────────────────
 
-    def fire(self, text: str, language: str = "en") -> None:
-        """Call from any thread to push an alert to all WS clients."""
+    def fire(self, text: str, language: str = "en", gesture: str | None = None) -> None:
+        """Call from any thread to push an alert to all WS clients.
+
+        `gesture` is an optional avatar_state gesture name (e.g. "handup") —
+        the browser plays it alongside the spoken text. Used for reactions
+        that are more than just an announcement, such as waving back when a
+        raised hand is seen on camera.
+        """
         if self._loop is None or self._queue is None:
             log.warning("ProactiveTTS not started — alert dropped: %s", text)
             return
         asyncio.run_coroutine_threadsafe(
-            self._queue.put({"text": text, "language": language}),
+            self._queue.put({"text": text, "language": language, "gesture": gesture}),
             self._loop,
         )
 
@@ -69,6 +75,7 @@ class ProactiveTTS:
             item = await self._queue.get()
             text = item["text"]
             language = item.get("language", "en")
+            gesture = item.get("gesture")
 
             audio_b64: str | None = None
             try:
@@ -81,7 +88,7 @@ class ProactiveTTS:
             except Exception as e:
                 log.warning("ProactiveTTS synthesis failed: %s", e)
 
-            payload = {"type": "alert", "text": text, "audio_b64": audio_b64}
+            payload = {"type": "alert", "text": text, "audio_b64": audio_b64, "gesture": gesture}
             dead: set[WebSocket] = set()
             for ws in list(self.clients):
                 try:
