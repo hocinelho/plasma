@@ -509,6 +509,7 @@
             delete window.avatarAnimation;
             delete window.avatarRoutine;
             delete window.avatarQueueRoutine;
+            delete window.avatarStopSpeaking;
             delete window.avatarSetModel;
             delete window.avatarModels;
             holder.remove();
@@ -922,6 +923,22 @@
             for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
                 document.addEventListener(ev, unlock, true);
             }
+
+            // Cut her off mid-sentence. Used when the user starts talking
+            // over her: the words already spoken stay in the transcript, the
+            // rest is simply never said.
+            //
+            // Stops the queued showcase too — being interrupted and then
+            // carrying on with a dance is worse than not stopping at all.
+            window.avatarStopSpeaking = () => {
+                if (!head || failed) return false;
+                stopRoutine();
+                pendingRoutine = null;
+                clearTimeout(pendingRoutineTimer);
+                try { head.stopSpeaking(); } catch (e) { /* nothing queued */ }
+                try { head.stopAnimation(); } catch (e) { /* nothing playing */ }
+                return true;
+            };
 
             window.avatarSpeak = (b64, text) => {
                 if (!head || failed) return null;

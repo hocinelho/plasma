@@ -988,10 +988,47 @@ function stopLipSync() {
     avatarLevel = 0;
 }
 
+// ── Barge-in ──────────────────────────────────────────────────────────
+// Talking over her cuts her off, the way it works with a person. What she
+// already said stays in the transcript and in her memory — the reply is
+// written there before it is ever spoken — so the thread of the conversation
+// survives; only the unsaid remainder is dropped.
+let isSpeaking      = false;
+let speakingAudio   = null;   // the <audio> element, when not lip-syncing
+let speakingFinish  = null;   // ends the current playback early
+let wasInterrupted  = false;
+
+function interruptSpeech() {
+    if (!isSpeaking) return false;
+    if (speakingAudio) {
+        try { speakingAudio.pause(); speakingAudio.currentTime = 0; } catch (e) {}
+    }
+    // Stops her voice AND the queued routine: being cut off and then carrying
+    // on with a dance is worse than not stopping at all.
+    if (window.avatarStopSpeaking) window.avatarStopSpeaking();
+    wasInterrupted = true;
+    // Release the turn immediately rather than leaving sendAudio awaiting
+    // audio that will never finish — otherwise the mic stays locked out.
+    if (speakingFinish) speakingFinish();
+    isBusy = false;
+    return true;
+}
+
 function playBase64Audio(b64, text) {
     return new Promise((resolve) => {
         if (!b64) { resolve(); return; }
-        const finish = () => { stopLipSync(); resolve(); };
+        let done = false;
+        const finish = () => {
+            if (done) return;              // interrupt and onended can race
+            done = true;
+            isSpeaking = false;
+            speakingAudio = null;
+            speakingFinish = null;
+            stopLipSync();
+            resolve();
+        };
+        isSpeaking = true;
+        speakingFinish = finish;
         // Human 3D avatar takes over playback for real lip-sync when active.
         if (window.avatarSpeak) {
             const handled = window.avatarSpeak(b64, text || '');
@@ -999,6 +1036,7 @@ function playBase64Audio(b64, text) {
         }
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
+            speakingAudio = audio;
             audio.crossOrigin = 'anonymous';
             audio.onended = finish;
             audio.onerror = () => {
@@ -1016,6 +1054,7 @@ function playBase64Audio(b64, text) {
 async function sendAudio(blob) {
     if (isBusy) return;
     isBusy = true;
+    wasInterrupted = false;
     setStatus('thinking');
     const form = new FormData();
     form.append('audio', blob, 'speech.webm');
@@ -1050,7 +1089,9 @@ async function sendAudio(blob) {
                 addTurn('error', 'No speech: ' + data.tts_error);
             }
         }
-        setStatus('idle');
+        // If she was cut off, the user is already talking — do not stamp
+        // "idle" over the listening state they just started.
+        if (!wasInterrupted) setStatus('idle');
     } catch (err) {
         setStatus('error');
         addTurn('error', 'Request failed: ' + err.message);
@@ -1060,7 +1101,12 @@ async function sendAudio(blob) {
 }
 
 function startRecording() {
-    if (isRecording || isBusy || !mediaRecorder) return;
+    if (isRecording || !mediaRecorder) return;
+    // Barge-in: reaching for the mic while she is talking cuts her off.
+    // Checked before isBusy, because isBusy is exactly what she is doing
+    // while speaking — and that used to lock the mic until she finished.
+    interruptSpeech();
+    if (isBusy) return;              // still thinking; let the answer arrive
     if (mediaRecorder.state === 'recording') return;
     isRecording = true;
     btn.classList.add('recording');
@@ -1145,7 +1191,11 @@ function connectWakeSocket() {
                 // Anything that wants to react to being woken listens for this
                 // rather than reaching into the socket handler.
                 window.dispatchEvent(new CustomEvent('plasma-wake', { detail: msg }));
-                if (!isRecording && !isBusy) {
+                // isSpeaking counts as interruptible: saying "hey Plasma"
+                // over her is the most natural way to cut her off, and
+                // gating on isBusy alone made the wake word useless for
+                // exactly the moment you most want it.
+                if (!isRecording && (!isBusy || isSpeaking)) {
                     startRecording();
                     clearTimeout(wakeStopTimer);
                     wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
