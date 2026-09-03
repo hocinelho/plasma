@@ -157,7 +157,13 @@ def main() -> int:
         easy_drag=True,
         on_top=True,
         transparent=True,
-        background_color="#00000000",
+        # No background_color override: pywebview only accepts a 6-hex-digit
+        # opaque colour here (no alpha — #00000000 crashes create_window with
+        # "not a valid hex triplet color"), and on Windows it is moot anyway.
+        # webview/platforms/edgechromium.py sets DefaultBackgroundColor from
+        # this value, then unconditionally overwrites it to Color.Transparent
+        # whenever transparent=True, so whatever we passed here would have
+        # been discarded regardless. Left at pywebview's own default.
         js_api=_Api(),
     )
 

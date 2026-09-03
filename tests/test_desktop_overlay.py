@@ -82,6 +82,55 @@ class TestEnvInt:
         assert "not a number" in capsys.readouterr().out
 
 
+class _FakeWebview:
+    """Stands in for the pywebview module in tests, validating arguments the
+    same way pywebview 6.2.1 actually does — this is what caught the real
+    bug below, and is what stops it coming back.
+
+    _valid_color is copied verbatim from pywebview's own
+    webview/__init__.py::create_window rather than approximated, so a test
+    passing here means pywebview itself would not have rejected the call.
+    """
+
+    _valid_color = __import__("re").compile(r'^#(?:[0-9a-fA-F]{3}){1,2}$')
+
+    def create_window(self, title, url, background_color="#FFFFFF", **kwargs):
+        if not self._valid_color.match(background_color):
+            raise ValueError(f"{background_color} is not a valid hex triplet color")
+        from unittest.mock import MagicMock
+        win = MagicMock()
+        win.events = MagicMock()   # supports += the way pywebview's real event does
+        self.last_kwargs = kwargs
+        return win
+
+    def start(self):
+        pass   # a real call blocks forever; tests must never reach this either
+
+
+class TestCreateWindowCallIsValid:
+    """Regression test for a real crash: desktop_overlay.py passed
+    background_color="#00000000" (8 hex digits, an alpha channel) and
+    pywebview's regex only accepts 3 or 6. This runs main() against a fake
+    that enforces that exact rule, so the fix cannot silently regress."""
+
+    def test_main_does_not_crash_on_argument_validation(self, monkeypatch):
+        # main() does `import webview` locally (only inside the function —
+        # never at module scope, so this environment's missing pywebview
+        # cannot break importing the script itself). That import resolves
+        # through sys.modules, which is all this needs to patch.
+        monkeypatch.setitem(sys.modules, "webview", _FakeWebview())
+        assert overlay.main() == 0
+
+    def test_no_alpha_channel_is_ever_passed_for_background_color(self):
+        """Belt and braces: even if create_window's default ever changes,
+        this script itself must never hand it an 8-digit hex value."""
+        src = SCRIPT.read_text(encoding="utf-8")
+        import re
+        for m in re.finditer(r'background_color\s*=\s*"([^"]*)"', src):
+            assert _FakeWebview._valid_color.match(m.group(1)), \
+                f"background_color={m.group(1)!r} would be rejected by pywebview"
+
+
 class TestMainWithoutPywebview:
     def test_missing_pywebview_is_reported_not_a_traceback(self, monkeypatch, capsys):
         """This environment genuinely lacks pywebview — exercise the real
