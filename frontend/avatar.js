@@ -896,8 +896,44 @@
 
             // TTS playback + real lip-sync. Returns a Promise while handling
             // (page waits for it), or null → page falls back to plain audio.
+            // ── Audio unlock ──────────────────────────────────────────────
+            // TalkingHead builds its own AudioContext when the page loads,
+            // i.e. before any user gesture — so browsers create it suspended.
+            // decodeAudioData and speakAudio both still succeed against a
+            // suspended context, which means she lip-syncs in perfect silence
+            // and nothing anywhere reports an error.
+            function audioReady() {
+                const ctx = head && head.audioCtx;
+                if (!ctx) return false;
+                if (ctx.state === 'running') return true;
+                ctx.resume().catch(() => {});   // needs a gesture; may be pending
+                return false;
+            }
+
+            // Unlock at the first touch of the page, whatever it is, so the
+            // very first reply is already audible.
+            const unlock = () => {
+                if (audioReady()) {
+                    for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+                        document.removeEventListener(ev, unlock, true);
+                    }
+                }
+            };
+            for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+                document.addEventListener(ev, unlock, true);
+            }
+
             window.avatarSpeak = (b64, text) => {
                 if (!head || failed) return null;
+                // Hand back null rather than a silent promise: the page then
+                // falls back to a plain <audio> element, which browsers allow
+                // after a gesture even when a Web Audio context is still
+                // suspended. Better her voice without lip-sync than lip-sync
+                // without her voice.
+                if (!audioReady()) {
+                    console.warn('[avatar] audio context not running — using plain playback');
+                    return null;
+                }
                 try {
                     const bin = atob(b64);
                     const bytes = new Uint8Array(bin.length);
