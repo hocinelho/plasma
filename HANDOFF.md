@@ -71,49 +71,71 @@ that is the cause: `git fetch origin` and re-checkout, don't re-create work.
 
 ## 📋 REQUESTED 2026-09-03 — the "she should really see and react" list
 
-Six asks, in the order they should be done. Nothing below is started.
+Six asks, in the order they should be done.
 
-**Already works — check before building:** hand gestures are classified today
-(`perception.classify_gesture` → thumbs_up, open_palm, victory, pointing,
-fist, plus `raised`), and faces can be enrolled and recognised by name
-(`vision/face_id.py`: `enroll()`, `identify()`, "remember my face"). What is
-missing is not the detection — it is that neither reaches the conversation.
+**Already worked before this list — check before building:** hand gestures
+are classified every frame (`perception.classify_gesture` → thumbs_up,
+open_palm, victory, pointing, fist, plus `raised`), and faces can be
+enrolled and recognised by name (`vision/face_id.py`: `enroll()`,
+`identify()`, "remember my face"). What was missing was not the detection —
+it was that neither reached the conversation.
 
 1. **Vision must actually run.** mediapipe + opencv-python were never
    installed on the work laptop, which is why tracking closed instantly.
    mediapipe 1.0.1 ships a pure-`py3` Windows wheel, so Python 3.13 is fine.
+   Not code — a `pip install -r requirements.txt` gap. Still open; ask
+   Hocine to confirm it's installed.
 
-2. **Better recognition.** The 80-class EfficientDet-Lite0 detector is the
-   "doesn't know many things" — it is a fixed COCO vocabulary. The open-
-   vocabulary answer already in the codebase is the VLM path
-   (`locate.describe_scene`), now auto-selecting the best installed model.
-   Beyond that, a real open-vocabulary *detector* (boxes for arbitrary
-   prompts) means OWLv2 or Grounding DINO, both Apache-2.0. YOLO-World is
-   AGPL through ultralytics — do not use it here. NVIDIA has no obviously
-   better free detector for this; its open vision work is VLMs (VILA/NVILA),
-   which the Ollama path already covers.
+2. **Better recognition.** ✅ Done (`c9664cc`). The real cause of "not
+   accurate" was `.env` pointing at moondream — the weakest vision model
+   installed — while llama3.2-vision sat unused. Plasma now auto-selects the
+   best installed Ollama vision model when none is configured, ranked
+   qwen2.5-VL/MiniCPM-V > llama3.2-vision > LLaVA > moondream. A real
+   open-vocabulary *detector* (boxes for arbitrary prompts, not just a
+   description) is still undone — OWLv2 or Grounding DINO (Apache-2.0);
+   **do not use YOLO-World**, it is AGPL through ultralytics and this repo
+   is public.
 
-3. **Gestures as meaning, not telemetry.** `classify_gesture` output is
-   reported in the status line and nowhere else. A thumbs-up while she is
-   asking something should read as "yes"; a raised palm as "stop"/"wait".
-   Needs the current gesture attached to the next `/voice/chat` turn so the
-   LLM sees it as context.
+3. **Gestures as meaning, not telemetry.** Still open, in the large sense
+   Hocine meant ("thumbs up while she's asking something = yes", fed to the
+   LLM as context). What IS done is a narrower slice that came in as its own
+   ask: a raised hand at the camera makes her wave back and say hello,
+   proactively — `backend/modules/vision/reactions.py`
+   (`DebouncedTrigger` — 3 consecutive frames, 15s cooldown, fully unit
+   tested) wired into `/ws/perception-input`, `proactive_tts.fire()` now
+   carries an optional `gesture`, played via the existing `/ws/alerts` path.
+   Turned on with `&watch=1` on any stage/overlay URL (off by default
+   elsewhere — a camera prompt should never be a surprise). The
+   context-injection half (gesture → LLM prompt, "yes"/"stop" semantics) is
+   NOT built.
 
-4. **Barge-in.** Interrupting her should stop the audio *and* the queued
-   animation immediately, keep everything said so far in history, and start
-   listening. Frontend-led: stop the `<audio>`/`speakAudio` playback, cancel
-   the routine, mark the reply as interrupted in memory so she does not
-   repeat it.
+4. **Barge-in.** ✅ Done (`505563a`). Reaching for the mic or saying "hey
+   Plasma" while she is speaking cuts her off — audio, lip-sync and any
+   queued routine all stop; the reply already given stays in memory (written
+   before TTS ever runs) so nothing is forgotten. Verified in Chromium: turn
+   released in ~0.4s instead of waiting out the full clip.
+   **Known limit, not fixed:** this is press/wake-word-to-interrupt, not
+   true always-listening barge-in — she can't hear you start talking while
+   her own audio plays, because that needs continuous mic capture with echo
+   cancellation (the mic would otherwise hear her and interrupt herself).
 
-5. **Corner mode.** She sits in a fixed panel. Wanted: small, in a corner,
-   moving, not blocking. In the browser this is a CSS/stage variant. Over the
-   whole Windows desktop it needs a native always-on-top transparent window
-   — which, unlike iOS, Windows genuinely allows (PyQt/Electron shell around
-   the same page).
+5. **Corner mode.** Split by platform, both done today:
+   - **Browser / phone:** she no longer paces on her own in stage/overlay
+     mode (the autonomous `wander()` timer — side-to-side drift plus
+     walk-left/right clips — is removed entirely; "she is moving alone, she
+     must stand" was this). She only moves for a request or a reaction.
+   - **Windows desktop:** ✅ `scripts/desktop_overlay.py` — pywebview,
+     transparent + frameless + always-on-top, loads the same `/?overlay=1`
+     page the Android app uses, sits in a screen corner (configurable),
+     drag to move. **NOT tested on a real Windows machine** — no display
+     available here; the corner-placement math is unit tested
+     (`tests/test_desktop_overlay.py`), the GUI half is not. See
+     `docs/desktop-overlay.md` for the same category of caveat the Android
+     README carries (no true click-through, no system tray icon yet).
 
-6. **Face memory with a name, from one sighting.** `face_id.enroll()` exists;
-   the gap is doing it conversationally ("this is Anna") and recalling it
-   unprompted on the next sighting.
+6. **Face memory with a name, from one sighting.** Still open.
+   `face_id.enroll()` exists; the gap is doing it conversationally ("this is
+   Anna") and recalling it unprompted on the next sighting.
 
 ---
 
