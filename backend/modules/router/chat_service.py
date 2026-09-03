@@ -13,6 +13,7 @@ Flow:
 """
 from __future__ import annotations
 import logging
+import re
 from backend.modules.memory.store import MemoryStore
 from backend.modules.router.ollama_client import chat_first_sentence as _ollama_chat
 from backend.modules.skills.registry import get_registry
@@ -80,6 +81,35 @@ def _build_system_prompt(memory: MemoryStore, speaker: str | None = None) -> str
     return base
 
 
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+# An unterminated block: the reply was cut off mid-thought, usually by the
+# num_predict cap. Everything from the tag onwards is reasoning, not answer.
+_THINK_OPEN = re.compile(r"<think>.*\Z", re.DOTALL | re.IGNORECASE)
+
+
+def strip_reasoning(reply: str) -> str:
+    """Remove a reasoning model's visible chain of thought.
+
+    Qwen3 and other hybrid-reasoning models emit <think>...</think> before the
+    answer. Left in, Piper reads the model's private deliberation out loud, and
+    it counts against the reply-length cap — so the actual answer gets
+    truncated by the thinking that preceded it.
+
+    Stripped here rather than disabled at the API, because /no_think and
+    Ollama's think:false are not honoured by every model or every version, and
+    a voice assistant reading its own reasoning aloud is not a failure mode
+    worth risking on a version check.
+    """
+    if not reply or "<think" not in reply.lower():
+        return reply
+    cleaned = _THINK_BLOCK.sub("", reply)
+    cleaned = _THINK_OPEN.sub("", cleaned)
+    cleaned = cleaned.strip()
+    # If thinking was the entire reply there is nothing to say — better to
+    # return the original than to answer with silence.
+    return cleaned or reply.strip()
+
+
 def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> str:
     """Try cloud LLM first (PA-29, provider-agnostic), fall back to Ollama (PA-31)."""
     from backend.core.config import config
@@ -98,7 +128,7 @@ def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> st
                 system_prompt=system_prompt,
             )
             log.info("LLM source: cloud")
-            return reply
+            return strip_reasoning(reply)
         except Exception as e:
             log.warning(f"Cloud LLM failed, falling back to Ollama: {e}")
 
@@ -109,7 +139,7 @@ def _llm_reply(user_message: str, history: list[dict], system_prompt: str) -> st
             system_prompt=system_prompt,
         )
         log.info("LLM source: Ollama local")
-        return reply
+        return strip_reasoning(reply)
     except Exception as e:
         return _ollama_error_reply(e)
 

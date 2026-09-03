@@ -115,6 +115,13 @@ class Config:
     # long conversations start losing the thread, since a bigger window costs
     # memory and slows every token.
     OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "0"))
+    # Hybrid reasoning models (qwen3, deepseek-r1) write a visible chain of
+    # thought before answering. Plasma strips it from the reply either way, but
+    # generating it still costs seconds per turn — so it is better switched off
+    # at the source. Ollama rejects this field for models that cannot think, so
+    # it is only sent when explicitly set: "false" to disable, "true" to keep,
+    # unset to say nothing at all.
+    OLLAMA_THINK: str = os.getenv("OLLAMA_THINK", "").strip().lower()
 
     # --- Local ASR (Whisper) ---
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)

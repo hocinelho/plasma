@@ -58,6 +58,13 @@ def _payload(model: str, messages: list[dict], stream: bool) -> dict:
     opts = _runtime_options()
     if opts:
         payload["options"] = opts
+    # Only sent when explicitly configured: Ollama errors on this field for
+    # models that have no thinking mode, which would break every non-reasoning
+    # model to tidy up one.
+    if config.OLLAMA_THINK in ("false", "0", "no", "off"):
+        payload["think"] = False
+    elif config.OLLAMA_THINK in ("true", "1", "yes", "on"):
+        payload["think"] = True
     return payload
 
 
