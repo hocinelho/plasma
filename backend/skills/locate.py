@@ -336,8 +336,20 @@ def _locate_via_cloud(image_path: str, obj: str, de: bool) -> str:
 # ── Backend 2: Ollama moondream ───────────────────────────────────────────────
 
 def _ollama_vision_available() -> bool:
+    """True if a vision model is configured, or one is actually installed.
+
+    Gating on configuration alone meant a machine with llama3.2-vision pulled
+    and ready reported "no vision model" and fell back to the 80-class
+    detector, purely because a .env line was absent.
+
+    Deliberately NOT `bool(_ollama_vision_models())`: the fallback list
+    defaults to "moondream" whether or not moondream exists, so that would
+    claim vision on every machine and then fail at the request.
+    """
     from backend.core.config import config
-    return bool(getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "").strip())
+    if getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "").strip():
+        return True
+    return best_installed_vision_model() is not None
 
 
 _NOT_FOUND_WORDS = frozenset([
@@ -435,8 +447,46 @@ def _interpret_description(description: str, obj: str, de: bool) -> str:
     return f"Ich sehe {obj} im Bild." if de else f"I can see your {obj} in the image."
 
 
+# Vision models Ollama can serve, best first. Ranking is by how well each
+# describes an arbitrary scene, which is what "what do you see" needs — not by
+# parameter count. Qwen2.5-VL reads text in the image and handles cluttered
+# scenes far better than the LLaVA generation; moondream is 1.8B and is a last
+# resort, not a default.
+_VISION_PREFERENCE = (
+    "qwen2.5vl", "qwen2-vl", "minicpm-v", "llama3.2-vision",
+    "llava-llama3", "llava", "bakllava", "moondream",
+)
+
+
+def _rank_vision_model(name: str) -> int:
+    bare = name.split(":")[0].lower()
+    for i, pref in enumerate(_VISION_PREFERENCE):
+        if bare.startswith(pref):
+            return i
+    return len(_VISION_PREFERENCE)      # unknown: try it, but only last
+
+
+def best_installed_vision_model() -> str | None:
+    """The strongest vision model actually pulled into Ollama, if any.
+
+    Used when nothing is configured. Choosing automatically matters because
+    the obvious manual choice is whatever was pulled first — which in practice
+    meant describing the world through moondream while an 11B model sat
+    unused on the same disk.
+    """
+    try:
+        from backend.modules.router.ollama_client import list_installed_models
+        installed = list_installed_models()
+    except Exception:
+        return None
+    known = [m for m in installed if _rank_vision_model(m) < len(_VISION_PREFERENCE)]
+    if not known:
+        return None
+    return sorted(known, key=_rank_vision_model)[0]
+
+
 def _ollama_vision_models() -> list[str]:
-    """The vision model to try first, then configured fallbacks (deduped)."""
+    """Vision models to try, best first: configured, else auto-detected."""
     from backend.core.config import config
     primary = getattr(config, "LOCATE_VISION_OLLAMA_MODEL", "").strip()
     fallbacks = [
@@ -444,7 +494,17 @@ def _ollama_vision_models() -> list[str]:
         if m.strip()
     ]
     models: list[str] = []
-    for m in [primary] + fallbacks:
+    if primary:
+        models.append(primary)
+    else:
+        # Nothing chosen: use the best one actually on the disk. The fallback
+        # list still follows, but it must not come first — its default names
+        # moondream, which would otherwise beat an installed 11B model.
+        auto = best_installed_vision_model()
+        if auto:
+            log.info("No vision model configured — using %s (best installed)", auto)
+            models.append(auto)
+    for m in fallbacks:
         if m and m not in models:
             models.append(m)
     return models
