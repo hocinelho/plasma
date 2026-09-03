@@ -69,6 +69,54 @@ that is the cause: `git fetch origin` and re-checkout, don't re-create work.
 
 ---
 
+## 📋 REQUESTED 2026-09-03 — the "she should really see and react" list
+
+Six asks, in the order they should be done. Nothing below is started.
+
+**Already works — check before building:** hand gestures are classified today
+(`perception.classify_gesture` → thumbs_up, open_palm, victory, pointing,
+fist, plus `raised`), and faces can be enrolled and recognised by name
+(`vision/face_id.py`: `enroll()`, `identify()`, "remember my face"). What is
+missing is not the detection — it is that neither reaches the conversation.
+
+1. **Vision must actually run.** mediapipe + opencv-python were never
+   installed on the work laptop, which is why tracking closed instantly.
+   mediapipe 1.0.1 ships a pure-`py3` Windows wheel, so Python 3.13 is fine.
+
+2. **Better recognition.** The 80-class EfficientDet-Lite0 detector is the
+   "doesn't know many things" — it is a fixed COCO vocabulary. The open-
+   vocabulary answer already in the codebase is the VLM path
+   (`locate.describe_scene`), now auto-selecting the best installed model.
+   Beyond that, a real open-vocabulary *detector* (boxes for arbitrary
+   prompts) means OWLv2 or Grounding DINO, both Apache-2.0. YOLO-World is
+   AGPL through ultralytics — do not use it here. NVIDIA has no obviously
+   better free detector for this; its open vision work is VLMs (VILA/NVILA),
+   which the Ollama path already covers.
+
+3. **Gestures as meaning, not telemetry.** `classify_gesture` output is
+   reported in the status line and nowhere else. A thumbs-up while she is
+   asking something should read as "yes"; a raised palm as "stop"/"wait".
+   Needs the current gesture attached to the next `/voice/chat` turn so the
+   LLM sees it as context.
+
+4. **Barge-in.** Interrupting her should stop the audio *and* the queued
+   animation immediately, keep everything said so far in history, and start
+   listening. Frontend-led: stop the `<audio>`/`speakAudio` playback, cancel
+   the routine, mark the reply as interrupted in memory so she does not
+   repeat it.
+
+5. **Corner mode.** She sits in a fixed panel. Wanted: small, in a corner,
+   moving, not blocking. In the browser this is a CSS/stage variant. Over the
+   whole Windows desktop it needs a native always-on-top transparent window
+   — which, unlike iOS, Windows genuinely allows (PyQt/Electron shell around
+   the same page).
+
+6. **Face memory with a name, from one sighting.** `face_id.enroll()` exists;
+   the gap is doing it conversationally ("this is Anna") and recalling it
+   unprompted on the next sighting.
+
+---
+
 ## ⏸ PARKED — waiting on the company server (agreed 2026-08-27)
 
 Hocine will get access to a **company server: strong compute, ~20 TB storage**.
