@@ -49,6 +49,14 @@ opencv-python>=4.10.0
 #   pip install deepface
 # Plasma works fine without it (face naming silently disabled; tracking still works).
 
+# --- Desktop overlay (scripts/desktop_overlay.py) — OPTIONAL ---
+# She stands in the corner of your screen, on top of every other window.
+# Install manually:
+#   pip install pywebview
+# Windows also needs the WebView2 Runtime, already built into Windows 10/11.
+# The main app runs fine without this; it is only needed to launch the
+# overlay window itself. See docs/desktop-overlay.md.
+
 # --- Meeting minutes (Word export) ---
 # Lets Plasma write meeting minutes to .docx. Without it the transcript and
 # summary are still saved, only the Word file is skipped.
