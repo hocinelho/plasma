@@ -40,7 +40,8 @@ Environment variables, all optional:
 | `PLASMA_OVERLAY_CORNER` | `bottom-right` | or `bottom-left`, `top-right`, `top-left` |
 | `PLASMA_OVERLAY_MARGIN` | `24` | pixels from the screen edge |
 | `PLASMA_OVERLAY_WATCH` | `1` (on) | set `0` to skip the camera prompt entirely |
-| `PLASMA_OVERLAY_TRANSPARENCY` | `alpha` | or `colorkey`, or `none` — see below |
+| `PLASMA_OVERLAY_TRANSPARENCY` | `auto` | or `alpha`, `colorkey`, `none` — see below |
+| `PLASMA_OVERLAY_SOFTWARE` | off | `1` forces software compositing so a colour key can reach her pixels |
 | `PLASMA_OVERLAY_CHROMA` | `#010101` | the colour punched out in `colorkey` mode only |
 
 ```powershell
@@ -59,7 +60,7 @@ transparent pixels then reveal the form's own opaque background: the white
 box. So the window needs help from Win32 directly, and there are two ways to
 give it.
 
-**`alpha` (default).** Asks DWM for real per-pixel transparency
+**`alpha`.** Asks DWM for real per-pixel transparency
 (`SetWindowCompositionAttribute` with a transparent accent gradient) and lets
 WebView2 supply genuine alpha. No colour key, so no fringing on her edges.
 This is what most transparent-window toolkits use.
@@ -71,10 +72,27 @@ Its weakness is that Chromium renders through DirectComposition, which the
 colour key cannot always see — when that happens the window just changes
 colour instead of disappearing.
 
-The script prints which one it applied. **If she is still in a box, switch:**
+`auto` (the default) builds the window for `colorkey` and falls back to
+trying `alpha` if the key does not take. It cannot try both properly in one
+run: the two need **opposite** window setups — `alpha` needs a transparent
+WebView2, `colorkey` needs an opaque one painting the key colour — and that
+is fixed when the window is created.
+
+The script prints which one took, followed by a diagnostic block. **If she is
+still in a box**, the most likely cause is Chromium compositing past the
+colour key; force it back into the window's own surface:
 
 ```powershell
-$env:PLASMA_OVERLAY_TRANSPARENCY = "colorkey"
+$env:PLASMA_OVERLAY_SOFTWARE = "1"
+python scripts\desktop_overlay.py
+```
+
+That trades GPU acceleration for keyable pixels — she is a live WebGL render,
+so expect her to be less smooth. If that works, it confirms the diagnosis.
+The other mechanism is worth a try too:
+
+```powershell
+$env:PLASMA_OVERLAY_TRANSPARENCY = "alpha"
 python scripts\desktop_overlay.py
 ```
 

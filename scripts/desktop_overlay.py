@@ -177,6 +177,43 @@ def _apply_color_key(title: str, hex_color: str) -> bool:
     return bool(user32.SetLayeredWindowAttributes(hwnd, colorref, 255, LWA_COLORKEY))
 
 
+def _diagnose(title: str) -> str:
+    """What Windows actually thinks about our window, in one block.
+
+    Three rounds of guessing at which transparency mechanism works on a
+    machine I cannot run anything on is two rounds too many. This reports the
+    facts that decide it — whether the window was found at all, which styles
+    stuck, and whether the APIs even exist here — so the next step is chosen
+    from evidence rather than another guess.
+    """
+    if os.name != "nt":
+        return "  (diagnostics are Windows-only)"
+    import ctypes
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW(None, title)
+    lines = [f"  window found      : {'yes, hwnd=' + str(hwnd) if hwnd else 'NO'}"]
+    if not hwnd:
+        lines.append("  -> nothing else can work until the window is findable")
+        return "\n".join(lines)
+
+    get_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+    get_long.restype = ctypes.c_ssize_t
+    ex = get_long(hwnd, -20)
+    lines.append(f"  ex-style          : 0x{ex & 0xFFFFFFFF:08X}")
+    lines.append(f"    WS_EX_LAYERED   : {'yes' if ex & 0x00080000 else 'no'}")
+    lines.append(f"    WS_EX_TOOLWINDOW: {'yes' if ex & 0x00000080 else 'no'}")
+    lines.append("  SetWindowCompositionAttribute: "
+                 f"{'available' if hasattr(user32, 'SetWindowCompositionAttribute') else 'MISSING'}")
+    try:
+        dwm = ctypes.windll.dwmapi
+        enabled = ctypes.c_int(0)
+        dwm.DwmIsCompositionEnabled(ctypes.byref(enabled))
+        lines.append(f"  DWM composition   : {'on' if enabled.value else 'OFF'}")
+    except Exception as e:
+        lines.append(f"  DWM composition   : unknown ({e})")
+    return "\n".join(lines)
+
+
 def _apply_composition_transparency(title: str) -> bool:
     """True per-pixel alpha, via the DWM composition attribute.
 
@@ -257,10 +294,23 @@ def main() -> int:
               f"using {DEFAULT_CHROMA}.")
         chroma = DEFAULT_CHROMA
 
-    mode = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "alpha").strip().lower()
-    if mode not in ("alpha", "colorkey", "none"):
-        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — using 'alpha'.")
-        mode = "alpha"
+    mode = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "auto").strip().lower()
+    if mode not in ("auto", "alpha", "colorkey", "none"):
+        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — using 'auto'.")
+        mode = "auto"
+
+    # Chromium normally composites through DirectComposition, which a colour
+    # key cannot see — the window changes colour instead of disappearing.
+    # Forcing software compositing puts its pixels back in the window's own
+    # surface where LWA_COLORKEY reaches them. Costs GPU acceleration, and
+    # she is a live WebGL render, so this is opt-in rather than the default.
+    if os.getenv("PLASMA_OVERLAY_SOFTWARE", "").strip() == "1":
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = (
+            os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
+            + " --disable-gpu-compositing"
+        ).strip()
+        print("  Software compositing on (PLASMA_OVERLAY_SOFTWARE=1) — "
+              "slower, but a colour key can reach her pixels.")
 
     try:
         import webview
@@ -345,25 +395,45 @@ def main() -> int:
         if mode == "none":
             return
 
-        def apply_once() -> bool:
-            if mode == "alpha":
-                return _apply_composition_transparency(WINDOW_TITLE)
-            return _apply_color_key(WINDOW_TITLE, chroma)
-
         def attempt() -> None:
             import time
+            # Wait for the HWND to exist; `shown` can fire a beat early.
             for _ in range(40):            # ~4 seconds
-                if apply_once():
-                    print(f"  Transparency applied ({mode}).")
+                if os.name != "nt":
                     return
+                import ctypes
+                if ctypes.windll.user32.FindWindowW(None, WINDOW_TITLE):
+                    break
                 time.sleep(0.1)
-            if os.name != "nt":
-                return
-            other = "colorkey" if mode == "alpha" else "alpha"
-            print(f"  Could not apply '{mode}' transparency — she will show in "
-                  f"a solid box.\n"
-                  f"  Try the other mechanism:  "
-                  f"$env:PLASMA_OVERLAY_TRANSPARENCY = \"{other}\"")
+
+            # Both mechanisms, in order, unless one was demanded explicitly.
+            # Neither is reliable across every Windows build and GPU driver,
+            # and asking the user to switch by hand costs a round trip each
+            # time — so try, then report what actually took.
+            # Order matters and follows how the window was actually built.
+            # In 'auto'/'colorkey' the window is opaque and painting `chroma`,
+            # so the colour key is the mechanism that can possibly work; the
+            # DWM accent is applied afterwards only as a long shot, since it
+            # cannot show through an opaque WebView2 on its own.
+            applied = []
+            if mode == "alpha":
+                if _apply_composition_transparency(WINDOW_TITLE):
+                    applied.append("alpha (DWM per-pixel)")
+            else:
+                if _apply_color_key(WINDOW_TITLE, chroma):
+                    applied.append(f"colorkey {chroma}")
+                if not applied and _apply_composition_transparency(WINDOW_TITLE):
+                    applied.append("alpha (DWM per-pixel)")
+
+            if applied:
+                print(f"  Transparency applied: {', '.join(applied)}.")
+            else:
+                print("  Could not apply any transparency — she stays in a box.")
+            print(_diagnose(WINDOW_TITLE))
+            if not applied or mode == "auto":
+                print("  If she is still boxed, paste the block above and try:")
+                print('    $env:PLASMA_OVERLAY_SOFTWARE = "1"   '
+                      '# software compositing, slower but keyable')
 
         threading.Thread(target=attempt, daemon=True).start()
 

@@ -101,20 +101,45 @@ class TestTransparencyMode:
         assert overlay.main() == 0
         return fake.last_kwargs
 
-    def test_alpha_is_the_default_and_asks_for_a_transparent_window(self, monkeypatch):
+    def test_auto_is_the_default_and_builds_a_keyable_window(self, monkeypatch):
+        """The two mechanisms need opposite window setups, so a run can only
+        be built for one of them. 'auto' builds for the colour key — opaque,
+        painting `chroma` — because that is the one that can still be tried
+        again afterwards; the DWM route cannot show through an opaque
+        WebView2 no matter when it is applied."""
         monkeypatch.delenv("PLASMA_OVERLAY_TRANSPARENCY", raising=False)
-        assert self._create_kwargs(monkeypatch)["transparent"] is True
+        kwargs = self._create_kwargs(monkeypatch)
+        assert kwargs["transparent"] is False
+        assert kwargs["background_color"] == overlay.DEFAULT_CHROMA
+
+    def test_alpha_asks_pywebview_for_a_transparent_window(self, monkeypatch):
+        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
+        assert kwargs["transparent"] is True
 
     def test_colorkey_needs_an_opaque_window(self, monkeypatch):
         kwargs = self._create_kwargs(
             monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="colorkey")
         assert kwargs["transparent"] is False
 
-    def test_an_unknown_mode_falls_back_to_alpha(self, monkeypatch, capsys):
+    def test_an_unknown_mode_falls_back_to_auto(self, monkeypatch, capsys):
         kwargs = self._create_kwargs(
             monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="magic")
-        assert kwargs["transparent"] is True
+        assert kwargs["transparent"] is False
         assert "unknown" in capsys.readouterr().out
+
+    def test_software_compositing_is_opt_in(self, monkeypatch):
+        """It costs GPU acceleration on a live WebGL render, so it must never
+        turn itself on — but it is the thing that puts Chromium's pixels
+        where a colour key can reach them."""
+        monkeypatch.delenv("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", raising=False)
+        monkeypatch.delenv("PLASMA_OVERLAY_SOFTWARE", raising=False)
+        self._create_kwargs(monkeypatch)
+        assert "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" not in os.environ
+
+        monkeypatch.setenv("PLASMA_OVERLAY_SOFTWARE", "1")
+        self._create_kwargs(monkeypatch)
+        assert "--disable-gpu-compositing" in \
+            os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"]
 
     def test_none_disables_it_entirely(self, monkeypatch):
         """An escape hatch for when both mechanisms misbehave — a visible
@@ -164,7 +189,9 @@ class _FakeWebview:
         from unittest.mock import MagicMock
         win = MagicMock()
         win.events = MagicMock()   # supports += the way pywebview's real event does
-        self.last_kwargs = kwargs
+        # background_color is a named parameter here (to validate it), so it
+        # would otherwise be missing from the recorded kwargs.
+        self.last_kwargs = dict(kwargs, background_color=background_color)
         return win
 
     def start(self):
