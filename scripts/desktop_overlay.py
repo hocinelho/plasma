@@ -164,11 +164,84 @@ def _apply_color_key(title: str, hex_color: str) -> bool:
 
     style = get_long(hwnd, GWL_EXSTYLE)
     set_long(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED | WS_EX_TOOLWINDOW)
+    # Extended-style changes are not honoured until the frame is recalculated.
+    # Without this the window keeps its old, unlayered behaviour and the key
+    # below silently does nothing.
+    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_FRAMECHANGED = 0x2, 0x1, 0x4, 0x20
+    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED)
 
     user32.SetLayeredWindowAttributes.argtypes = [
         wintypes.HWND, wintypes.COLORREF, ctypes.c_byte, wintypes.DWORD,
     ]
     return bool(user32.SetLayeredWindowAttributes(hwnd, colorref, 255, LWA_COLORKEY))
+
+
+def _apply_composition_transparency(title: str) -> bool:
+    """True per-pixel alpha, via the DWM composition attribute.
+
+    The colour-key route above cannot see WebView2's output on many machines:
+    Chromium renders through DirectComposition, and LWA_COLORKEY only applies
+    to what the window itself paints. The window then just changes colour
+    instead of disappearing — a dark box instead of a white one.
+
+    This is the other mechanism: ask DWM to treat the window background as
+    fully transparent, and let WebView2 hand it real alpha (which is what
+    pywebview's transparent=True switches on). No colour key, so no fringing
+    on her silhouette either.
+
+    SetWindowCompositionAttribute is undocumented but stable since Windows 10
+    and is what most transparent-window toolkits use.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return False
+
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW(None, title)
+    if not hwnd:
+        return False
+    if not hasattr(user32, "SetWindowCompositionAttribute"):
+        return False
+
+    class ACCENTPOLICY(ctypes.Structure):
+        _fields_ = [
+            ("AccentState", ctypes.c_int),
+            ("AccentFlags", ctypes.c_int),
+            ("GradientColor", ctypes.c_uint),
+            ("AnimationId", ctypes.c_int),
+        ]
+
+    class WINCOMPATTRDATA(ctypes.Structure):
+        _fields_ = [
+            ("Attribute", ctypes.c_int),
+            ("Data", ctypes.POINTER(ACCENTPOLICY)),
+            ("SizeOfData", ctypes.c_size_t),
+        ]
+
+    ACCENT_ENABLE_TRANSPARENTGRADIENT = 2
+    WCA_ACCENT_POLICY = 19
+
+    # GradientColor is 0xAABBGGRR — alpha 0 means "contribute nothing", i.e.
+    # the window background is simply not painted.
+    accent = ACCENTPOLICY(ACCENT_ENABLE_TRANSPARENTGRADIENT, 2, 0x00000000, 0)
+    data = WINCOMPATTRDATA(WCA_ACCENT_POLICY, ctypes.pointer(accent),
+                           ctypes.sizeof(accent))
+    ok = bool(user32.SetWindowCompositionAttribute(wintypes.HWND(hwnd),
+                                                   ctypes.byref(data)))
+    if ok:
+        # Keep her off the taskbar and out of Alt-Tab, same as the other path.
+        GWL_EXSTYLE, WS_EX_TOOLWINDOW = -20, 0x00000080
+        set_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+        get_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+        get_long.restype = ctypes.c_ssize_t
+        set_long.restype = ctypes.c_ssize_t
+        set_long(hwnd, GWL_EXSTYLE, get_long(hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW)
+    return ok
 
 
 def main() -> int:
@@ -183,6 +256,11 @@ def main() -> int:
         print(f"  PLASMA_OVERLAY_CHROMA={chroma!r} is not a #rrggbb colour — "
               f"using {DEFAULT_CHROMA}.")
         chroma = DEFAULT_CHROMA
+
+    mode = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "alpha").strip().lower()
+    if mode not in ("alpha", "colorkey", "none"):
+        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — using 'alpha'.")
+        mode = "alpha"
 
     try:
         import webview
@@ -235,13 +313,12 @@ def main() -> int:
         frameless=True,
         easy_drag=True,
         on_top=True,
-        # Deliberately NOT transparent=True on Windows. That path leaves the
-        # WinForms window itself opaque (pywebview sets no TransparencyKey or
-        # layered style at all), so the page's transparent pixels show the
-        # form's background — the white box. Instead the whole window is made
-        # to paint one exact colour, which _apply_color_key then punches out
-        # at the OS level. background_color must be a plain 6-digit hex here:
-        # pywebview validates it against ^#(?:[0-9a-fA-F]{3}){1,2}$.
+        # "alpha" needs WebView2 to hand the window real per-pixel alpha,
+        # which is exactly what pywebview's transparent=True switches on.
+        # "colorkey" needs the opposite: an opaque window painting one exact
+        # colour for _apply_color_key to punch out. background_color must be
+        # plain 6-digit hex — pywebview validates ^#(?:[0-9a-fA-F]{3}){1,2}$.
+        transparent=(mode == "alpha"),
         background_color=chroma,
         js_api=_Api(),
     )
@@ -257,21 +334,36 @@ def main() -> int:
             pass   # cosmetic — closing the terminal still works
 
     def _punch_out_the_background() -> None:
-        """Apply the colour key once the window actually exists.
+        """Make the window background disappear, once it actually exists.
 
         Retried briefly: `shown` can fire a beat before the HWND is findable
-        by title, and a single miss would leave her sitting in a solid box
-        with no indication why.
+        by title, and a single miss would leave her in a solid box with no
+        indication why. Says out loud what it did either way — the failure
+        mode here is entirely visual, so a silent no-op is indistinguishable
+        from the mechanism simply not working on this machine.
         """
+        if mode == "none":
+            return
+
+        def apply_once() -> bool:
+            if mode == "alpha":
+                return _apply_composition_transparency(WINDOW_TITLE)
+            return _apply_color_key(WINDOW_TITLE, chroma)
+
         def attempt() -> None:
             import time
             for _ in range(40):            # ~4 seconds
-                if _apply_color_key(WINDOW_TITLE, chroma):
+                if apply_once():
+                    print(f"  Transparency applied ({mode}).")
                     return
                 time.sleep(0.1)
-            if os.name == "nt":
-                print("  Could not make the window background transparent — "
-                      "she will show in a solid box.")
+            if os.name != "nt":
+                return
+            other = "colorkey" if mode == "alpha" else "alpha"
+            print(f"  Could not apply '{mode}' transparency — she will show in "
+                  f"a solid box.\n"
+                  f"  Try the other mechanism:  "
+                  f"$env:PLASMA_OVERLAY_TRANSPARENCY = \"{other}\"")
 
         threading.Thread(target=attempt, daemon=True).start()
 

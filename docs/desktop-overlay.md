@@ -40,7 +40,8 @@ Environment variables, all optional:
 | `PLASMA_OVERLAY_CORNER` | `bottom-right` | or `bottom-left`, `top-right`, `top-left` |
 | `PLASMA_OVERLAY_MARGIN` | `24` | pixels from the screen edge |
 | `PLASMA_OVERLAY_WATCH` | `1` (on) | set `0` to skip the camera prompt entirely |
-| `PLASMA_OVERLAY_CHROMA` | `#010101` | the colour punched out to make the window see-through — see below |
+| `PLASMA_OVERLAY_TRANSPARENCY` | `alpha` | or `colorkey`, or `none` — see below |
+| `PLASMA_OVERLAY_CHROMA` | `#010101` | the colour punched out in `colorkey` mode only |
 
 ```powershell
 $env:PLASMA_OVERLAY_CORNER = "top-left"
@@ -48,36 +49,49 @@ $env:PLASMA_OVERLAY_WATCH = "0"
 python scripts\desktop_overlay.py
 ```
 
-## How the transparency works, and how to fix it if it looks wrong
+## Transparency — two mechanisms, and what to do if the box is still there
 
-pywebview's own `transparent=True` is **not enough on Windows**, which is why
-the first version showed her in a white box. It makes the WebView2 *control*
-transparent but never gives the WinForms *window* any transparency — no
-`TransparencyKey`, no `AllowsTransparency`, no layered style (checked against
-pywebview 6.2.1's `winforms.py`). So the page's transparent pixels revealed
-the form's own opaque background instead of your desktop.
+pywebview's `transparent=True` alone is **not enough on Windows**. It makes
+the WebView2 *control* transparent but never gives the WinForms *window* any
+transparency — no `TransparencyKey`, no `AllowsTransparency`, no layered
+style (checked against pywebview 6.2.1's `winforms.py`). The page's
+transparent pixels then reveal the form's own opaque background: the white
+box. So the window needs help from Win32 directly, and there are two ways to
+give it.
 
-Instead the window is told to paint one exact colour (`PLASMA_OVERLAY_CHROMA`,
-default `#010101`), and Windows is asked to drop every pixel of that colour
-via `WS_EX_LAYERED` + `LWA_COLORKEY`. Those regions become fully see-through
-**and click-through**, so clicks around her land on whatever is behind.
+**`alpha` (default).** Asks DWM for real per-pixel transparency
+(`SetWindowCompositionAttribute` with a transparent accent gradient) and lets
+WebView2 supply genuine alpha. No colour key, so no fringing on her edges.
+This is what most transparent-window toolkits use.
 
-The default is near-black rather than the classic magenta because
-anti-aliased pixels along her silhouette get blended with the key colour. A
-faint dark fringe on a character with black hair and a navy outfit is
-invisible; a magenta one would not be.
+**`colorkey`.** The older, blunter route: the window paints one exact colour
+(`PLASMA_OVERLAY_CHROMA`) and Windows drops every pixel of it via
+`WS_EX_LAYERED` + `LWA_COLORKEY`. Those regions also become **click-through**.
+Its weakness is that Chromium renders through DirectComposition, which the
+colour key cannot always see — when that happens the window just changes
+colour instead of disappearing.
 
-**If parts of her go transparent**, some pixel in the render matched the key
-exactly. Pick a colour that does not occur in her:
+The script prints which one it applied. **If she is still in a box, switch:**
 
 ```powershell
-$env:PLASMA_OVERLAY_CHROMA = "#010203"
+$env:PLASMA_OVERLAY_TRANSPARENCY = "colorkey"
 python scripts\desktop_overlay.py
 ```
 
-**If the box is still solid**, the colour key never got applied — the script
-prints a line saying so. That means the window could not be found by title,
-which would be worth reporting.
+**In `colorkey` mode, if parts of *her* go transparent**, a pixel in the
+render matched the key exactly — pick a colour that does not occur in her:
+
+```powershell
+$env:PLASMA_OVERLAY_CHROMA = "#010203"
+```
+
+The default key is near-black rather than the classic magenta because
+anti-aliased pixels along her silhouette blend with it. A faint dark fringe
+on a character with black hair and a navy outfit is invisible; magenta would
+not be.
+
+`PLASMA_OVERLAY_TRANSPARENCY=none` turns the whole thing off — a visible
+window beats an invisible one you cannot debug.
 
 ## Known limits
 

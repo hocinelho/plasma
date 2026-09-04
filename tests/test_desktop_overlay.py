@@ -83,6 +83,45 @@ class TestColorKey:
         """This container is Linux — the call must decline, not explode."""
         assert overlay._apply_color_key("Plasma Overlay", "#010101") is False
 
+    def test_the_alpha_route_is_also_a_no_op_off_windows(self):
+        assert overlay._apply_composition_transparency("Plasma Overlay") is False
+
+
+class TestTransparencyMode:
+    """Two mechanisms, and they need OPPOSITE things from pywebview: alpha
+    needs transparent=True (WebView2 hands over real per-pixel alpha), while
+    colorkey needs an opaque window painting one exact colour to punch out.
+    Wiring either to the wrong flag produces a solid box and no error."""
+
+    def _create_kwargs(self, monkeypatch, **env):
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        fake = _FakeWebview()
+        monkeypatch.setitem(sys.modules, "webview", fake)
+        assert overlay.main() == 0
+        return fake.last_kwargs
+
+    def test_alpha_is_the_default_and_asks_for_a_transparent_window(self, monkeypatch):
+        monkeypatch.delenv("PLASMA_OVERLAY_TRANSPARENCY", raising=False)
+        assert self._create_kwargs(monkeypatch)["transparent"] is True
+
+    def test_colorkey_needs_an_opaque_window(self, monkeypatch):
+        kwargs = self._create_kwargs(
+            monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="colorkey")
+        assert kwargs["transparent"] is False
+
+    def test_an_unknown_mode_falls_back_to_alpha(self, monkeypatch, capsys):
+        kwargs = self._create_kwargs(
+            monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="magic")
+        assert kwargs["transparent"] is True
+        assert "unknown" in capsys.readouterr().out
+
+    def test_none_disables_it_entirely(self, monkeypatch):
+        """An escape hatch for when both mechanisms misbehave — a visible
+        window beats an invisible one you cannot debug."""
+        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="none")
+        assert kwargs["transparent"] is False
+
 
 class TestScreenSizeFallback:
     def test_falls_back_to_a_sane_default_without_tkinter(self, monkeypatch):
