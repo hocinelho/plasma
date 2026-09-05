@@ -42,8 +42,9 @@ Environment variables, all optional:
 | `PLASMA_OVERLAY_CORNER` | `bottom-right` | or `bottom-left`, `top-right`, `top-left` |
 | `PLASMA_OVERLAY_MARGIN` | `24` | pixels from the screen edge |
 | `PLASMA_OVERLAY_WATCH` | `1` (on) | set `0` to skip the camera prompt entirely |
+| `PLASMA_OVERLAY_MODEL` | — | which character to wear, e.g. `brunette.glb` — see below |
 | `PLASMA_OVERLAY_TRANSPARENCY` | `shape` | or `alpha`, `colorkey`, `none` — see below |
-| `PLASMA_OVERLAY_SHAPE_ALPHA` | `96` | 1-254 — how opaque a pixel must be to count as her, `shape` mode only |
+| `PLASMA_OVERLAY_SHAPE_ALPHA` | `190` | 1-254 — how opaque a pixel must be to count as her, `shape` mode only |
 | `PLASMA_OVERLAY_SOFTWARE` | off | `1` forces software compositing so a colour key can reach her pixels |
 | `PLASMA_OVERLAY_CHROMA` | `#010101` | the colour punched out in `colorkey` mode only |
 
@@ -68,6 +69,27 @@ there is always one command that does what it says:
 ```powershell
 python scripts\desktop_overlay.py --shape
 ```
+
+## Changing which character she is
+
+The in-page picker (top of `http://127.0.0.1:8000/`) remembers your choice in
+`localStorage`, which is **per browser** — and this overlay is its own browser
+with its own storage. Choosing a character in Chrome leaves the overlay
+exactly as it was, and a 220px window has no room to show a picker. So the
+overlay takes the character by name:
+
+```powershell
+$env:PLASMA_OVERLAY_MODEL = "brunette.glb"
+python scripts\desktop_overlay.py
+```
+
+It has to be a `.glb` file that exists in `frontend/avatars/`. **Only
+`brunette.glb` ships with the repo**, so until you add another there is
+nothing to switch to — the picker hides itself for the same reason. Drop more
+`.glb` files in that folder and they appear automatically; `avatars.json`
+beside them supplies the labels. Every character plays every clip, because
+the renderer retargets the Mixamo skeleton onto whichever rig is loaded.
+`frontend/avatars/README.md` covers where to get them.
 
 ## Transparency — the window *is* her outline
 
@@ -134,7 +156,7 @@ drawn, not composited, and not clickable. It is applied by USER32/DWM
 *around* the content, so what renders inside is irrelevant: WebView2 cannot
 composite past a hole that is not there.
 
-It works like this, up to ~9 times a second (and not at all while she holds
+It works like this, up to ~22 times a second (and not at all while she holds
 still, since an unchanged outline is not re-sent):
 
 1. The page draws her live WebGL canvas into a 2D canvas at the window's

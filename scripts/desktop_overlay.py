@@ -761,6 +761,14 @@ def main() -> int:
     query = "overlay=1"
     if watch:
         query += "&watch=1"
+    # The in-page character picker remembers your choice in localStorage,
+    # which is per-browser — and this window is its own browser, with its own
+    # storage and no room to show a picker. So the character comes in through
+    # the URL instead.
+    model = os.getenv("PLASMA_OVERLAY_MODEL", "").strip()
+    if model:
+        from urllib.parse import quote
+        query += f"&model={quote(model)}"
     url = f"{base}/?{query}"
 
     bar = "-" * 60

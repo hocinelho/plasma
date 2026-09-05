@@ -689,6 +689,10 @@
             // playGesture() silently ignores unknown names, so check first.
             window.avatarGesture = (name, seconds = 3) => {
                 if (!head || failed || !name) return false;
+                // Not a rig gesture — "face me again" arrives on the gesture
+                // channel because that channel already delivers a one-shot
+                // instruction to the browser. See avatar_state.KNOWN_GESTURES.
+                if (name === 'face-front') return window.avatarFaceFront();
                 const known = (head.gestureTemplates && head.gestureTemplates[name])
                            || (head.animEmojis && head.animEmojis[name]);
                 if (!known) return false;
@@ -698,6 +702,50 @@
                     return true;
                 } catch (e) { return false; }
             };
+
+            // ── Actually facing another way ────────────────────────────────
+            // The Mixamo turn clips animate the *steps* of a turn and nothing
+            // else: TalkingHead retargets bone rotations and drops root
+            // motion, so she performed the footwork and ended up facing
+            // exactly where she started. "She is not turning, only doing the
+            // movement of turning" was precisely right.
+            //
+            // So the clip supplies the footwork and this supplies the turn.
+            // Rotating the armature is safe: nothing in talkinghead.mjs ever
+            // writes armature.rotation or .quaternion — the gaze and pose
+            // maths only READ the quaternion (and already compose with it),
+            // so her eyes keep tracking the camera correctly once turned.
+            const TURN_DEGREES = { 'turn-left': 90, 'turn-right': -90 };
+            const TURN_MS = 700;                  // roughly one clip's footwork
+            let turnRAF = null;
+
+            function turnTo(targetRad, ms = TURN_MS) {
+                if (!head || !head.armature) return false;
+                if (turnRAF) cancelAnimationFrame(turnRAF);
+                const from = head.armature.rotation.y;
+                const start = performance.now();
+                (function step(now) {
+                    const t = Math.min(1, (now - start) / ms);
+                    // Ease in-out: a linear turn reads as a mechanical snap.
+                    const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+                    head.armature.rotation.y = from + (targetRad - from) * e;
+                    turnRAF = t < 1 ? requestAnimationFrame(step) : null;
+                })(start);
+                return true;
+            }
+
+            // Degrees, relative to where she is facing now. Cumulative, so
+            // two left turns put her back to you — which is what "turn
+            // around" and "I need to see your back" ask for.
+            window.avatarTurn = (deg, ms) =>
+                head && head.armature
+                    ? turnTo(head.armature.rotation.y + deg * Math.PI / 180, ms)
+                    : false;
+
+            // Back to facing you, from wherever she ended up. Without this
+            // the only way back from a half-turn is guessing how many more
+            // turns make a full circle.
+            window.avatarFaceFront = (ms) => turnTo(0, ms);
 
             // Only one animation can play at a time — starting a second one
             // replaces the first. So a clip the user actually asked for is
@@ -715,6 +763,10 @@
                 try {
                     const p = head.playAnimation(`/animations/${name}.fbx`, null, seconds);
                     if (p && p.catch) p.catch(e => console.warn('[avatar] animation failed:', name, e));
+                    // A turn clip is only the footwork — the actual turn is
+                    // ours to apply, or she walks through it and ends up
+                    // facing exactly where she started.
+                    if (TURN_DEGREES[name] !== undefined) window.avatarTurn(TURN_DEGREES[name]);
                     if (!ambient) protectedUntil = performance.now() + seconds * 1000;
                     return true;
                 } catch (e) {

@@ -140,3 +140,34 @@ class TestPickerUI:
 
     def test_restores_the_selection_when_a_load_fails(self):
         assert "select.value = state.current;" in INDEX
+
+
+class TestChoosingFromTheUrl:
+    """The picker remembers your choice in localStorage, which is
+    per-browser — and the desktop overlay is its own browser, with its own
+    storage and no room to draw a picker in a 220px window. Choosing a
+    character in Chrome therefore left the overlay exactly as it was, with no
+    way in."""
+
+    def test_the_page_accepts_a_model_parameter(self):
+        assert "get('model')" in INDEX
+        block = INDEX.split("get('model')", 1)[1][:600]
+        assert "avatarSetModel" in block
+
+    def test_it_waits_for_the_renderer(self):
+        """avatarSetModel exists only once the first .glb has loaded, so
+        firing immediately does nothing and says nothing."""
+        block = INDEX.split("get('model')", 1)[1][:700]
+        assert "setTimeout" in block
+
+    def test_the_overlay_launcher_passes_it_through(self):
+        src = (ROOT / "scripts" / "desktop_overlay.py").read_text(encoding="utf-8")
+        assert "PLASMA_OVERLAY_MODEL" in src
+        assert "&model=" in src
+
+    def test_the_filename_is_url_encoded(self):
+        """It goes straight into a query string, and .glb filenames can carry
+        spaces."""
+        src = (ROOT / "scripts" / "desktop_overlay.py").read_text(encoding="utf-8")
+        block = src.split("PLASMA_OVERLAY_MODEL", 1)[1][:400]
+        assert "quote(model)" in block

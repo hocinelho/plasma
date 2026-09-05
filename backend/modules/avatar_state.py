@@ -24,6 +24,11 @@ from pathlib import Path
 KNOWN_GESTURES = frozenset({
     "handup", "index", "ok", "thumbup", "thumbdown", "side", "shrug", "namaste",
     "yes", "no",
+    # Not a TalkingHead gesture: the renderer intercepts this one and rotates
+    # her to face the camera again. It travels on the gesture channel because
+    # that channel already exists and delivers a one-shot instruction to the
+    # browser — inventing a third queue for a single verb would be worse.
+    "face-front",
 })
 
 # Full-body Mixamo clips live in frontend/animations/ and are served at

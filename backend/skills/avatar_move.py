@@ -46,6 +46,8 @@ META = {
         # any of the mapping below is consulted.
         "turn", "spin", "turn around", "show me your back", "your back",
         "other way", "face away",
+        "face me", "look at me", "turn back", "turn to me", "face front",
+        "schau mich an", "dreh dich zurück",
         "dreh dich um", "umdrehen", "drehen", "deinen rücken", "von hinten",
         # Whisper commonly hears "walk" as "work" — catch the imperative forms.
         "work for me", "work walk", "work. work",
@@ -154,6 +156,17 @@ ANIMATION_KEYWORDS = {
 # disk, and turn-left is a quarter turn. This is the sequence mechanism
 # show_abilities already uses for "show me everything you can do".
 TURN_AROUND = ["turn-left", "turn-left"]
+# Coming back round. Turning is cumulative, so without a way to say "stop
+# being turned" the only route back from a half-turn is guessing how many
+# more turns make a full circle.
+FACE_FRONT_KEYWORDS = [
+    # No "look at the camera" — that is one of the vision skill's triggers,
+    # and asking her to look at the camera means "use your eyes", not "rotate".
+    "face me", "look at me", "turn back to me", "turn back", "turn to me",
+    "face front", "face forward", "come back round",
+    "schau mich an", "dreh dich zurück", "dreh dich zu mir", "sieh mich an",
+]
+
 TURN_AROUND_KEYWORDS = [
     "turn around", "turn round", "spin around", "other way", "face away",
     "your back", "see your back", "show me your back", "back side",
@@ -237,6 +250,12 @@ def run(args: dict | None = None) -> str:
     utterance = args.get("utterance", "")
     german_wanted = args.get("language") == "de"
     text = utterance.lower()
+
+    # Facing you again, from wherever she ended up. First, because "turn
+    # back to me" contains "turn" and would otherwise turn her further away.
+    if any(phrase in text for phrase in FACE_FRONT_KEYWORDS):
+        request_gesture("face-front")
+        return "Ich schau dich wieder an." if german_wanted else "Facing you again."
 
     # "Turn around" / "I need to see your back" — before the single-clip
     # match, because it is not a single clip. There is no 180° turn on disk,

@@ -103,3 +103,49 @@ def test_readme_states_it_is_untested_on_a_device():
     """It was written against the docs and never run — say so."""
     readme = (ANDROID / "README.md").read_text(encoding="utf-8")
     assert "never been run" in readme
+
+
+class TestTurningIsRealNotMimed:
+    """"She is not turning, only doing the movement of turning left."
+
+    Exactly right. TalkingHead retargets bone rotations and drops root
+    motion, so the Mixamo turn clips animated the FOOTWORK of a turn and left
+    her facing precisely where she started. The clip supplies the steps; the
+    renderer has to supply the turn.
+    """
+
+    JS = (ROOT / "frontend" / "avatar.js").read_text(encoding="utf-8")
+
+    def test_the_clip_also_rotates_her(self):
+        block = self.JS.split("const p = head.playAnimation(", 1)[1][:600]
+        assert "TURN_DEGREES[name]" in block
+        assert "avatarTurn" in block
+
+    def test_left_and_right_go_opposite_ways(self):
+        line = [ln for ln in self.JS.splitlines() if "const TURN_DEGREES" in ln][0]
+        assert "'turn-left': 90" in line and "'turn-right': -90" in line
+
+    def test_two_left_turns_make_a_half_turn(self):
+        """"Turn around" and "I need to see your back" are two turn-left
+        clips, so the rotation has to accumulate rather than snap to a fixed
+        heading."""
+        block = self.JS.split("window.avatarTurn =", 1)[1][:300]
+        assert "armature.rotation.y + deg" in block
+
+    def test_she_can_be_brought_back_round(self):
+        assert "window.avatarFaceFront" in self.JS
+
+    def test_face_front_arrives_as_a_gesture(self):
+        """It travels on the gesture channel, which already delivers one-shot
+        instructions to the browser — so the renderer must intercept it
+        before looking it up in the rig, where it does not exist."""
+        block = self.JS.split("window.avatarGesture =", 1)[1][:500]
+        assert "'face-front'" in block
+        assert block.index("'face-front'") < block.index("gestureTemplates")
+
+    def test_it_rotates_the_armature_not_the_page(self):
+        """The holder is a DOM element containing a WebGL canvas — a CSS
+        transform would rotate the flat picture of her, not her."""
+        block = self.JS.split("function turnTo(", 1)[1][:600]
+        assert "armature.rotation.y" in block
+        assert "style.transform" not in block

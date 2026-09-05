@@ -284,3 +284,35 @@ class TestTurning:
         assert set(avatar_move.TURN_AROUND) <= known
         for clip in avatar_move.ANIMATION_KEYWORDS:
             assert clip in known, clip
+
+
+class TestFacingYouAgain:
+    """Turning is cumulative, so without a way to say "stop being turned"
+    the only route back from a half-turn is guessing how many more turns
+    make a full circle."""
+
+    def test_face_me_comes_back_round(self):
+        avatar_move.run({"utterance": "face me", "language": "en"})
+        assert avatar_state.pop_gesture() == "face-front"
+
+    def test_turn_back_to_me_is_not_another_turn_away(self):
+        """It contains "turn", so it has to be checked before the turn
+        keywords or it turns her further away — the opposite of the ask."""
+        avatar_move.run({"utterance": "turn back to me", "language": "en"})
+        assert avatar_state.pop_gesture() == "face-front"
+        assert avatar_state.pop_animation() is None
+
+    def test_it_works_in_german(self):
+        avatar_move.run({"utterance": "schau mich an", "language": "de"})
+        assert avatar_state.pop_gesture() == "face-front"
+
+    def test_looking_at_the_camera_is_still_the_vision_skill(self):
+        """"Look at the camera" means "use your eyes", not "rotate" — and it
+        is one of the vision skill's triggers."""
+        assert not any("look at the camera" in p
+                       for p in avatar_move.FACE_FRONT_KEYWORDS)
+
+    def test_the_marker_is_a_gesture_the_shared_store_accepts(self):
+        """request_gesture silently rejects names outside KNOWN_GESTURES, so
+        this would have been a reply with no movement behind it."""
+        assert "face-front" in avatar_state.KNOWN_GESTURES

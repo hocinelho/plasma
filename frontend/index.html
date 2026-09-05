@@ -1062,6 +1062,11 @@ async function sendAudio(blob) {
     try {
         const r    = await fetch('/voice/chat', { method: 'POST', body: form });
         const data = await r.json();
+        // A real exchange pushes the follow-up window out again, so a
+        // conversation lasts as long as it is actually going. Silence does
+        // NOT: without a transcript nothing was said, and extending on those
+        // would leave the mic reopening for ever in an empty room.
+        if (data.transcript) keepListening();
         if (data.transcript) addTurn('user', data.transcript);
         if (data.reply)      addTurn('assistant', data.reply);
         if (data.image_b64)  addImageTurn(data.image_b64);
@@ -1097,6 +1102,11 @@ async function sendAudio(blob) {
         addTurn('error', 'Request failed: ' + err.message);
     } finally {
         isBusy = false;
+        // She has finished answering; if the conversation window is still
+        // open, reopen the microphone so the follow-up needs no wake word.
+        // It has to be here rather than above: isBusy is still true until
+        // this line, and reopening refuses while she is busy.
+        if (!wasInterrupted) listenAgainIfStillTalking();
     }
 }
 
@@ -1127,18 +1137,28 @@ function stopRecording() {
 }
 
 // ── PA-70: input handling — hold on desktop, tap-toggle on touch ───
+// Deciding to talk to her opens the follow-up window too, so tapping buys a
+// conversation and not a single sentence. Deliberately here rather than
+// inside startRecording(): the automatic reopen goes through that function,
+// and extending the window from there would keep extending it for ever in an
+// empty room — nothing said, so nothing to end it.
+function startTalking() {
+    keepListening();
+    startRecording();
+}
+
 if (isTouchPrimary) {
     // Tap to start, tap again to stop (pure voice, no hold required)
     btn.addEventListener('click', () => {
-        if (isRecording) stopRecording();
-        else startRecording();
+        if (isRecording) { endConversation(); stopRecording(); }
+        else startTalking();
     });
 } else {
     // Desktop: hold-to-talk
-    btn.addEventListener('mousedown',  startRecording);
+    btn.addEventListener('mousedown',  startTalking);
     btn.addEventListener('mouseup',    stopRecording);
     btn.addEventListener('mouseleave', stopRecording);
-    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startTalking(); });
     btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording(); });
 }
 
@@ -1157,6 +1177,42 @@ initMic();
 // ── PA-34: wake word WebSocket ────────────────────────────
 const WAKE_AUTO_STOP_MS = 6000;
 let wakeStopTimer = null;
+
+// ── Staying in the conversation ─────────────────────────────────────────
+// Waking her used to buy exactly one sentence: she answered, went back to
+// sleep, and the next thing you said needed the wake word again. Nobody
+// talks like that — a follow-up ("and tomorrow?", "no, the other one") is
+// the normal shape of a conversation and it was the one thing you could not
+// do without saying her name first, every single time.
+//
+// So a wake opens a WINDOW rather than a single turn: for this long after
+// she stops speaking, the microphone reopens on its own. Every real exchange
+// pushes the window out again, so a conversation continues as long as it is
+// actually going, and a silence ends it.
+const FOLLOW_UP_MS = 15000;
+let conversationUntil = 0;
+
+function keepListening() {
+    conversationUntil = performance.now() + FOLLOW_UP_MS;
+}
+
+function inConversation() {
+    return performance.now() < conversationUntil;
+}
+
+function endConversation() {
+    conversationUntil = 0;
+}
+
+// Called when she has finished speaking. Reopens the mic if the window is
+// still open, so the follow-up needs no wake word.
+function listenAgainIfStillTalking() {
+    if (!inConversation() || isRecording || isBusy) return;
+    startRecording();
+    clearTimeout(wakeStopTimer);
+    wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); },
+                               WAKE_AUTO_STOP_MS);
+}
 
 // "Waking up" moment: the neural sphere surges and the whole background fires
 // a shockwave + accelerates for ~2.5 s. Triggered by the wake word ("hey
@@ -1202,6 +1258,9 @@ function connectWakeSocket() {
                 // gating on isBusy alone made the wake word useless for
                 // exactly the moment you most want it.
                 if (!isRecording && (!isBusy || isSpeaking)) {
+                    // Waking opens the follow-up window: everything said for
+                    // the next little while reaches her without her name.
+                    keepListening();
                     startRecording();
                     clearTimeout(wakeStopTimer);
                     wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
@@ -1239,6 +1298,24 @@ function showAlertToast(text) {
     const select = document.getElementById('avatar-select');
     const status = document.getElementById('avatar-picker-status');
     if (!wrap || !select) return;
+
+    // ?model=<file.glb> picks a character for THIS window.
+    //
+    // The picker remembers your choice in localStorage, which is per-browser
+    // — and the desktop overlay is its own browser with its own storage, so
+    // choosing a character in Chrome leaves the overlay unchanged and there
+    // is no visible picker inside a 220px window to change it with. A URL
+    // parameter is the way in, which is what PLASMA_OVERLAY_MODEL passes.
+    const wantedModel = new URLSearchParams(location.search).get('model');
+    if (wantedModel) {
+        const apply = () => window.avatarSetModel && window.avatarSetModel(wantedModel);
+        // The renderer defines avatarSetModel only once the first .glb has
+        // loaded, so wait for it rather than firing into an empty page.
+        (function poll(tries) {
+            if (window.avatarSetModel) return apply();
+            if (tries > 0) setTimeout(() => poll(tries - 1), 200);
+        })(100);
+    }
 
     window.addEventListener('plasma-avatar-list', (e) => {
         const { models, current } = e.detail || {};
