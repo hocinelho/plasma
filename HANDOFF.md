@@ -214,7 +214,7 @@ start by guessing.
 | 8 | **Change her clothes** | 🔴 not built |
 | 9 | **Search the internet** | 🔴 not built |
 | 10 | **Jumping makes her shake and vanish** | 🔴 open |
-| 11 | **How do I change the avatar** | ✅ answered — see below |
+| 11 | **How do I change the avatar** | ✅ fixed — `python scripts/get_avatars.py` |
 
 **1 — Turning.** The backend is provably right: the log shows
 `animation=turn-left` queued and `GET /animations/turn-left.fbx 200 OK`. So
@@ -270,10 +270,26 @@ work laptop may block it.
 is the "disappearing". Likely fix: strip root translation from clips, or grow
 the window while a clip with travel is playing.
 
-**11 — Changing the avatar.** Answered: only `brunette.glb` exists, so there
-is nothing to change to. Drop more `.glb` files in `frontend/avatars/` and the
-picker appears on its own; the overlay takes `PLASMA_OVERLAY_MODEL=<file.glb>`.
-Sources in the avatar section above (Avaturn, Avatar SDK, VRoid, MakeHuman).
+**11 — Changing the avatar.** *"We used to have 4 other avatars and a button
+to change it — we already did that."* Right, and I was wrong to say otherwise.
+The picker, the labels for all five and the retargeting were built and are
+still there; `frontend/avatars/avatars.json` names every character. What was
+never in the repo is the four `.glb` files, so `discover_models()` returned
+one entry and the picker hides itself when there is nothing to choose. From
+the outside that is indistinguishable from the feature not existing.
+
+Fixed with `python scripts/get_avatars.py` — one command, fetches all four
+from the upstream TalkingHead repo (pinned commit) into `frontend/avatars/`.
+Verified here: the picker now lists Brunette, MetaPerson, Avaturn, MakeHuman
+and VRoid.
+
+**They stay out of git on purpose**: 62 MB of binaries under non-commercial
+sample licences, in a public repository. Only `mpfb.glb` (MakeHuman) is CC0
+and free for any use — `brunette.glb`, which ships, is CC BY-NC.
+`.gitignore` covers `frontend/avatars/*.glb` with an exception for the one
+that ships, so a fresh clone still has a character.
+The overlay takes `PLASMA_OVERLAY_MODEL=<file.glb>`, since it is its own
+browser with its own storage and no room to draw a picker.
 
 ---
 

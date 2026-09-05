@@ -83,13 +83,19 @@ $env:PLASMA_OVERLAY_MODEL = "brunette.glb"
 python scripts\desktop_overlay.py
 ```
 
-It has to be a `.glb` file that exists in `frontend/avatars/`. **Only
-`brunette.glb` ships with the repo**, so until you add another there is
-nothing to switch to — the picker hides itself for the same reason. Drop more
-`.glb` files in that folder and they appear automatically; `avatars.json`
-beside them supplies the labels. Every character plays every clip, because
+It has to be a `.glb` file that exists in `frontend/avatars/`. Only
+`brunette.glb` ships with the repo — the other four are one command away:
+
+```powershell
+python scripts\get_avatars.py
+```
+
+That fetches MakeHuman, Avaturn, MetaPerson and VRoid from the upstream
+TalkingHead project. They are not committed here because they are 62 MB of
+binaries under non-commercial sample licences and this repository is public.
+Once they are on disk the in-page picker appears on its own (it hides itself
+when there is only one character), and every character plays every clip —
 the renderer retargets the Mixamo skeleton onto whichever rig is loaded.
-`frontend/avatars/README.md` covers where to get them.
 
 ## Transparency — the window *is* her outline
 

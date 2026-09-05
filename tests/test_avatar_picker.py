@@ -7,6 +7,7 @@ onto whichever skeleton is loaded. That part is verified in a real browser
 pinned here is the wiring around it.
 """
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -83,8 +84,19 @@ class TestAvatarsJson:
 
     def test_only_the_licence_clean_model_is_committed(self):
         """Four of the five sample characters are non-commercial and this repo
-        is public. Only brunette.glb ships; the rest are fetched by the user."""
-        assert sorted(p.name for p in AVATARS.glob("*.glb")) == ["brunette.glb"]
+        is public. Only brunette.glb ships; the rest are fetched by the user.
+
+        Asks git what is TRACKED rather than what is on disk. The two were the
+        same thing until the fetch script existed, and using the working
+        directory made this test fail the moment somebody ran it — which is
+        the normal, intended state, not a regression.
+        """
+        import subprocess
+        tracked = subprocess.run(
+            ["git", "ls-files", "frontend/avatars/*.glb"],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        ).stdout.split()
+        assert [Path(p).name for p in tracked] == ["brunette.glb"]
 
     def test_entries_declare_a_body_type(self):
         meta = json.loads((AVATARS / "avatars.json").read_text(encoding="utf-8"))
@@ -171,3 +183,58 @@ class TestChoosingFromTheUrl:
         src = (ROOT / "scripts" / "desktop_overlay.py").read_text(encoding="utf-8")
         block = src.split("PLASMA_OVERLAY_MODEL", 1)[1][:400]
         assert "quote(model)" in block
+
+
+class TestTheOtherCharactersAreFetchable:
+    """"We used to have 4 other avatars and a button to change it."
+
+    Correct, and the picker was never the problem. The control, the labels
+    for all five and the retargeting were all built; what was never in the
+    repo is the four .glb files. discover_models() therefore returned one
+    entry and the picker hides itself when there is nothing to choose —
+    indistinguishable, from the outside, from the feature not existing.
+    """
+
+    def test_there_is_one_command_that_gets_them(self):
+        assert (ROOT / "scripts" / "get_avatars.py").is_file()
+
+    def test_it_fetches_every_character_the_labels_promise(self):
+        """avatars.json names five. A label with no file behind it is what
+        made this look like a missing feature."""
+        src = (ROOT / "scripts" / "get_avatars.py").read_text(encoding="utf-8")
+        meta = json.loads((AVATARS / "avatars.json").read_text(encoding="utf-8"))
+        promised = {k for k in meta if k.endswith(".glb")}
+        shipped = {"brunette.glb"}
+        for name in promised - shipped:
+            assert name in src, f"{name} is labelled but never fetched"
+
+    def test_it_pins_a_commit_not_a_branch(self):
+        """Upstream's main moving would silently change which characters
+        arrive, months later, with nothing in this repo having changed."""
+        src = (ROOT / "scripts" / "get_avatars.py").read_text(encoding="utf-8")
+        assert re.search(r'COMMIT = "[0-9a-f]{40}"', src)
+
+    def test_it_states_the_licences(self):
+        """Only one of the five is free for commercial use, and it is not the
+        one that ships. Downloading them without saying so would be handing
+        someone a licensing problem quietly."""
+        src = (ROOT / "scripts" / "get_avatars.py").read_text(encoding="utf-8")
+        assert "CC0" in src and "Non-commercial" in src
+
+    def test_the_binaries_stay_out_of_git(self):
+        """62 MB of non-commercially-licensed binaries in a public repo."""
+        ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        assert "frontend/avatars/*.glb" in ignore
+
+    def test_but_the_shipped_one_stays_tracked(self):
+        """A fresh clone has to have somebody to be, before any download."""
+        ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+        assert "!frontend/avatars/brunette.glb" in ignore
+        assert (AVATARS / "brunette.glb").is_file()
+
+    def test_a_partial_download_is_never_left_behind(self):
+        """discover_models() picks up any .glb on disk, so a truncated file
+        becomes a character that fails to load in the browser with nothing to
+        say why."""
+        src = (ROOT / "scripts" / "get_avatars.py").read_text(encoding="utf-8")
+        assert ".part" in src and "rename(target)" in src

@@ -59,3 +59,13 @@ external/locate-anything/models/*.gguf
 
 voices/
 external/locate-anything.cpp/
+
+# Characters fetched by scripts/get_avatars.py.
+#
+# 62 MB of binaries under non-commercial sample licences, and this repo is
+# public — so they are fetched onto your machine from the project that
+# published them, under its own terms, rather than committed here.
+# brunette.glb is already tracked and stays tracked: ignoring a file does not
+# untrack it, and she has to have someone to be out of the box.
+frontend/avatars/*.glb
+!frontend/avatars/brunette.glb
