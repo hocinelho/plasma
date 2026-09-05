@@ -128,6 +128,20 @@ bundled with going full screen. The
 [Windows desktop overlay](desktop-overlay.md) turns it on by default,
 since "she watches for you" is the point of that one.
 
+### It also makes "can you see me?" instant
+
+While `watch=1` is on, the browser holds the webcam and streams frames to
+Plasma several times a second — so a picture of you already exists, decoded,
+moments old. Every vision skill uses that frame instead of opening the
+device.
+
+That matters more than it sounds. Opening a webcam a second time while
+Chromium still has it means two processes contending for one device: on a
+real run that open alone took **21 seconds**, before any thinking had
+started. Asking "can you see me?" with the overlay watching now skips it
+entirely. With nothing watching, the local camera is still opened as before —
+then it is the only way to look.
+
 This reuses the same hand-tracking that already powers finger-counting and
 "show me a thumbs up" from the main page's *Watch me* button — see
 [`../HANDOFF.md`](../HANDOFF.md) for what's built and what a "thumbs up

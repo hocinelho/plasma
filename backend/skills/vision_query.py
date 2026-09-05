@@ -68,7 +68,11 @@ META = {
 
 
 def _capture():
-    """Grab one BGR frame from the local camera (raises on failure)."""
+    """Grab one BGR frame of what she can see (raises on failure).
+
+    snapshot() prefers whatever the browser is already streaming, so when the
+    overlay is watching this costs nothing at all — see capture.snapshot.
+    """
     from backend.core.config import config
     from backend.modules.vision.capture import snapshot
     return snapshot(config.CAMERA_DEVICE)

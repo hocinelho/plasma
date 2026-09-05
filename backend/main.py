@@ -1166,7 +1166,7 @@ async def websocket_perception_input(ws: WebSocket):
     try:
         from backend.modules.vision.capture import decode_frame_bytes
         from backend.modules.vision.perception import get_perceiver, summarize
-        from backend.modules.vision import face_id
+        from backend.modules.vision import face_id, live_frame
 
         perceiver = get_perceiver()
         interval = plasma_config.FACE_ID_INTERVAL_S
@@ -1180,6 +1180,13 @@ async def websocket_perception_input(ws: WebSocket):
                 de = data.get("language", "en") == "de"
                 raw = base64.b64decode(frame_b64)
                 frame = await asyncio.to_thread(decode_frame_bytes, raw)
+                # Hand it to the vision skills too. While this stream is
+                # running the browser HOLDS the webcam, so "can you see me?"
+                # opening the device a second time from Python contends with
+                # Chromium for it — 21 seconds on a real run, before any
+                # thinking started. This is the same camera at the same
+                # instant, already decoded.
+                live_frame.put(frame)
                 perception = await asyncio.to_thread(perceiver.perceive, frame)
 
                 # Identity: non-blocking background task so TF load never
@@ -1283,6 +1290,15 @@ async def websocket_perception_input(ws: WebSocket):
     except WebSocketDisconnect:
         if _identify_task and not _identify_task.done():
             _identify_task.cancel()
+        # The browser has let go of the webcam, so the last frame it sent is
+        # no longer "what she can see" — drop it rather than let a stale
+        # picture answer a question about right now. (get() also ages frames
+        # out on its own; this just makes it immediate in the common case.)
+        try:
+            from backend.modules.vision import live_frame
+            live_frame.clear()
+        except Exception:
+            pass
         log.info("Perception-input WS client disconnected")
     except ImportError as exc:
         # The usual cause: the vision extras were never installed. Say which.
