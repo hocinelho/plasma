@@ -18,7 +18,7 @@ from typing import Optional
 
 import numpy as np
 
-from backend.modules.voice.asr import WhisperASR
+from backend.modules.voice.asr import WhisperASR, SpeechUnavailable
 
 log = logging.getLogger("plasma.pipeline")
 
@@ -144,7 +144,17 @@ def transcribe_array(audio: np.ndarray) -> dict:
     else:
         lang_arg = whisper_lang
 
-    asr = get_asr()
+    # Whisper may be impossible on this machine — package missing, or a
+    # corporate policy blocking PyTorch's DLLs. Catch it here, where the ASR is
+    # actually obtained, so the caller gets a sentence it can show instead of a
+    # traceback. Checked here rather than up front so a substituted ASR (tests,
+    # or any future engine) is never gated on faster-whisper being importable.
+    try:
+        asr = get_asr()
+    except SpeechUnavailable as e:
+        log.warning("Speech recognition unavailable: %s", e)
+        return {"text": "", "error": str(e)}
+
     result = asr.transcribe(audio, language=lang_arg, allowed_languages=allowed_langs)
     log.info(
         f"Transcribed: text='{result['text'][:80]}' lang={result.get('language','?')} "

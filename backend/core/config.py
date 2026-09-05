@@ -30,7 +30,37 @@ except Exception:
     pass
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env")
+
+# Where .env was actually read from, and a hint if it was not found. Recorded
+# rather than logged here because logging is not configured yet at import time;
+# main.py reports both at startup.
+#
+# load_dotenv() returns quietly when the file is absent, so a misplaced .env
+# produces no error at all — every setting silently falls back to its default.
+# That is expensive to debug: the symptom is "she uses the wrong model and has
+# no voice", which looks like two unrelated bugs rather than one missing file.
+# It bites hardest after `git clone` puts the repo in a nested folder, leaving
+# .env one level up beside .venv.
+ENV_FILE: Path = PROJECT_ROOT / ".env"
+ENV_LOADED: bool = ENV_FILE.is_file()
+ENV_HINT: str = ""
+
+if ENV_LOADED:
+    load_dotenv(ENV_FILE)
+else:
+    _stray = PROJECT_ROOT.parent / ".env"
+    if _stray.is_file():
+        # Deliberately not loaded. Reading configuration from outside the
+        # project would be worse than saying plainly what is wrong.
+        ENV_HINT = (
+            f"No .env at {ENV_FILE} — but there is one at {_stray}. "
+            f"Move it into {PROJECT_ROOT}."
+        )
+    else:
+        ENV_HINT = (
+            f"No .env at {ENV_FILE} — every setting is using its default. "
+            f"Copy .env.example to .env."
+        )
 
 
 class Config:
@@ -52,6 +82,12 @@ class Config:
     # cloud free-tier quota is reserved for vision (describe/find) and doesn't
     # hit per-minute 429 rate limits. Vision still uses the cloud when configured.
     CLOUD_CHAT_ENABLED: bool = os.getenv("CLOUD_CHAT_ENABLED", "true").lower() == "true"
+
+    # Passive learning: notice durable facts in ordinary conversation and
+    # remember them. Runs in the background after the reply, never in-line.
+    PASSIVE_LEARNING_ENABLED: bool = (
+        os.getenv("PASSIVE_LEARNING_ENABLED", "true").lower() == "true"
+    )
     # Stream only the first sentence of a reply (faster TTS start) vs. the full
     # answer. Default OFF: the first-sentence cutoff truncated real answers when
     # the model opened with a greeting, so full answers are the safe default.
@@ -60,6 +96,37 @@ class Config:
     # --- Local LLM (Ollama) ---
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "orca-mini:latest")
+    # Loading a large model (7B+) into memory can hold up Ollama's accept
+    # queue for far longer than a normal connect takes, so this is generous
+    # on purpose — a short connect timeout looks exactly like "server down".
+    OLLAMA_CONNECT_TIMEOUT: float = float(os.getenv("OLLAMA_CONNECT_TIMEOUT", "60"))
+    OLLAMA_READ_TIMEOUT: float = float(os.getenv("OLLAMA_READ_TIMEOUT", "180"))
+    # How long Ollama holds the model in memory after a request. Ollama's own
+    # default is 5 minutes, which means the startup warm-up wears off and the
+    # first question after a break pays the whole model load again — tens of
+    # seconds on a 14B, and it reads as her freezing. "-1" keeps it resident
+    # for good; set a duration if you need the RAM back.
+    OLLAMA_KEEP_ALIVE: str = os.getenv("OLLAMA_KEEP_ALIVE", "30m")
+    # Cap on reply length, in tokens. A spoken answer costs time twice — once
+    # to generate, once to speak — so a rambling model is slow at both ends.
+    # ~160 tokens is a comfortable few sentences. 0 disables the cap.
+    # 160 was set when this budget was all answer. On a hybrid-reasoning
+    # model the <think> block is spent from the same allowance, so 160 left
+    # almost nothing for the reply — see ollama_client._REASONING_MODELS.
+    # Thinking is now off by default for those, and this is a little wider so
+    # a real explanation fits: ~200 words, still a few seconds on a laptop.
+    OLLAMA_NUM_PREDICT: int = int(os.getenv("OLLAMA_NUM_PREDICT", "280"))
+    # Context window. 0 leaves it to the model's own default; raise it only if
+    # long conversations start losing the thread, since a bigger window costs
+    # memory and slows every token.
+    OLLAMA_NUM_CTX: int = int(os.getenv("OLLAMA_NUM_CTX", "0"))
+    # Hybrid reasoning models (qwen3, deepseek-r1) write a visible chain of
+    # thought before answering. Plasma strips it from the reply either way, but
+    # generating it still costs seconds per turn — so it is better switched off
+    # at the source. Ollama rejects this field for models that cannot think, so
+    # it is only sent when explicitly set: "false" to disable, "true" to keep,
+    # unset to say nothing at all.
+    OLLAMA_THINK: str = os.getenv("OLLAMA_THINK", "").strip().lower()
 
     # --- Local ASR (Whisper) ---
     # tiny.en ~1s | base.en ~2s | small.en ~3-5s | medium.en ~8s (best for accents)

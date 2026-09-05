@@ -28,6 +28,16 @@ _STRIP = re.compile(
 )
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s")
 
+# Topics that are about the speaker, about her, or a matter of opinion —
+# there is no article to fetch, and looking one up anyway produces a
+# confident miss where a conversation belonged.
+_ABOUT_HER = re.compile(
+    r"^(?:your|yourself|you|my|myself|me|us|our|"
+    r"dein|dich|dir|mein|mich|uns)\b"
+    r"|\b(?:favourite|favorite|opinion|think|feel|lieblings)\b",
+    re.I,
+)
+
 
 def _first_sentence(text: str) -> str:
     parts = _SENTENCE_END.split(text.strip(), maxsplit=1)
@@ -39,7 +49,15 @@ def run(args: dict | None = None) -> str:
     topic = _STRIP.sub("", utterance).strip(" ?.")
 
     if not topic or len(topic) < 3:
-        return "What would you like me to look up?"
+        return None                      # nothing to look up — let the LLM talk
+
+    # "Tell me about yourself", "who is your favourite person" — the trigger
+    # fires but there is no encyclopedia article behind it. These are the
+    # questions people ask an assistant to see whether it can hold a
+    # conversation, and answering them with a Wikipedia miss is the worst
+    # possible first impression.
+    if _ABOUT_HER.search(topic):
+        return None
 
     # Capitalise first letter — Wikipedia titles are case-sensitive for first char
     topic_title = topic[0].upper() + topic[1:]

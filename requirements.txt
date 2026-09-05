@@ -15,6 +15,10 @@ sounddevice>=0.5.0
 numpy>=2.0.0
 scipy>=1.14.0
 faster-whisper>=1.1.0
+# Text to speech. backend/modules/voice/tts.py does `from piper import
+# PiperVoice`, so this is required, not optional — it was missing here, which
+# made TTS unavailable on any fresh install.
+piper-tts>=1.2.0
 openwakeword>=0.6.0
 onnxruntime>=1.20.0
 # --- Voice push-to-talk (Step 5e) ---
@@ -44,3 +48,16 @@ opencv-python>=4.10.0
 # Install manually to let Plasma recognize WHO it sees:
 #   pip install deepface
 # Plasma works fine without it (face naming silently disabled; tracking still works).
+
+# --- Desktop overlay (scripts/desktop_overlay.py) — OPTIONAL ---
+# She stands in the corner of your screen, on top of every other window.
+# Install manually:
+#   pip install pywebview
+# Windows also needs the WebView2 Runtime, already built into Windows 10/11.
+# The main app runs fine without this; it is only needed to launch the
+# overlay window itself. See docs/desktop-overlay.md.
+
+# --- Meeting minutes (Word export) ---
+# Lets Plasma write meeting minutes to .docx. Without it the transcript and
+# summary are still saved, only the Word file is skipped.
+python-docx>=1.1.0

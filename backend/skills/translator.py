@@ -61,7 +61,10 @@ def run(args: dict | None = None) -> str:
 
     parsed = _detect_lang_from_utterance(utterance)
     if not parsed:
-        return "Try: 'say good morning in French' or 'translate hello to Spanish'."
+        # No target language named, so nothing was asked to be translated.
+        # "say " is a trigger because "say hello in French" is the natural
+        # phrasing, and it also sits inside "why do you say that".
+        return None
 
     phrase, lang_word = parsed
     lang_code = _LANG_CODES[lang_word]

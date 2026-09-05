@@ -11,6 +11,18 @@ log = logging.getLogger("plasma.skill.open_app")
 #   "uri"     -> os.startfile(uri)                 — protocol handler (ms-settings:, etc.)
 #   "start"   -> start "" "<name>"                 — looks up Start Menu / default handler
 #   "url"     -> open a website in default browser
+# Words that follow "open"/"launch"/"start" in ordinary speech rather than
+# naming a program. The triggers have to be this broad — "open " really is
+# how people ask — so the way out is recognising when the object is not an
+# application at all.
+_NOT_AN_APP = frozenset({
+    "over", "again", "now", "here", "there", "up", "out", "off", "on",
+    "working", "talking", "listening", "recording", "moving", "walking",
+    "it", "that", "this", "one", "them", "with", "from", "to", "for",
+    "your", "my", "his", "her", "our", "their", "yourself", "myself",
+    "the day", "a conversation", "the conversation", "a new one",
+})
+
 APPS: dict[str, tuple[str, str]] = {
     # System apps
     "notepad":    ("shell", "notepad.exe"),
@@ -40,6 +52,33 @@ APPS: dict[str, tuple[str, str]] = {
     "github":     ("url",   "https://github.com"),
     "chatgpt":    ("url",   "https://chatgpt.com"),
     "claude":     ("url",   "https://claude.ai"),
+    # "Open Gmail" was the single most-asked-for one and simply was not here,
+    # so it declined and the model explained it could not. The rest are the
+    # ones asked for in the same breath.
+    "gmail":      ("url",   "https://mail.google.com"),
+    "mail":       ("url",   "https://mail.google.com"),
+    "inbox":      ("url",   "https://mail.google.com"),
+    "drive":      ("url",   "https://drive.google.com"),
+    "calendar":   ("url",   "https://calendar.google.com"),
+    "maps":       ("url",   "https://maps.google.com"),
+    "whatsapp":   ("url",   "https://web.whatsapp.com"),
+    "teams":      ("url",   "https://teams.microsoft.com"),
+    "linkedin":   ("url",   "https://www.linkedin.com"),
+    "wikipedia":  ("url",   "https://www.wikipedia.org"),
+}
+
+# Whisper writes acronyms and brand names the way they are said, so "Gmail"
+# comes back as "G-Mail" or "G Mail" and matched nothing. Normalising here
+# rather than adding every spelling to the table keeps one entry per app.
+_ALIASES = {
+    "g mail": "gmail", "g-mail": "gmail", "gemail": "gmail", "g male": "gmail",
+    "you tube": "youtube", "chat gpt": "chatgpt", "git hub": "github",
+    "whats app": "whatsapp", "linked in": "linkedin",
+    "e mail": "mail", "email": "mail",
+    "google drive": "drive", "google calendar": "calendar",
+    "google maps": "maps", "google mail": "gmail",
+    "ms teams": "teams", "microsoft teams": "teams",
+    "file explorer": "explorer", "command prompt": "terminal",
 }
 
 
@@ -80,16 +119,31 @@ def run(args: dict | None = None) -> str:
 
     # Pull the app name after "open"/"launch"/"start"
     m = re.search(
-        r"(?:open|launch|start)\s+([a-z][a-z ]*?)(?:\s+(?:for me|please|now))?\s*[.!?]?\s*$",
+        # Hyphens are allowed in the name because a transcriber writes what
+        # was said: "Open G-Mail." Without them the whole pattern failed to
+        # match and the skill declined, so "open Gmail" reached the LLM,
+        # which explained that it could not open applications.
+        r"(?:open|launch|start)\s+([a-z][a-z -]*?)(?:\s+(?:for me|please|now))?\s*[.!?]?\s*$",
         utterance,
     )
     if not m:
-        return "Sorry, I didn't catch which app to open."
+        return None                # not "open <something>" — let the LLM have it
 
     name = m.group(1).strip()
 
     # Strip leading "a " / "the "
     name = re.sub(r"^(?:a|the)\s+", "", name)
+
+    # "G-Mail" / "G Mail" / "you tube" — how a transcriber writes what was
+    # said out loud. Hyphens first, so both spellings reach one alias.
+    name = _ALIASES.get(name, _ALIASES.get(name.replace("-", " "), name))
+
+    # "start over", "start again", "open up to me" — the verb is there but the
+    # word after it is not an application, it is the rest of an ordinary
+    # sentence. Listing the apps she knows in reply to "start over" is the
+    # kind of answer that makes her feel like a phrasebook.
+    if name in _NOT_AN_APP:
+        return None
 
     if name not in APPS:
         known = ", ".join(sorted(APPS.keys()))

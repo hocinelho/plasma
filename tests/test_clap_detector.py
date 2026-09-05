@@ -275,3 +275,63 @@ def test_default_constructor_still_detects_a_real_clap():
         d.process(_chunk(1280))
     r = d.process(_clap_chunk(amplitude=6000))
     assert r["detected"], "A genuine sharp double clap must still trigger under stricter defaults"
+
+
+from backend.modules.voice.clap_detector import ClapDetector  # noqa: E402
+
+
+class TestTheBackgroundCannotCollapse:
+    """`threshold` is a RATIO against the running background level, and a
+    ratio against a number that can fall to nearly zero is not a threshold.
+
+    Measured on a real machine: in a quiet room the background EMA settled
+    near 5 instead of the 300 it starts at, so "peak > background x 12" meant
+    "peak > 60" and typing woke her every few seconds — logged scores of 964,
+    683, 1110 against a threshold of 12. Raising the threshold chases a
+    denominator that keeps moving: set high enough to reject the noise, it
+    rejected real claps too, and the next session had no detections at all.
+    """
+
+    def _quiet_room(self, det, seconds=20.0):
+        """Feed near-silence until the background EMA has settled."""
+        chunks = int(seconds * 16000 / 1280)
+        for _ in range(chunks):
+            det.process(np.zeros(1280, dtype=np.int16))
+
+    def test_silence_cannot_drive_the_background_to_zero(self):
+        det = ClapDetector()
+        self._quiet_room(det)
+        assert det._bg_rms >= 120.0
+
+    def test_the_shipped_threshold_still_means_something_after_silence(self):
+        """The bar for a transient is background x threshold. After a long
+        quiet spell that has to still be a real sound, not any sound."""
+        det = ClapDetector(threshold=12.0)
+        self._quiet_room(det)
+        assert det._bg_rms * det._threshold >= 1000
+
+    def test_a_noisy_room_still_raises_the_bar_freely(self):
+        """The floor is a floor, not a clamp — it must never stop the
+        background rising to meet a genuinely loud room."""
+        det = ClapDetector()
+        loud = (np.random.RandomState(0).normal(0, 3000, 1280)).astype(np.int16)
+        for _ in range(400):
+            det.process(loud)
+        assert det._bg_rms > 500
+
+    def test_a_real_double_clap_still_registers_on_the_defaults(self):
+        """The point of fixing the denominator rather than the threshold:
+        the shipped defaults work again."""
+        det = ClapDetector()
+        self._quiet_room(det, seconds=5.0)
+        quiet = np.zeros(1280, dtype=np.int16)
+
+        def clap():
+            c = np.zeros(1280, dtype=np.int16)
+            c[10:14] = 20000          # a few loud samples = high crest
+            return c
+
+        det.process(clap())
+        for _ in range(4):            # ~320 ms gap, inside the window
+            det.process(quiet)
+        assert det.process(clap())["detected"] is True

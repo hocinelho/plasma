@@ -70,16 +70,45 @@ def get_voice_override_name() -> str | None:
     return _voice_override_name
 
 
+def _default_voice_path() -> Optional[Path]:
+    """A voice to use when TTS_VOICE_MODEL is not configured.
+
+    scripts/download_female_voice.py drops its .onnx into voices/, and until
+    now you then had to edit .env as well before she would make a sound. That
+    second step serves nothing when a voice is already sitting there, and
+    skipping it looked like TTS was broken rather than unconfigured.
+
+    English is preferred because the rest of the defaults are English; beyond
+    that the choice is alphabetical so it never changes between runs.
+    """
+    voices = sorted(VOICES_DIR.glob("*.onnx")) if VOICES_DIR.is_dir() else []
+    if not voices:
+        return None
+    english = [v for v in voices if v.name.startswith("en")]
+    return (english or voices)[0]
+
+
 def _load_voice():
     global _voice
     if _voice is not None:
         return _voice
-    if not config.TTS_VOICE_MODEL:
-        raise RuntimeError("TTS_VOICE_MODEL not set in .env")
-    from piper import PiperVoice
-    model_path = _resolve_model(config.TTS_VOICE_MODEL)
+    # Work out which file before importing piper: "you have no voice yet" is
+    # both the likelier problem and the more actionable message, and importing
+    # first would bury it under a ModuleNotFoundError.
+    if config.TTS_VOICE_MODEL:
+        model_path = _resolve_model(config.TTS_VOICE_MODEL)
+    else:
+        found = _default_voice_path()
+        if found is None:
+            raise RuntimeError(
+                "No TTS voice available. Run: "
+                "python scripts/download_female_voice.py kristin"
+            )
+        log.info("TTS_VOICE_MODEL not set — using %s from voices/", found.name)
+        model_path = found
     if not model_path.exists():
         raise FileNotFoundError(f"Piper voice model not found: {model_path}")
+    from piper import PiperVoice
     log.info(f"Loading Piper voice: {model_path.name}")
     t0 = time.time()
     _voice = PiperVoice.load(str(model_path))
@@ -154,10 +183,17 @@ def health_check() -> dict:
 
     try:
         _load_voice()
+        # Report the voice actually in use, which is not necessarily the
+        # configured one — with TTS_VOICE_MODEL unset we fall back to whatever
+        # is in voices/, and naming the wrong thing here sends people editing
+        # a setting that was never the problem.
+        chosen = (_resolve_model(config.TTS_VOICE_MODEL) if config.TTS_VOICE_MODEL
+                  else _default_voice_path())
         return {
             "enabled": True,
             "loaded": True,
-            "model": Path(config.TTS_VOICE_MODEL).name,
+            "model": chosen.name if chosen else None,
+            "configured": bool(config.TTS_VOICE_MODEL),
         }
     except Exception as e:
         return {"enabled": True, "loaded": False, "error": str(e)}

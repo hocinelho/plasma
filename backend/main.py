@@ -24,6 +24,7 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from backend.core.config import config as plasma_config
@@ -71,6 +72,14 @@ log = logging.getLogger("plasma")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Plasma backend starting up...")
+
+    # Say which settings file is in force, before anything reports a value
+    # that came from a default nobody chose.
+    from backend.core.config import ENV_FILE, ENV_LOADED, ENV_HINT
+    if ENV_LOADED:
+        log.info("Settings loaded from %s", ENV_FILE)
+    else:
+        log.warning("⚠ %s", ENV_HINT)
 
     async def _warm_ollama():
         try:
@@ -154,6 +163,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Static assets for the 3D human avatar (TalkingHead + three.js + GLB models).
+_frontend_dir = Path(__file__).resolve().parents[1] / "frontend"
+for _static in ("vendor", "avatars", "animations", "icons"):
+    _static_dir = _frontend_dir / _static
+    if _static_dir.is_dir():
+        app.mount(f"/{_static}", StaticFiles(directory=_static_dir), name=_static)
+
 
 import re as _re
 
@@ -181,6 +197,22 @@ def _speakable(text: str) -> str:
 # ---------------------------------------------------------------------------
 # Helper: refresh USER.md every N turns
 # ---------------------------------------------------------------------------
+def _learn_in_background(message: str, speaker: str | None) -> None:
+    """Notice durable facts in what the user just said.
+
+    Deliberately fire-and-forget *after* the reply has been sent: extraction
+    is another LLM call, and on a local model that is 20-40 s. The user must
+    never wait for it.
+    """
+    if not plasma_config.PASSIVE_LEARNING_ENABLED:
+        return
+    try:
+        from backend.modules.memory.learner import learn_from
+        asyncio.create_task(asyncio.to_thread(learn_from, message, speaker))
+    except Exception as e:
+        log.debug("Passive learning skipped: %s", e)
+
+
 def _maybe_refresh_user_md(session_id: str, every_n_turns: int = 10) -> None:
     try:
         msgs = get_memory().get_conversation(session_id, limit=1000)
@@ -230,6 +262,100 @@ async def camera_page():
     if html_path.exists():
         return FileResponse(html_path)
     return JSONResponse({"error": "camera.html not found"}, status_code=404)
+
+
+@app.get("/wallpaper")
+async def wallpaper_page():
+    """Serve the wallpaper studio — pose the avatar and save her as a PNG.
+
+    No browser, on any phone, can draw over the home screen. A wallpaper is
+    the closest achievable thing, so this page renders her at the device's
+    real pixel size against a transparent (or chosen) background.
+    """
+    html_path = Path(__file__).resolve().parents[1] / "frontend" / "wallpaper.html"
+    if html_path.exists():
+        return FileResponse(html_path)
+    return JSONResponse({"error": "wallpaper.html not found"}, status_code=404)
+
+
+@app.get("/plasma.crt")
+async def download_certificate():
+    """Serve the self-signed certificate so the phone can install it.
+
+    iOS will not grant microphone access on a certificate it has merely been
+    told to accept — it has to be installed and trusted. Copying the file off
+    the PC by hand is awkward (it lives in a dot-folder Windows hides), so
+    let the phone fetch it from the server it is already talking to.
+    """
+    cert = Path(__file__).resolve().parents[1] / ".plasma" / "certs" / "plasma.crt"
+    if cert.exists():
+        # application/x-x509-ca-cert makes iOS offer to install it as a profile.
+        return FileResponse(
+            cert,
+            media_type="application/x-x509-ca-cert",
+            filename="plasma.crt",
+        )
+    return JSONResponse(
+        {"error": "No certificate yet — start Plasma with: python serve_phone.py"},
+        status_code=404,
+    )
+
+
+@app.get("/manifest.json")
+async def manifest():
+    """PWA manifest — lets the phone install Plasma to the home screen."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "manifest.json"
+    if path.exists():
+        return FileResponse(path, media_type="application/manifest+json")
+    return JSONResponse({"error": "manifest.json not found"}, status_code=404)
+
+
+@app.get("/avatar.js")
+async def avatar_js():
+    """Serve the avatar renderer (extracted from index.html)."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "avatar.js"
+    if path.exists():
+        return FileResponse(path, media_type="application/javascript")
+    return JSONResponse({"error": "avatar.js not found"}, status_code=404)
+
+
+@app.get("/avatar.css")
+async def avatar_css():
+    """Serve the avatar styles (extracted from index.html)."""
+    path = Path(__file__).resolve().parents[1] / "frontend" / "avatar.css"
+    if path.exists():
+        return FileResponse(path, media_type="text/css")
+    return JSONResponse({"error": "avatar.css not found"}, status_code=404)
+
+
+@app.get("/api/avatar/animations")
+async def avatar_animations():
+    """Clips currently in frontend/animations/, so the UI can use them all.
+
+    Discovered from disk: dropping a new .fbx in that folder is enough, no
+    code change needed.
+    """
+    from backend.modules.avatar_state import idle_animations, known_animations
+    return {
+        "animations": sorted(known_animations()),
+        "idle": idle_animations(),
+    }
+
+
+@app.get("/api/avatar/models")
+async def avatar_models():
+    """Characters available in frontend/avatars/, for the picker.
+
+    Discovered from disk like the animation clips are: dropping a .glb in that
+    folder is enough. An optional avatars.json sitting beside them supplies
+    nicer labels and the body type, since neither can be read from a filename.
+
+    Every character here plays the same Mixamo clips — the renderer retargets
+    them onto whichever skeleton is loaded — so the motion set does not change
+    when you switch.
+    """
+    from backend.modules.avatar_state import discover_models
+    return discover_models()
 
 
 @app.get("/api/network-info")
@@ -293,6 +419,11 @@ async def save_floorplan(body: FloorPlanBody):
 async def health():
     ollama = ollama_health()
     tts = tts_health()
+    # Speech recognition can be absent without the rest of Plasma being
+    # affected, so report it rather than claiming "ok" for something that
+    # cannot run on this machine.
+    from backend.modules.voice.asr import available as speech_available
+    speech_ok, speech_why = speech_available()
     return {
         "status": "ok",
         "config": plasma_config.summary(),
@@ -300,9 +431,10 @@ async def health():
             "backend": "ok",
             "memory": "ok",
             "router": "ok" if ollama.get("reachable") else "ollama_unreachable",
-            "asr": "ok",
+            "asr": "ok" if speech_ok else "unavailable",
             "tts": "ok" if tts.get("loaded") else "not_loaded",
         },
+        "asr": {"available": speech_ok, "reason": speech_why},
         "ollama": ollama,
         "tts": tts,
     }
@@ -582,6 +714,7 @@ async def voice_chat(
             handle_chat, session_id, transcript, detected_language, speaker
         )
         _maybe_refresh_user_md(session_id)
+        _learn_in_background(transcript, speaker)
     llm_ms = (time.monotonic() - llm_t0) * 1000.0
 
     # If the locate skill pinned the object to a box, ship the annotated frame
@@ -596,9 +729,30 @@ async def voice_chat(
     except Exception as _e:
         log.debug("locate image attach skipped: %s", _e)
 
+    # If the avatar_move skill asked for a gesture, ship it so the 3D avatar
+    # actually performs it while the reply is spoken.
+    # Read from the shared store, not from the skill module: the registry loads
+    # skill files under a synthetic module name, so the skill's own globals are
+    # a different object from `backend.skills.avatar_move` imported here.
+    gesture = animation = routine = None
+    try:
+        from backend.modules.avatar_state import (
+            pop_animation, pop_gesture, pop_routine,
+        )
+        gesture = pop_gesture()
+        animation = pop_animation()
+        routine = pop_routine()
+        if gesture or animation or routine:
+            log.info("Avatar movement requested: gesture=%s animation=%s routine=%s",
+                     gesture, animation,
+                     f"{len(routine)} clips" if routine else None)
+    except Exception as _e:
+        log.debug("gesture attach skipped: %s", _e)
+
     # Synthesize reply audio with Piper (fail gracefully — still return text)
     audio_b64 = None
     tts_ms = 0.0
+    tts_error = None
     if plasma_config.TTS_ENABLED:
         try:
             tts_t0 = time.monotonic()
@@ -609,6 +763,10 @@ async def voice_chat(
                 log.info(f"TTS audio encoded: {len(audio_b64)} b64 chars")
         except Exception as e:
             log.warning(f"TTS synthesis failed: {e}")
+            # Silence with no explanation reads as "the app is broken". The
+            # reason is in the server log, which nobody watching the browser
+            # is looking at — so send it along with the reply.
+            tts_error = str(e)
 
     total_ms = (time.monotonic() - t_start) * 1000.0
 
@@ -635,7 +793,11 @@ async def voice_chat(
         "tts_ms": tts_ms,
         "total_ms": total_ms,
         "audio_b64": audio_b64,
+        "tts_error": tts_error,
         "image_b64": locate_image_b64,
+        "gesture": gesture,
+        "animation": animation,
+        "routine": routine,
     }
 
 
@@ -982,6 +1144,24 @@ async def websocket_perception_input(ws: WebSocket):
     last_sleepy_alert_t  = 0.0
     sleepy_frames        = 0
 
+    # Raise a hand at the camera → she waves back and says hello. Debounced
+    # the same way sleepy detection is (a few consecutive frames so a single
+    # misread doesn't fire it) but also cooled down (so a hand held up for a
+    # while doesn't wave every single frame) — see reactions.DebouncedTrigger.
+    from backend.modules.vision.reactions import DebouncedTrigger
+    _WAVE_FRAMES      = 3       # ~0.5 s at 6 fps
+    _WAVE_COOLDOWN_S  = 15.0
+    wave_trigger = DebouncedTrigger(frames=_WAVE_FRAMES, cooldown_s=_WAVE_COOLDOWN_S)
+
+    # A face she does not recognise → she introduces herself and asks who it
+    # is. Same mechanism again: sustained over several frames so somebody
+    # walking past does not trigger it, and cooled down hard because being
+    # asked your name twice is worse than not being asked. See
+    # vision/introductions.py for what happens to the answer.
+    from backend.modules.vision import introductions
+    stranger_trigger = DebouncedTrigger(frames=introductions.STRANGER_FRAMES,
+                                        cooldown_s=introductions.ASK_COOLDOWN_S)
+
     # DeepFace (TF) takes ~30-60 s to load on the first call.
     # Running identify() as a fire-and-forget task keeps frames flowing
     # while TF initialises; we collect the result on the next iteration.
@@ -995,7 +1175,7 @@ async def websocket_perception_input(ws: WebSocket):
     try:
         from backend.modules.vision.capture import decode_frame_bytes
         from backend.modules.vision.perception import get_perceiver, summarize
-        from backend.modules.vision import face_id
+        from backend.modules.vision import face_id, live_frame
 
         perceiver = get_perceiver()
         interval = plasma_config.FACE_ID_INTERVAL_S
@@ -1009,6 +1189,13 @@ async def websocket_perception_input(ws: WebSocket):
                 de = data.get("language", "en") == "de"
                 raw = base64.b64decode(frame_b64)
                 frame = await asyncio.to_thread(decode_frame_bytes, raw)
+                # Hand it to the vision skills too. While this stream is
+                # running the browser HOLDS the webcam, so "can you see me?"
+                # opening the device a second time from Python contends with
+                # Chromium for it — 21 seconds on a real run, before any
+                # thinking started. This is the same camera at the same
+                # instant, already decoded.
+                live_frame.put(frame)
                 perception = await asyncio.to_thread(perceiver.perceive, frame)
 
                 # Identity: non-blocking background task so TF load never
@@ -1045,6 +1232,25 @@ async def websocket_perception_input(ws: WebSocket):
                         last_greeted = cached_identity
                         last_greeting_t = now
 
+                # ── proactive: ask a stranger who they are ─────────────────
+                # Only when face recognition is actually working. Without
+                # DeepFace installed, identify() returns None for everybody,
+                # so this would ask the same person their name every five
+                # minutes forever. `identify` also has to be on: reading a
+                # face is something to opt into, and asking about one even
+                # more so.
+                stranger = bool(
+                    data.get("identify")
+                    and perception.get("faces")
+                    and not cached_identity
+                    and face_id.is_available()
+                )
+                if stranger_trigger.observe(stranger, now):
+                    lang = "de" if de else "en"
+                    proactive_tts.fire(introductions.question(de), lang)
+                    introductions.arm(data.get("session_id"))
+                    log.info("Unknown face — asked for a name")
+
                 # ── proactive: sleepy alert after sustained drowsiness ─────
                 faces = perception.get("faces", [])
                 if faces and faces[0].get("expression") == "sleepy":
@@ -1062,6 +1268,16 @@ async def websocket_perception_input(ws: WebSocket):
                             sleepy_frames = 0
                 else:
                     sleepy_frames = 0
+
+                # ── proactive: wave back when a hand goes up ────────────────
+                hands = perception.get("hands", [])
+                hand_raised = any(h.get("raised") for h in hands)
+                if wave_trigger.observe(hand_raised, now):
+                    lang = "de" if de else "en"
+                    greeting = "Hallo!" if de else "Hello!"
+                    # gesture="handup" is the same wave avatar_move uses for
+                    # "wave at me" — one animation, two ways to ask for it.
+                    proactive_tts.fire(greeting, lang, gesture="handup")
 
                 # ── object detection + tracking (opt-in via track:true) ────
                 # Throttled to TRACK_FPS so it never competes with face/hand
@@ -1102,9 +1318,36 @@ async def websocket_perception_input(ws: WebSocket):
     except WebSocketDisconnect:
         if _identify_task and not _identify_task.done():
             _identify_task.cancel()
+        # The browser has let go of the webcam, so the last frame it sent is
+        # no longer "what she can see" — drop it rather than let a stale
+        # picture answer a question about right now. (get() also ages frames
+        # out on its own; this just makes it immediate in the common case.)
+        try:
+            from backend.modules.vision import live_frame
+            live_frame.clear()
+        except Exception:
+            pass
         log.info("Perception-input WS client disconnected")
     except ImportError as exc:
+        # The usual cause: the vision extras were never installed. Say which.
+        log.warning("Perception unavailable — missing dependency: %s", exc)
         try:
-            await ws.send_json({"type": "error", "message": str(exc), "hint": "pip install mediapipe deepface opencv-python"})
+            await ws.send_json({
+                "type": "error",
+                "message": f"Face and hand tracking needs a package that isn't installed ({exc}).",
+                "hint": "pip install mediapipe deepface opencv-python",
+            })
+        except Exception:
+            pass
+    except Exception as exc:
+        # Anything else used to close the socket silently, leaving the page
+        # showing "reconnecting…" forever with no way to find out why.
+        log.exception("Perception-input WS failed: %s", exc)
+        try:
+            await ws.send_json({
+                "type": "error",
+                "message": f"Tracking stopped: {exc}",
+                "hint": "see the Plasma console for the full error",
+            })
         except Exception:
             pass

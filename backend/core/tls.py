@@ -23,17 +23,32 @@ from pathlib import Path
 log = logging.getLogger("plasma.tls")
 
 
-def local_ips() -> list[str]:
-    """Best-effort list of this machine's LAN IPv4 addresses (no loopback)."""
-    ips: set[str] = set()
-    # Primary route IP — the address a phone on the same network would use.
+def primary_ip() -> str | None:
+    """The address this machine actually routes traffic from.
+
+    Asking the OS which interface it would use is far more reliable than
+    guessing from the address range: a laptop typically has Hyper-V, WSL and
+    Docker adapters that all look plausible but are unreachable from a phone.
+    """
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
-        ips.add(s.getsockname()[0])
+        ip = s.getsockname()[0]
         s.close()
+        return ip if ip and ip != "127.0.0.1" else None
     except Exception:
-        pass
+        return None
+
+
+def local_ips() -> list[str]:
+    """Best-effort list of this machine's LAN IPv4 addresses (no loopback).
+
+    The routed address comes first — that is the one a phone can reach.
+    """
+    ips: set[str] = set()
+    routed = primary_ip()
+    if routed:
+        ips.add(routed)
     # Everything the hostname resolves to (covers multi-NIC machines).
     try:
         for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
@@ -42,19 +57,23 @@ def local_ips() -> list[str]:
         pass
     ips.discard("127.0.0.1")
     cleaned = [ip for ip in ips if not ip.startswith("169.254.")]
-    return sorted(cleaned, key=_ip_rank)
+    # The routed address always leads, whatever range it happens to be in.
+    return sorted(cleaned, key=lambda ip: (ip != routed,) + _ip_rank(ip))
 
 
 def _ip_rank(ip: str) -> tuple:
     """Sort so the address a phone most likely uses comes first.
 
-    Home Wi-Fi networks are usually 192.168.x or 10.x; 172.16–31.x is most often
-    a virtual adapter (Hyper-V/WSL/Docker), so it's ranked last.
+    Home Wi-Fi networks are usually 192.168.x or 10.x. Most of 172.16-31.x is a
+    virtual adapter (Hyper-V/WSL/Docker) — but NOT 172.20.10.x, which is the
+    range an iPhone personal hotspot hands out, and is very much reachable.
     """
     if ip.startswith("192.168."):
         return (0, ip)
     if ip.startswith("10."):
         return (1, ip)
+    if ip.startswith("172.20.10."):
+        return (1, ip)   # iPhone personal hotspot — a real network
     if ip.startswith("172."):
         return (3, ip)   # likely virtual — least likely to be the phone's route
     return (2, ip)

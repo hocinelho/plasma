@@ -229,11 +229,30 @@ def release_camera() -> None:
 
 
 def snapshot(device_index: int = 0) -> np.ndarray:
-    """Grab one frame, reusing a kept-warm camera. Raises if unavailable.
+    """Grab one frame of what she can see. Raises if unavailable.
 
-    First call opens the camera (slow) with full warmup; later calls reuse the
-    open handle with minimal warmup, so repeated "find X" is fast.
+    Three sources, cheapest first:
+
+    1. **The browser's stream.** When the overlay or the phone is watching
+       (`?watch=1`), Chromium holds the webcam and pushes frames to
+       /ws/perception-input several times a second, so a decoded picture of
+       you already exists and is moments old. Opening the device again from
+       Python while another process has it is slow even when it succeeds —
+       on a real run that open took **21 seconds**, before any thinking
+       started, which was most of why "can you see me?" took the best part of
+       a minute. Same camera, same instant, no contention.
+    2. **A kept-warm handle**, for when nothing is streaming: the first call
+       pays the cold-open cost, every one after reuses it.
+    3. **A cold open**, with full warmup.
     """
+    from backend.modules.vision import live_frame
+
+    live = live_frame.get()
+    if live is not None:
+        log.info("Snapshot from the browser's camera (%.1fs old) — device not opened",
+                 live_frame.age_s() or 0.0)
+        return live
+
     global _cached_cam, _cached_device
     with _cache_lock:
         cold = (

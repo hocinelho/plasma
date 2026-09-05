@@ -2,7 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+
+    <!-- Installable on a phone home screen ("Add to Home Screen").
+         iOS ignores manifest display mode, hence the apple-* tags. -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0a0e1a">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Plasma">
     <title>Plasma — Voice Assistant</title>
     <style>
         /* ── Design tokens ─────────────────────────────────── */
@@ -44,6 +54,10 @@
         html, body { height: 100%; }
 
         body {
+            /* Full-screen on iOS hides the browser chrome, so the page must
+               keep clear of the notch and the home indicator itself. */
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
             font-family: -apple-system, 'Segoe UI', sans-serif;
             font-size: var(--font-base);
             color: var(--text);
@@ -91,20 +105,7 @@
             margin-bottom: 20px;
         }
 
-        /* ── JARVIS neural-galaxy avatar ────────────────────── */
-        #avatar-wrap {
-            display: flex;
-            justify-content: center;
-            margin-bottom: 16px;
-        }
-        #avatar {
-            width: 190px;
-            height: 190px;
-            display: block;
-            /* soft outer aura; hue is nudged per-state from JS */
-            filter: drop-shadow(0 0 18px rgba(120, 180, 255, 0.25));
-            transition: filter 0.5s;
-        }
+        /* ── Avatar styles moved to avatar.css (served at /avatar.css) ── */
 
         /* PA-71: theme toggle ──────────────────────────────── */
         #theme-btn {
@@ -219,6 +220,51 @@
             box-shadow: 0 0 40px rgba(255, 74, 94, 0.5);
             transform: scale(1.05);
         }
+
+        #stage-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            border-radius: 20px;
+            padding: 7px 16px;
+            font-size: 13px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s;
+        }
+        #stage-btn:hover { border-color: var(--accent); color: var(--text); }
+
+        #wallpaper-btn {
+            display: inline-block;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 12px;
+            margin-bottom: 10px;
+            transition: color 0.2s;
+        }
+        #wallpaper-btn:hover { color: var(--accent); }
+
+        #avatar-picker {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        #avatar-picker[hidden] { display: none; }
+        #avatar-select {
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 5px 10px;
+            font: inherit;
+            font-size: 13px;
+            max-width: 45vw;
+        }
+        #avatar-select:disabled { opacity: 0.6; }
+        #avatar-picker-status { font-size: 11px; min-width: 6em; }
 
         /* PA-70: hide SPACE hint on pure-touch devices */
         .hint {
@@ -480,6 +526,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <link rel="stylesheet" href="/avatar.css">
+    <!-- Import map for the 3D human avatar (TalkingHead + three.js), all served
+         locally from /vendor — no CDN, works offline. Inert unless the human
+         renderer is used. -->
+    <script type="importmap">
+    { "imports": {
+        "three": "/vendor/three/three.module.js",
+        "three/addons/": "/vendor/three/addons/",
+        "talkinghead": "/vendor/talkinghead/talkinghead.mjs"
+    } }
+    </script>
 </head>
 <body>
 
@@ -508,6 +565,14 @@
     </div>
 
     <button id="talk-btn">Hold to talk</button>
+    <button id="stage-btn" title="Show only the avatar, full screen">⛶ Full screen avatar</button>
+    <!-- Hidden until the model list arrives; pointless with only one character. -->
+    <div id="avatar-picker" hidden>
+        <label for="avatar-select">Character</label>
+        <select id="avatar-select"></select>
+        <span id="avatar-picker-status"></span>
+    </div>
+    <a id="wallpaper-btn" href="/wallpaper" title="Save her as your phone wallpaper">🖼 Make a wallpaper</a>
     <!-- PA-70: hint hidden in touch mode -->
     <div class="hint">or hold <b>SPACE</b></div>
 
@@ -538,6 +603,10 @@
         <a id="floorplan-link" href="/floorplan" title="Draw your home's rooms">✏️ Edit floor plan</a>
     </div>
 
+    <!-- Stage mode: her alone, full screen. Exit lives outside #avatar-wrap
+         so it survives the "hide everything else" rule. -->
+    <button id="stage-exit" title="Leave full screen" aria-label="Leave full screen">✕</button>
+
     <!-- Proactive alert toast (shown when Plasma speaks proactively) -->
     <div id="alert-toast"></div>
 
@@ -550,6 +619,7 @@
         <div class="empty-hint" id="empty-hint">Say something to start…</div>
     </div>
 
+<script src="/avatar.js"></script>
 <script>
 const btn       = document.getElementById('talk-btn');
 const statusBar = document.getElementById('status-bar');
@@ -592,170 +662,10 @@ if (isTouchPrimary) {
 }
 
 // ── PA-39: status ─────────────────────────────────────────
-// ── JARVIS avatar — 3D glass-node sphere with flowing light streams ───────
-// Nodes sit on a rotating sphere (perspective-projected, depth-sorted), nearby
-// ones link into a neural net, fibre-optic light ribbons flow through it, bokeh
-// orbs drift behind, and the whole thing pulses live with the TTS voice
-// (avatarLevel is fed by the lip-sync analyser).
-const avatarCanvas = document.getElementById('avatar');
-let avatarState = 'idle';   // idle | listening | thinking | speaking
-let avatarLevel = 0;        // live audio amplitude 0..1 → drives the pulse
+// ── Avatar (sphere renderer) lives in avatar.js, loaded before this script.
+//    It owns the avatarState / avatarLevel / avatarWakeBurst globals that the
+//    rest of this file reads and writes. See docs/avatar-design.md.
 const TAU = Math.PI * 2;
-
-(function initAvatar() {
-    const cv = avatarCanvas, ctx = cv.getContext('2d');
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const CSS = 190;
-    cv.width = CSS * DPR; cv.height = CSS * DPR;
-    ctx.scale(DPR, DPR);
-    const cx = CSS / 2, cy = CSS / 2, R = CSS * 0.30, FOCAL = 260;
-
-    // Per-state look: core hue, colour spread, spin speed, aura rgb.
-    const PALETTE = {
-        idle:      { h: 205, spread: 90,  speed: 0.30, glow: '120,180,255' },
-        listening: { h: 330, spread: 70,  speed: 0.85, glow: '255,90,150'  },
-        thinking:  { h: 160, spread: 80,  speed: 0.55, glow: '80,230,180'  },
-        speaking:  { h: 195, spread: 160, speed: 0.70, glow: '120,220,255' },
-        // Brief "waking up" flash — bright icy-white/blue, wide spectrum, fast
-        // spin. Overrides avatarState for a couple of seconds on wake events.
-        waking:    { h: 200, spread: 240, speed: 2.4, glow: '200,225,255' },
-    };
-    let avatarWakeUntil = 0;   // performance.now() timestamp; sphere flashes until then
-    window.avatarWakeBurst = (ms = 1700) => { avatarWakeUntil = performance.now() + ms; };
-
-    // Fibonacci sphere → even 3D node distribution.
-    const N = reduce ? 22 : 42;
-    const nodes = [];
-    for (let i = 0; i < N; i++) {
-        const y = 1 - (i / (N - 1)) * 2;
-        const rad = Math.sqrt(Math.max(0, 1 - y * y));
-        const theta = i * 2.39996;
-        nodes.push({ x: Math.cos(theta) * rad, y, z: Math.sin(theta) * rad,
-                     size: 1.7 + Math.random() * 1.8 });
-    }
-    // Fixed topology: link each node to its 3 nearest neighbours (dedup).
-    const seen = new Set(), L = [];
-    for (let i = 0; i < N; i++) {
-        const ds = [];
-        for (let j = 0; j < N; j++) if (j !== i) {
-            const dx = nodes[i].x-nodes[j].x, dy = nodes[i].y-nodes[j].y, dz = nodes[i].z-nodes[j].z;
-            ds.push([dx*dx+dy*dy+dz*dz, j]);
-        }
-        ds.sort((a, b) => a[0]-b[0]);
-        for (let k = 0; k < 3; k++) {
-            const j = ds[k][1], a = Math.min(i, j), b = Math.max(i, j), key = a+'_'+b;
-            if (!seen.has(key)) { seen.add(key); L.push([a, b]); }
-        }
-    }
-    // Fibre-optic light ribbons crossing the sphere.
-    const STREAMS = [
-        { hue: 190, y: -0.55, amp: 0.55, phase: 0.0, speed: 0.55 },
-        { hue: 320, y:  0.10, amp: 0.62, phase: 2.1, speed: 0.45 },
-        { hue: 35,  y:  0.60, amp: 0.50, phase: 4.0, speed: 0.65 },
-        { hue: 265, y: -0.10, amp: 0.45, phase: 1.0, speed: 0.40 },
-    ];
-    // Bokeh depth orbs.
-    const bokeh = [];
-    for (let i = 0; i < (reduce ? 4 : 9); i++)
-        bokeh.push({ a: Math.random()*TAU, r: R*(1.45+Math.random()*0.9),
-            sz: 7+Math.random()*15, hue: [190,320,35,265][i%4],
-            sp: (Math.random()*0.3+0.08)*(Math.random()<0.5?-1:1), bob: Math.random()*TAU });
-
-    function drawStream(s, lvl, t) {
-        const ph = t*s.speed + s.phase, baseY = cy + s.y*R, amp = s.amp*R*(0.8+lvl*0.5), steps = 26;
-        ctx.lineWidth = 2.2 + lvl*2.8; ctx.lineCap = 'round';
-        for (let i = 0; i < steps; i++) {
-            const u0 = i/steps, u1 = (i+1)/steps;
-            const env0 = Math.sin(u0*Math.PI), env1 = Math.sin(u1*Math.PI);
-            const x0 = -12+u0*(CSS+24), x1 = -12+u1*(CSS+24);
-            const y0 = baseY + Math.sin(u0*6+ph)*amp*env0, y1 = baseY + Math.sin(u1*6+ph)*amp*env1;
-            const head = ((u0 - (t*s.speed*0.5))%1+1)%1;
-            const bright = Math.pow(1 - Math.abs(((head+0.5)%1)-0.5)*2, 2);
-            const o = (0.07+bright*0.55)*(0.6+lvl*0.6)*env0;
-            ctx.strokeStyle = `hsla(${s.hue},95%,${60+bright*25}%,${o})`;
-            ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
-        }
-    }
-
-    let t = 0, last = performance.now();
-    let curHue = PALETTE.idle.h, curSpread = PALETTE.idle.spread, curSpeed = PALETTE.idle.speed;
-
-    function frame(now) {
-        const dt = Math.min(0.05, (now-last)/1000); last = now; t += dt;
-        const waking = now < avatarWakeUntil;
-        const p = waking ? PALETTE.waking : (PALETTE[avatarState] || PALETTE.idle);
-        const blend = waking ? 0.22 : 0.06;   // snap fast into the wake flash
-        curHue    += (p.h - curHue) * blend;
-        curSpread += (p.spread - curSpread) * blend;
-        curSpeed  += (p.speed - curSpeed) * blend;
-        avatarLevel *= 0.86;
-        const lvl = avatarLevel;
-        const ry = t*curSpeed*(1+lvl*1.2), rx = Math.sin(t*0.3)*0.35;
-        const cosY = Math.cos(ry), sinY = Math.sin(ry), cosX = Math.cos(rx), sinX = Math.sin(rx);
-        const pulse = (1 + lvl*0.22 + Math.sin(t*1.2)*0.02) * R;
-
-        ctx.clearRect(0, 0, CSS, CSS);
-        ctx.globalCompositeOperation = 'lighter';
-
-        // bokeh depth orbs
-        for (const b of bokeh) {
-            b.a += b.sp*dt;
-            const bx = cx+Math.cos(b.a)*b.r, by = cy+Math.sin(b.a)*b.r*0.7+Math.sin(t+b.bob)*4;
-            const g = ctx.createRadialGradient(bx,by,0,bx,by,b.sz);
-            g.addColorStop(0, `hsla(${b.hue},90%,65%,${0.10+lvl*0.10})`);
-            g.addColorStop(1, `hsla(${b.hue},90%,55%,0)`);
-            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx,by,b.sz,0,TAU); ctx.fill();
-        }
-
-        // project nodes (rotate Y then X, perspective)
-        const pts = [];
-        for (const nd of nodes) {
-            let x = nd.x*cosY - nd.z*sinY;
-            let z = nd.x*sinY + nd.z*cosY;
-            let y = nd.y*cosX - z*sinX;
-            z = nd.y*sinX + z*cosX;
-            const scale = FOCAL/(FOCAL - z*pulse);
-            pts.push({ sx: cx+x*pulse*scale, sy: cy+y*pulse*scale, depth: (z+1)/2, scale, nd });
-        }
-
-        // flowing light streams
-        for (const s of STREAMS) drawStream(s, lvl, t);
-
-        // neural-net connections (depth-shaded)
-        ctx.lineWidth = 1;
-        for (const [a, b] of L) {
-            const pa = pts[a], pb = pts[b], dep = (pa.depth+pb.depth)/2;
-            const hue = curHue + dep*curSpread + t*16;
-            ctx.strokeStyle = `hsla(${hue},85%,${55+lvl*15}%,${(0.08+dep*0.42)*(0.7+lvl*0.6)})`;
-            ctx.beginPath(); ctx.moveTo(pa.sx,pa.sy); ctx.lineTo(pb.sx,pb.sy); ctx.stroke();
-        }
-
-        // glassy nodes, back-to-front
-        pts.sort((a, b) => a.depth - b.depth);
-        for (const pt of pts) {
-            const hue = curHue + pt.depth*curSpread + t*22;
-            const sz = pt.nd.size*pt.scale*(0.7+pt.depth*0.6)*(1+lvl*0.6);
-            const alpha = 0.35 + pt.depth*0.6;
-            const g = ctx.createRadialGradient(pt.sx,pt.sy,0,pt.sx,pt.sy,sz*3.4);
-            g.addColorStop(0, `hsla(${hue},95%,68%,${alpha})`);
-            g.addColorStop(1, `hsla(${hue},95%,60%,0)`);
-            ctx.fillStyle = g; ctx.beginPath(); ctx.arc(pt.sx,pt.sy,sz*3.4,0,TAU); ctx.fill();
-            const gb = ctx.createRadialGradient(pt.sx-sz*0.4,pt.sy-sz*0.5,sz*0.1,pt.sx,pt.sy,sz);
-            gb.addColorStop(0, `hsla(${hue},100%,92%,${alpha})`);
-            gb.addColorStop(0.5, `hsla(${hue},95%,65%,${alpha*0.9})`);
-            gb.addColorStop(1, `hsla(${hue+20},90%,45%,${alpha*0.7})`);
-            ctx.fillStyle = gb; ctx.beginPath(); ctx.arc(pt.sx,pt.sy,sz,0,TAU); ctx.fill();
-            ctx.fillStyle = `hsla(0,0%,100%,${alpha*0.8})`;
-            ctx.beginPath(); ctx.arc(pt.sx-sz*0.35,pt.sy-sz*0.4,sz*0.28,0,TAU); ctx.fill();
-        }
-
-        ctx.globalCompositeOperation = 'source-over';
-        cv.style.filter = `drop-shadow(0 0 ${14+lvl*30}px rgba(${p.glow},${0.25+lvl*0.4}))`;
-        requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-})();
 
 // ── Living backdrop — bokeh depth orbs + flowing light streams ────────────
 (function initBackdrop() {
@@ -1078,12 +988,55 @@ function stopLipSync() {
     avatarLevel = 0;
 }
 
-function playBase64Audio(b64) {
+// ── Barge-in ──────────────────────────────────────────────────────────
+// Talking over her cuts her off, the way it works with a person. What she
+// already said stays in the transcript and in her memory — the reply is
+// written there before it is ever spoken — so the thread of the conversation
+// survives; only the unsaid remainder is dropped.
+let isSpeaking      = false;
+let speakingAudio   = null;   // the <audio> element, when not lip-syncing
+let speakingFinish  = null;   // ends the current playback early
+let wasInterrupted  = false;
+
+function interruptSpeech() {
+    if (!isSpeaking) return false;
+    if (speakingAudio) {
+        try { speakingAudio.pause(); speakingAudio.currentTime = 0; } catch (e) {}
+    }
+    // Stops her voice AND the queued routine: being cut off and then carrying
+    // on with a dance is worse than not stopping at all.
+    if (window.avatarStopSpeaking) window.avatarStopSpeaking();
+    wasInterrupted = true;
+    // Release the turn immediately rather than leaving sendAudio awaiting
+    // audio that will never finish — otherwise the mic stays locked out.
+    if (speakingFinish) speakingFinish();
+    isBusy = false;
+    return true;
+}
+
+function playBase64Audio(b64, text) {
     return new Promise((resolve) => {
         if (!b64) { resolve(); return; }
-        const finish = () => { stopLipSync(); resolve(); };
+        let done = false;
+        const finish = () => {
+            if (done) return;              // interrupt and onended can race
+            done = true;
+            isSpeaking = false;
+            speakingAudio = null;
+            speakingFinish = null;
+            stopLipSync();
+            resolve();
+        };
+        isSpeaking = true;
+        speakingFinish = finish;
+        // Human 3D avatar takes over playback for real lip-sync when active.
+        if (window.avatarSpeak) {
+            const handled = window.avatarSpeak(b64, text || '');
+            if (handled) { handled.then(finish).catch(finish); return; }
+        }
         try {
             const audio = new Audio('data:audio/wav;base64,' + b64);
+            speakingAudio = audio;
             audio.crossOrigin = 'anonymous';
             audio.onended = finish;
             audio.onerror = () => {
@@ -1101,6 +1054,7 @@ function playBase64Audio(b64) {
 async function sendAudio(blob) {
     if (isBusy) return;
     isBusy = true;
+    wasInterrupted = false;
     setStatus('thinking');
     const form = new FormData();
     form.append('audio', blob, 'speech.webm');
@@ -1108,25 +1062,61 @@ async function sendAudio(blob) {
     try {
         const r    = await fetch('/voice/chat', { method: 'POST', body: form });
         const data = await r.json();
+        // A real exchange pushes the follow-up window out again, so a
+        // conversation lasts as long as it is actually going. Silence does
+        // NOT: without a transcript nothing was said, and extending on those
+        // would leave the mic reopening for ever in an empty room.
+        if (data.transcript) keepListening();
         if (data.transcript) addTurn('user', data.transcript);
         if (data.reply)      addTurn('assistant', data.reply);
         if (data.image_b64)  addImageTurn(data.image_b64);
         if (data.error && !data.transcript) addTurn('error', data.error);
+        // Play the requested body movement (avatar_move skill) alongside the
+        // reply, so she waves *while* saying "waving at you".
+        if (data.gesture && window.avatarGesture) window.avatarGesture(data.gesture);
+        if (data.animation && window.avatarAnimation) window.avatarAnimation(data.animation);
+        // A routine performs every clip in turn (e.g. "show me all your moves").
+        // Queue it: the avatar starts it once it knows how long the reply is,
+        // so the moves finish when she finishes speaking.
+        if (data.routine && data.routine.length && window.avatarQueueRoutine) {
+            window.avatarQueueRoutine(data.routine);
+        }
         if (data.audio_b64) {
             setStatus('speaking');
-            await playBase64Audio(data.audio_b64);
+            await playBase64Audio(data.audio_b64, data.reply);
+        } else if (data.tts_error) {
+            // She answered but has no voice. The reason is in the server log,
+            // which nobody watching this page is reading — and silence on its
+            // own looks like the app is broken rather than unconfigured.
+            // Said once per session; repeating it every turn is noise.
+            if (!window.__ttsErrorShown) {
+                window.__ttsErrorShown = true;
+                addTurn('error', 'No speech: ' + data.tts_error);
+            }
         }
-        setStatus('idle');
+        // If she was cut off, the user is already talking — do not stamp
+        // "idle" over the listening state they just started.
+        if (!wasInterrupted) setStatus('idle');
     } catch (err) {
         setStatus('error');
         addTurn('error', 'Request failed: ' + err.message);
     } finally {
         isBusy = false;
+        // She has finished answering; if the conversation window is still
+        // open, reopen the microphone so the follow-up needs no wake word.
+        // It has to be here rather than above: isBusy is still true until
+        // this line, and reopening refuses while she is busy.
+        if (!wasInterrupted) listenAgainIfStillTalking();
     }
 }
 
 function startRecording() {
-    if (isRecording || isBusy || !mediaRecorder) return;
+    if (isRecording || !mediaRecorder) return;
+    // Barge-in: reaching for the mic while she is talking cuts her off.
+    // Checked before isBusy, because isBusy is exactly what she is doing
+    // while speaking — and that used to lock the mic until she finished.
+    interruptSpeech();
+    if (isBusy) return;              // still thinking; let the answer arrive
     if (mediaRecorder.state === 'recording') return;
     isRecording = true;
     btn.classList.add('recording');
@@ -1135,11 +1125,17 @@ function startRecording() {
     startWaveform();
     chunks = [];
     mediaRecorder.start();
+    // Hands-free only. Hold-to-talk and tap-to-stop already have a person
+    // deciding when the sentence ended, and cutting them off on a pause
+    // would take that decision away.
+    if (inConversation()) watchForSilence();
 }
 
 function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     isRecording = false;
+    stopWatchingForSilence();
+    clearTimeout(wakeStopTimer);
     btn.classList.remove('recording');
     btn.textContent = isTouchPrimary ? 'Tap to talk' : 'Hold to talk';
     stopWaveform();
@@ -1147,18 +1143,28 @@ function stopRecording() {
 }
 
 // ── PA-70: input handling — hold on desktop, tap-toggle on touch ───
+// Deciding to talk to her opens the follow-up window too, so tapping buys a
+// conversation and not a single sentence. Deliberately here rather than
+// inside startRecording(): the automatic reopen goes through that function,
+// and extending the window from there would keep extending it for ever in an
+// empty room — nothing said, so nothing to end it.
+function startTalking() {
+    keepListening();
+    startRecording();
+}
+
 if (isTouchPrimary) {
     // Tap to start, tap again to stop (pure voice, no hold required)
     btn.addEventListener('click', () => {
-        if (isRecording) stopRecording();
-        else startRecording();
+        if (isRecording) { endConversation(); stopRecording(); }
+        else startTalking();
     });
 } else {
     // Desktop: hold-to-talk
-    btn.addEventListener('mousedown',  startRecording);
+    btn.addEventListener('mousedown',  startTalking);
     btn.addEventListener('mouseup',    stopRecording);
     btn.addEventListener('mouseleave', stopRecording);
-    btn.addEventListener('touchstart', e => { e.preventDefault(); startRecording(); });
+    btn.addEventListener('touchstart', e => { e.preventDefault(); startTalking(); });
     btn.addEventListener('touchend',   e => { e.preventDefault(); stopRecording(); });
 }
 
@@ -1175,8 +1181,93 @@ window.addEventListener('keyup', e => {
 initMic();
 
 // ── PA-34: wake word WebSocket ────────────────────────────
-const WAKE_AUTO_STOP_MS = 6000;
+// ── How long she listens for ────────────────────────────────────────────
+// This was a flat 6-second stopwatch, and every recording in a real session
+// came back as exactly `duration 00:06.000`. Anything that took longer than
+// six seconds to say was cut in half — "she doesn't take all my talk" was
+// this, precisely. A sentence is not a fixed length, so a fixed timer is the
+// wrong instrument.
+//
+// She now stops when you stop: the microphone's own analyser (already there
+// for the waveform) watches the level, and the recording ends a moment after
+// you go quiet. The long cap survives only as a backstop for a room that is
+// never quiet, and it is now long enough to say something real in.
+const WAKE_AUTO_STOP_MS = 30000;        // hard backstop, not the usual path
+const SILENCE_HOLD_MS   = 1600;         // quiet for this long = you have finished
+const SPEECH_LEVEL      = 0.02;         // RMS above the noise floor
+const MIN_SPEECH_MS     = 700;          // ignore silence before you have started
 let wakeStopTimer = null;
+let silenceRAF = null;
+
+function watchForSilence() {
+    if (!analyser) return;              // no meter — the backstop still applies
+    const data = new Uint8Array(analyser.fftSize);
+    const started = performance.now();
+    let lastLoud = started;
+
+    (function tick() {
+        if (!isRecording) { silenceRAF = null; return; }
+        analyser.getByteTimeDomainData(data);
+        // RMS around the 128 mid-point of 8-bit PCM.
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+        }
+        const now = performance.now();
+        if (Math.sqrt(sum / data.length) > SPEECH_LEVEL) lastLoud = now;
+
+        // The grace period matters: without it, the pause between the wake
+        // word and the first word of the sentence ends the recording before
+        // it has begun.
+        if (now - started > MIN_SPEECH_MS && now - lastLoud > SILENCE_HOLD_MS) {
+            silenceRAF = null;
+            stopRecording();
+            return;
+        }
+        silenceRAF = requestAnimationFrame(tick);
+    })();
+}
+
+function stopWatchingForSilence() {
+    if (silenceRAF) { cancelAnimationFrame(silenceRAF); silenceRAF = null; }
+}
+
+// ── Staying in the conversation ─────────────────────────────────────────
+// Waking her used to buy exactly one sentence: she answered, went back to
+// sleep, and the next thing you said needed the wake word again. Nobody
+// talks like that — a follow-up ("and tomorrow?", "no, the other one") is
+// the normal shape of a conversation and it was the one thing you could not
+// do without saying her name first, every single time.
+//
+// So a wake opens a WINDOW rather than a single turn: for this long after
+// she stops speaking, the microphone reopens on its own. Every real exchange
+// pushes the window out again, so a conversation continues as long as it is
+// actually going, and a silence ends it.
+const FOLLOW_UP_MS = 15000;
+let conversationUntil = 0;
+
+function keepListening() {
+    conversationUntil = performance.now() + FOLLOW_UP_MS;
+}
+
+function inConversation() {
+    return performance.now() < conversationUntil;
+}
+
+function endConversation() {
+    conversationUntil = 0;
+}
+
+// Called when she has finished speaking. Reopens the mic if the window is
+// still open, so the follow-up needs no wake word.
+function listenAgainIfStillTalking() {
+    if (!inConversation() || isRecording || isBusy) return;
+    startRecording();
+    clearTimeout(wakeStopTimer);
+    wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); },
+                               WAKE_AUTO_STOP_MS);
+}
 
 // "Waking up" moment: the neural sphere surges and the whole background fires
 // a shockwave + accelerates for ~2.5 s. Triggered by the wake word ("hey
@@ -1208,7 +1299,23 @@ function connectWakeSocket() {
             if (msg.type === 'wake') {
                 console.log(`[wake] ${msg.source || 'wake_word'} detected (score=${msg.score?.toFixed(2)})`);
                 wakeBurst();   // whole-background "waking up" surge (word OR clap)
-                if (!isRecording && !isBusy) {
+                // ...and she reacts with her body, not just the backdrop.
+                // Waking used to be a background colour change only, which is
+                // easy to miss entirely on the desktop overlay where the
+                // backdrop is not even drawn. A head-lift reads as "I heard
+                // you" from across the room.
+                if (window.avatarGesture) window.avatarGesture('yes', 1.2);
+                // Anything that wants to react to being woken listens for this
+                // rather than reaching into the socket handler.
+                window.dispatchEvent(new CustomEvent('plasma-wake', { detail: msg }));
+                // isSpeaking counts as interruptible: saying "hey Plasma"
+                // over her is the most natural way to cut her off, and
+                // gating on isBusy alone made the wake word useless for
+                // exactly the moment you most want it.
+                if (!isRecording && (!isBusy || isSpeaking)) {
+                    // Waking opens the follow-up window: everything said for
+                    // the next little while reaches her without her name.
+                    keepListening();
                     startRecording();
                     clearTimeout(wakeStopTimer);
                     wakeStopTimer = setTimeout(() => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
@@ -1238,6 +1345,165 @@ function showAlertToast(text) {
     alertToastTimer = setTimeout(() => alertToast.classList.remove('show'), 5000);
 }
 
+// ── Character picker ──────────────────────────────────────────────────
+// avatar.js discovers the models and owns the swapping; this only draws the
+// control. It stays hidden unless there is genuinely a choice to make.
+(function initAvatarPicker() {
+    const wrap = document.getElementById('avatar-picker');
+    const select = document.getElementById('avatar-select');
+    const status = document.getElementById('avatar-picker-status');
+    if (!wrap || !select) return;
+
+    // ?model=<file.glb> picks a character for THIS window.
+    //
+    // The picker remembers your choice in localStorage, which is per-browser
+    // — and the desktop overlay is its own browser with its own storage, so
+    // choosing a character in Chrome leaves the overlay unchanged and there
+    // is no visible picker inside a 220px window to change it with. A URL
+    // parameter is the way in, which is what PLASMA_OVERLAY_MODEL passes.
+    const wantedModel = new URLSearchParams(location.search).get('model');
+    if (wantedModel) {
+        const apply = () => window.avatarSetModel && window.avatarSetModel(wantedModel);
+        // The renderer defines avatarSetModel only once the first .glb has
+        // loaded, so wait for it rather than firing into an empty page.
+        (function poll(tries) {
+            if (window.avatarSetModel) return apply();
+            if (tries > 0) setTimeout(() => poll(tries - 1), 200);
+        })(100);
+    }
+
+    window.addEventListener('plasma-avatar-list', (e) => {
+        const { models, current } = e.detail || {};
+        if (!models || models.length < 2) return;      // nothing to choose
+        select.innerHTML = '';
+        for (const m of models) {
+            const opt = document.createElement('option');
+            opt.value = m.file;
+            opt.textContent = m.label;
+            if (m.note) opt.title = m.note;
+            select.appendChild(opt);
+        }
+        select.value = current;
+        wrap.hidden = false;
+    });
+
+    select.addEventListener('change', async () => {
+        if (!window.avatarSetModel) return;
+        const file = select.value;
+        // These models run from 2 MB to 36 MB, so a slow one is a visible
+        // wait — say so rather than letting the page look frozen.
+        select.disabled = true;
+        status.textContent = 'loading…';
+        const ok = await window.avatarSetModel(file);
+        select.disabled = false;
+        status.textContent = ok ? '' : 'could not load';
+        if (!ok) {
+            const state = window.avatarModels ? window.avatarModels() : null;
+            if (state) select.value = state.current;   // put the choice back
+        }
+    });
+})();
+
+// ── Stage mode: only the avatar, full screen ──────────────────────────
+(function initStage() {
+    const enter = document.getElementById('stage-btn');
+    const exit  = document.getElementById('stage-exit');
+    const wrap  = document.getElementById('avatar-wrap');
+    if (!enter || !exit || !wrap) return;
+
+    function setStage(on) {
+        if (!window.avatarStage) return;      // mascot/orb renderer: no stage
+        window.avatarStage(on);
+        // Ask the phone for real full screen too, so even the browser bars go.
+        try {
+            if (on && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else if (!on && document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            }
+        } catch (e) { /* iOS Safari has no Fullscreen API — the CSS still applies */ }
+    }
+
+    enter.addEventListener('click', () => setStage(true));
+    exit.addEventListener('click', (e) => { e.stopPropagation(); setStage(false); });
+    // Leaving browser full screen (swipe/back) should leave stage mode too.
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && document.body.classList.contains('stage')) {
+            window.avatarStage(false);
+        }
+    });
+    // On the stage there is no talk button, so tapping her IS the talk button.
+    wrap.addEventListener('click', () => {
+        if (!document.body.classList.contains('stage')) return;
+        if (isRecording) stopRecording(); else startRecording();
+    });
+
+    // ── Summon mode: arrive already on stage, already listening ────────
+    // "Hey Siri, Plasma" runs a Shortcut that opens /?stage=1, and she is
+    // simply there — full screen, microphone live, no tapping. On iPhone
+    // this is as close to a Siri-style summon as anything can get: no app,
+    // native or web, may draw over the home screen (see docs/phone-setup.md),
+    // so the summon is what we make instant, not the overlay.
+    const params = new URLSearchParams(location.search);
+    // ?overlay=1 is summon mode with the background taken away — it is what
+    // the Android companion loads into its floating window, where your home
+    // screen shows through instead of the plasma nebula.
+    const overlay = params.get('overlay') === '1';
+    const summoned = overlay || params.get('stage') === '1';
+    if (!summoned) return;
+
+    document.body.classList.add('summoned');
+    if (overlay) {
+        document.documentElement.classList.add('overlay');
+        document.body.classList.add('overlay');
+    }
+
+    // The renderer defines avatarStage() only once the .glb has loaded, and
+    // the mic only exists once permission is granted — so wait for each
+    // rather than firing into a page that isn't ready.
+    function whenReady(test, act, timeoutMs = 30000) {
+        const deadline = performance.now() + timeoutMs;
+        (function poll() {
+            if (test()) return act();
+            if (performance.now() > deadline) return;   // give up quietly
+            setTimeout(poll, 120);
+        })();
+    }
+
+    whenReady(() => !!window.avatarStage, () => setStage(true));
+
+    if (params.get('listen') !== '0') {
+        // getUserMedia was already requested at load; once the recorder
+        // exists the permission has been granted and we can open the mic
+        // without a tap. If it was denied, tapping her still works.
+        whenReady(() => !!mediaRecorder && !isBusy, () => {
+            startRecording();
+            clearTimeout(wakeStopTimer);
+            wakeStopTimer = setTimeout(
+                () => { if (isRecording) stopRecording(); }, WAKE_AUTO_STOP_MS);
+        });
+    }
+
+    // Summoned and then wandered off the stage? The wake word brings her
+    // back, so "hey Plasma" behaves the same as the Shortcut did.
+    window.addEventListener('plasma-wake', () => {
+        if (!document.body.classList.contains('stage')) setStage(true);
+    });
+
+    // ?watch=1: turn the camera on too, so she reacts to what she sees —
+    // "raise a hand, she waves back" (see main.py's /ws/perception-input).
+    // The stage/overlay UI hides the normal camera toggle button, so this is
+    // the only way to reach it there. Off by default even in stage mode: a
+    // camera permission prompt should never arrive as a surprise, only when
+    // asked for explicitly in the URL — which is what the desktop overlay
+    // launcher (scripts/desktop_overlay.py) does on your behalf.
+    if (params.get('watch') === '1') {
+        // A short delay so the mic and camera permission prompts don't both
+        // land in the same instant.
+        setTimeout(() => { if (typeof startVision === 'function') startVision(); }, 400);
+    }
+})();
+
 function connectAlertSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const ws = new WebSocket(`${proto}://${location.host}/ws/alerts`);
@@ -1246,10 +1512,16 @@ function connectAlertSocket() {
             const msg = JSON.parse(ev.data);
             if (msg.type === 'alert') {
                 if (msg.text) showAlertToast(msg.text);
+                // Guarded the same way as the audio below: a camera reaction
+                // (someone raised a hand) must not interrupt an actual
+                // conversation that is already in progress.
+                if (msg.gesture && !isBusy && !isRecording && window.avatarGesture) {
+                    window.avatarGesture(msg.gesture);
+                }
                 if (msg.audio_b64 && !isBusy && !isRecording) {
                     // Proactive speech: light up the galaxy, then settle back.
                     avatarState = 'speaking';
-                    await playBase64Audio(msg.audio_b64);
+                    await playBase64Audio(msg.audio_b64, msg.text);
                     avatarState = 'idle';
                 }
             }
@@ -1290,6 +1562,12 @@ let visionWS = null;
 let visionTimer = null;
 let visionCanvas = null;
 const VISION_FPS = 6;
+// The last error the server explained before closing. Kept so the close
+// handler shows the cause instead of painting "reconnecting…" over it — the
+// missing-dependency message used to survive for about one frame.
+let visionLastError = null;
+let visionRetries = 0;
+const VISION_MAX_RETRIES = 5;
 
 // Persistent colour per track id so a tracked object keeps its box colour.
 const trackColors = {};
@@ -1399,11 +1677,19 @@ async function startVision() {
     trackToggle.classList.add('show');
     visionCanvas = document.createElement('canvas');
 
+    visionLastError = null;
+    visionRetries = 0;
+    connectVisionSocket();
+}
+
+function connectVisionSocket() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     visionWS = new WebSocket(`${proto}://${location.host}/ws/perception-input`);
 
     visionWS.onopen = () => {
+        visionRetries = 0;              // a good connection resets the budget
         visionStatus.textContent = 'watching…';
+        clearInterval(visionTimer);
         visionTimer = setInterval(sendVisionFrame, Math.round(1000 / VISION_FPS));
     };
     visionWS.onmessage = (ev) => {
@@ -1419,11 +1705,40 @@ async function startVision() {
                 visionStatus.textContent = line;
                 if (trackCheck.checked) updateTrackTargets(msg.objects, msg.frame_w, msg.frame_h);
             } else if (msg.type === 'error') {
-                visionStatus.textContent = '⚠ ' + msg.message;
+                // Remember it: the socket usually closes right after, and the
+                // close handler must not paint over the only explanation of
+                // what went wrong.
+                visionLastError = msg.hint ? `${msg.message} — ${msg.hint}` : msg.message;
+                visionStatus.textContent = '⚠ ' + visionLastError;
             }
         } catch (e) { /* ignore */ }
     };
-    visionWS.onclose = () => { if (visionOn) visionStatus.textContent = 'reconnecting…'; };
+    visionWS.onclose = () => {
+        clearInterval(visionTimer); visionTimer = null;
+        if (!visionOn) return;
+        if (visionLastError) {
+            // A real failure, already explained. Retrying would just fail
+            // again every second and hide the reason.
+            visionStatus.textContent = '⚠ ' + visionLastError;
+            visionOn = false;
+            visionBtn.classList.remove('active');
+            visionBtn.textContent = '👁 Watch me';
+            return;
+        }
+        // A genuine drop. It used to SAY "reconnecting…" without ever
+        // reconnecting, so tracking stayed dead until you clicked twice.
+        if (visionRetries >= VISION_MAX_RETRIES) {
+            visionStatus.textContent = 'connection lost — click to try again';
+            visionOn = false;
+            visionBtn.classList.remove('active');
+            visionBtn.textContent = '👁 Watch me';
+            return;
+        }
+        const wait = Math.min(8000, 500 * Math.pow(2, visionRetries));
+        visionRetries += 1;
+        visionStatus.textContent = `reconnecting… (${visionRetries}/${VISION_MAX_RETRIES})`;
+        setTimeout(() => { if (visionOn) connectVisionSocket(); }, wait);
+    };
     visionWS.onerror = e => console.warn('[vision] WS error', e);
 }
 

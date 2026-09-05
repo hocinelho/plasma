@@ -1,0 +1,155 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Plasma avatar — styles
+   Extracted from index.html so the avatar can evolve on its own.
+   Paired with avatar.js (same directory), served at /avatar.css.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#avatar-wrap {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+
+#avatar {
+    width: 190px;
+    height: 190px;
+    display: block;
+    /* soft outer aura; hue is nudged per-state from JS */
+    filter: drop-shadow(0 0 18px rgba(120, 180, 255, 0.25));
+    transition: filter 0.5s;
+}
+
+/* ── Human 3D avatar (TalkingHead renderer) ─────────────────────────── */
+#avatar-human {
+    /* Sized against the viewport, not fixed pixels: a phone is tall and
+       narrow, which suits a standing character — but only if the panel is
+       allowed to use that height. dvh (not vh) so the browser's collapsing
+       address bar doesn't crop her legs. */
+    width: min(340px, 90vw);
+    height: clamp(300px, 52dvh, 470px);
+    border-radius: 18px;
+    overflow: hidden;
+    /* subtle glass panel so the person sits inside the plasma UI */
+    background: radial-gradient(circle at 50% 20%, rgba(74, 158, 255, 0.10), rgba(10, 14, 26, 0) 70%);
+    box-shadow: 0 0 34px rgba(74, 158, 255, 0.16), inset 0 0 0 1px rgba(120, 180, 255, 0.18);
+}
+#avatar-human canvas { display: block; width: 100%; height: 100%; }
+
+/* Landscape phone: almost no vertical room, so trade height for width and
+   let the renderer frame her closer (see avatar.js pickView). */
+@media (orientation: landscape) and (max-height: 560px) {
+    #avatar-human {
+        width: min(300px, 46vw);
+        height: clamp(220px, 74dvh, 330px);
+    }
+}
+
+/* Very small screens: keep her readable rather than letter-boxed. */
+@media (max-width: 360px) {
+    #avatar-human { width: 94vw; }
+}
+
+/* Older browsers without dvh fall back to vh. */
+@supports not (height: 1dvh) {
+    #avatar-human { height: clamp(300px, 52vh, 470px); }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   STAGE MODE — the avatar alone, filling the screen.
+   Toggled by adding .stage to <body>; everything except the avatar and a
+   single exit affordance is hidden. Meant for the phone, where the whole
+   display becomes her.
+   ═══════════════════════════════════════════════════════════════════════ */
+body.stage > *:not(#avatar-wrap):not(#bg-canvas):not(#stage-exit):not(#alert-toast) {
+    display: none !important;
+}
+
+body.stage {
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+    height: 100dvh;
+}
+
+body.stage #avatar-wrap {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    display: flex;
+    align-items: flex-end;      /* she stands on the floor of the screen */
+    justify-content: center;
+    z-index: 5;
+}
+
+body.stage #avatar-human {
+    /* Fill the screen. No panel chrome — she IS the screen. */
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+    background: none;
+    /* Drift is applied to this element so the WebGL canvas itself is never
+       re-laid-out — moving the container is free, resizing it is not. */
+    transition: transform 2.4s cubic-bezier(0.45, 0, 0.25, 1);
+    will-change: transform;
+}
+
+/* The living plasma backdrop stays, so she isn't floating on flat black. */
+body.stage #bg-canvas { opacity: 0.85; }
+
+#stage-exit {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 10px);
+    right: 12px;
+    z-index: 20;
+    display: none;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(120,180,255,0.35);
+    background: rgba(10,14,26,0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    color: #cfe3ff;
+    font-size: 20px; line-height: 1;
+    cursor: pointer;
+}
+body.stage #stage-exit { display: block; }
+
+/* Tapping anywhere on the stage talks to her, so make the whole area feel
+   pressable without a visible button. */
+body.stage #avatar-wrap { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   OVERLAY MODE — stage mode with the floor taken away.
+   Everything that paints a background is removed, so the page is nothing
+   but the avatar on transparent pixels. Meant to be loaded inside the
+   Android companion's floating window (android/), where the "background"
+   is your actual home screen showing through. On its own in a browser it
+   simply looks like she is standing on white.
+   ═══════════════════════════════════════════════════════════════════════ */
+html.overlay, body.overlay {
+    background: none !important;
+    background-color: transparent !important;
+}
+
+body.overlay {
+    /* The host window is small and already positioned — no insets to respect,
+       and nothing may be clipped away from her. */
+    padding: 0;
+    margin: 0;
+}
+
+/* The plasma nebula is the one thing that must not survive: it is opaque,
+   and it would show up as a dark rectangle floating on the home screen. */
+body.overlay #bg-canvas { display: none !important; }
+
+/* The Android window owns dismissal (drag it away, or use the notification),
+   so the in-page exit button would be a second, confusing control. */
+body.overlay #stage-exit { display: none !important; }
+
+/* Drifting is for a full screen. In a small floating window she would walk
+   straight out of her own window, so she stands still and the user moves
+   the window instead. */
+body.overlay #avatar-human { transform: none !important; }

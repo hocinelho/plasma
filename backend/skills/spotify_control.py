@@ -33,6 +33,15 @@ _PAUSE_RE = re.compile(r"\b(pause|stop)\b", re.I)
 _PLAY_RE = re.compile(r"\b(play|resume|start)\b", re.I)
 _WHAT_RE = re.compile(r"\b(what|which|current)\b.*(song|track|playing|music)\b", re.I)
 
+# What is being played, when something is. Bare "play"/"resume" match nothing
+# here and stay with Spotify, which is right: on its own it means the music.
+_PLAY_OBJECT = re.compile(r"\bplay(?:ing)?\s+(?:some\s+|a\s+|the\s+)?([a-zà-ÿ']+)", re.I)
+_MUSIC_WORDS = frozenset({
+    "music", "spotify", "song", "songs", "track", "tracks", "playlist",
+    "playlists", "album", "albums", "artist", "radio", "podcast", "something",
+    "musik", "lied", "musique",
+})
+
 
 def _not_configured_msg() -> str:
     return (
@@ -43,6 +52,14 @@ def _not_configured_msg() -> str:
 
 def run(args: dict | None = None) -> str:
     utterance = (args or {}).get("utterance", "")
+
+    # "play" has to be a trigger — "play" on its own is how people resume
+    # music — and it is also the verb in "I want to play chess", "let's play
+    # a game", "play along". If something is being played and it is not
+    # music, this is not the skill for it.
+    m = _PLAY_OBJECT.search(utterance)
+    if m and m.group(1).lower() not in _MUSIC_WORDS:
+        return None
 
     try:
         from backend.core.spotify_client import get_spotify, is_configured

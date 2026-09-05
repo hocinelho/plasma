@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Plasma</string>
+    <string name="blurb">Puts your Plasma avatar on top of your home screen. Drag her to move her, tap her to talk. Your PC does the thinking — this is just the window.</string>
+    <string name="address_label">Plasma\'s address (the https:// one serve_phone.py prints)</string>
+    <string name="grant_overlay">1. Allow display over other apps</string>
+    <string name="grant_mic">2. Allow microphone</string>
+    <string name="size_label">Her height: %1$d dp</string>
+    <string name="show">Show Plasma</string>
+    <string name="hide">Hide Plasma</string>
+    <string name="forget_cert">Forget saved certificate</string>
+    <string name="forget_cert_help">The first certificate seen is remembered, and only that one is trusted afterwards. Use this if you regenerated it with serve_phone.py --force-cert.</string>
+</resources>

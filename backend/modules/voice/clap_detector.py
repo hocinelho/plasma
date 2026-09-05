@@ -34,6 +34,26 @@ log = logging.getLogger("plasma.clap")
 
 _SAMPLE_RATE = 16_000  # must match AudioCapture
 
+# Floor under the adaptive background level.
+#
+# `threshold` is a RATIO — a transient counts when its peak is `threshold`
+# times the running background RMS — and a ratio against a number that can
+# fall to nearly zero is not a threshold at all. In a quiet room, with a good
+# mic, the background EMA settled around 5 rather than the 300 it starts at,
+# so `peak > bg * 12` came out as `peak > 60`: everything qualified. Real logs
+# showed scores of 964, 683, 1110 against a threshold of 12, and typing was
+# waking her every few seconds.
+#
+# Raising `threshold` looks like the fix and is not: it chases a denominator
+# that keeps moving, and set high enough to reject noise it also rejects real
+# claps, which is exactly what happened next — an entire session with no
+# detections at all. Flooring the denominator makes the ratio mean the same
+# thing in every room, so the shipped default works again.
+#
+# 120 is below the RMS of a genuinely quiet room recorded at normal gain, so
+# it never *raises* the bar in a noisy one — the EMA still floats up freely.
+_BG_RMS_FLOOR = 120.0
+
 
 class _State(enum.Enum):
     IDLE = "idle"
@@ -101,8 +121,13 @@ class ClapDetector:
                 self._first_score = peak / (self._bg_rms + 1e-6)
                 log.debug("Clap: first transient (score=%.1f)", self._first_score)
             else:
-                # Only update background during silence to avoid noise drift
-                self._bg_rms = (1 - self._bg_alpha) * self._bg_rms + self._bg_alpha * rms
+                # Only update background during silence to avoid noise drift.
+                # Floored, because everything below is a ratio against it —
+                # see _BG_RMS_FLOOR for what a collapsed denominator did.
+                self._bg_rms = max(
+                    _BG_RMS_FLOOR,
+                    (1 - self._bg_alpha) * self._bg_rms + self._bg_alpha * rms,
+                )
 
         elif self._state is _State.AFTER_FIRST:
             if is_transient:

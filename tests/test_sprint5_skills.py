@@ -8,10 +8,11 @@ def test_wikipedia_self_test():
     from backend.skills.wikipedia_lookup import self_test
     assert self_test()
 
-def test_wikipedia_no_topic():
+def test_wikipedia_declines_with_no_topic():
+    """"who is" on its own names nothing to look up. Declining hands it to
+    the LLM, which can ask what they meant in context."""
     from backend.skills.wikipedia_lookup import run
-    r = run({"utterance": "who is"})
-    assert "look up" in r.lower() or "?" in r
+    assert run({"utterance": "who is"}) is None
 
 def test_wikipedia_first_sentence_single():
     from backend.skills.wikipedia_lookup import _first_sentence
@@ -63,15 +64,19 @@ def test_translator_parse_how_do_you_say():
     assert result is not None
     assert result[1] == "japanese"
 
-def test_translator_unknown_language():
+def test_translator_declines_a_language_it_cannot_do():
+    """None means "not mine" — the router then sends it to the LLM, which can
+    at least say something useful about Klingon. It used to answer with a
+    canned "try saying it this way", which is a phrasebook, not an
+    assistant."""
     from backend.skills.translator import run
-    r = run({"utterance": "say hello in Klingon"})
-    assert "Try" in r or "translate" in r.lower()
+    assert run({"utterance": "say hello in Klingon"}) is None
 
-def test_translator_no_parse():
+def test_translator_declines_when_no_language_is_named():
+    """"say " has to be a trigger — "say hello in French" is the natural
+    phrasing — and it also sits inside "why do you say that"."""
     from backend.skills.translator import run
-    r = run({"utterance": "what is the weather"})
-    assert "Try" in r
+    assert run({"utterance": "what is the weather"}) is None
 
 def test_translator_lang_codes_complete():
     from backend.skills.translator import _LANG_CODES

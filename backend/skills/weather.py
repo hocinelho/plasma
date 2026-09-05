@@ -56,13 +56,45 @@ _WMO = {
 }
 
 
+DEFAULT_CITY = "Moers"
+
+# Words that can follow "weather" but are not place names. Without this,
+# "what's the weather today?" geocoded the word "today" and cheerfully
+# reported the weather for a village called Todaya.
+_NOT_A_PLACE = {
+    "today", "tomorrow", "tonight", "now", "currently", "outside", "here",
+    "like", "report", "forecast", "please", "there", "right", "just",
+    "heute", "morgen", "jetzt", "draußen", "hier", "bitte",
+    # Prepositions/filler that survive a mid-sentence match such as
+    # "weather like in Paris" — otherwise the city becomes "in Paris".
+    "in", "for", "at", "im", "für", "is", "it", "its",
+}
+
+
+def _parse_city(utterance: str) -> str | None:
+    """Pull the city out of a weather question. None → use DEFAULT_CITY.
+
+    Deliberately tolerant: the input is speech-to-text, so it arrives with
+    stray punctuation, repeated phrases and misheard country names.
+    """
+    m = re.search(r"(?:weather|wetter)\b(.*)$", utterance, re.IGNORECASE | re.DOTALL)
+    if not m:
+        return None
+    tail = re.split(r"[.?!]", m.group(1))[0]
+    # Drop a leading preposition: "in Athens" → "Athens".
+    tail = re.sub(r"^\s*(?:in|for|at|für|im|in der)\b", " ", tail, flags=re.IGNORECASE)
+    # Keep the first comma segment so "Athens, Greece" geocodes as "Athens".
+    # The old pattern simply failed to match here and silently fell back to
+    # the default city — answering confidently about the wrong place.
+    tail = tail.split(",")[0]
+    words = [w for w in tail.split() if w.strip(".,?!-").lower() not in _NOT_A_PLACE]
+    city = " ".join(words).strip(" -")
+    return city or None
+
+
 def run(args=None):
     utterance = ((args or {}).get("utterance") or "").strip()
-    m = re.search(
-        r"(?:weather|wetter)(?:\s+(?:in|for|at|in))?\s+([a-zA-ZÄäÖöÜüß][a-zA-ZÄäÖöÜüß\s\-]*?)\s*[.?!]?$",
-        utterance, re.IGNORECASE,
-    )
-    city = m.group(1).strip() if m else "Moers"
+    city = _parse_city(utterance) or DEFAULT_CITY
 
     try:
         loc = _geocode(city)
@@ -81,4 +113,18 @@ def run(args=None):
 
 
 def self_test():
-    return True
+    """Parsing only — no network, so it stays fast and offline-safe."""
+    cases = {
+        # A time word is not a city; fall back to the default.
+        "what's the weather today?": None,
+        "how is the weather": None,
+        "weather outside": None,
+        "wie ist das wetter": None,
+        # Real places, including the comma form that used to fail outright.
+        "what's the weather in Athens, Greece?": "Athens",
+        "In Athens, what's the weather in Athens, Deutschland?": "Athens",
+        "weather in Paris": "Paris",
+        "wetter in Berlin": "Berlin",
+        "what's the weather in New York today": "New York",
+    }
+    return all(_parse_city(q) == want for q, want in cases.items())

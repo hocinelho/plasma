@@ -388,6 +388,19 @@ loop); `RUVIEW_POLL_S`, `RUVIEW_ALERT_COOLDOWN_S`. Tests: `tests/test_ruview_mon
   Tests: `tests/test_clap_detector.py` (sustained voice never triggers, loud
   syllable pairs don't count as double-claps, sub-floor transients rejected,
   genuine claps still detected under the stricter defaults).
+- **…and it was still too sensitive, for a reason none of the above fixes.**
+  `CLAP_THRESHOLD` is a **ratio** against the running background RMS, and that
+  background could collapse. In a quiet room the EMA settled near 5 instead of
+  the 300 it starts at, so "peak > background × 12" meant "peak > 60" —
+  everything qualified. Real logs: scores of 964, 683, 1110 against a
+  threshold of 12, typing waking her every few seconds. **Raising
+  `CLAP_THRESHOLD` is the wrong fix**: it chases a denominator that keeps
+  moving, and set high enough to reject the noise (60) it rejected real claps
+  too — a whole session with zero detections. Fixed by flooring the background
+  at `_BG_RMS_FLOOR = 120`, below a genuinely quiet room's RMS at normal gain,
+  so the ratio means the same thing everywhere and the shipped defaults work.
+  **If you set `CLAP_THRESHOLD` or `CLAP_MIN_PEAK` by hand while chasing this,
+  remove them** — the defaults are correct again.
 
 ### ⚠️ Reality check on WiFi sensing (important)
 The demo (`scripts/ruview_bridge.py`) generates **entirely fake, simulated**
