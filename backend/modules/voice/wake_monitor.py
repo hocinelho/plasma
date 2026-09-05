@@ -22,6 +22,51 @@ from backend.core.config import config
 log = logging.getLogger("plasma.wake_monitor")
 
 
+# The phrase each pre-trained openWakeWord model actually answers to. None of
+# them is "Hey Plasma": that one has to be trained (scripts/train_hey_plasma.py,
+# which needs TensorFlow), and until it is, saying "Hey Plasma" does nothing at
+# all — she is listening for a different phrase entirely.
+_PRETRAINED_PHRASES = {
+    "hey_jarvis": "Hey Jarvis",
+    "alexa": "Alexa",
+    "hey_mycroft": "Hey Mycroft",
+    "hey_rhasspy": "Hey Rhasspy",
+}
+
+
+def _announce_the_wake_phrase(wake_ok: bool, clap_ok: bool) -> None:
+    """Say out loud what she is actually listening for.
+
+    The fallback to a pre-trained model was already logged — as one WARNING,
+    two hundred lines above the point where anyone looks, in a startup that
+    prints every trigger of all 49 skills. So the single most important fact
+    about talking to her hands-free was, in practice, invisible: you say "Hey
+    Plasma", nothing happens, and nothing anywhere says why.
+
+    Everything else about her can be discovered by trying it. This cannot.
+    """
+    if not wake_ok and not clap_ok:
+        print("\n  Hands-free is OFF — tap her to talk, or set "
+              "WAKE_WORD_ENABLED=true in .env.\n")
+        return
+
+    lines = []
+    if wake_ok:
+        model = (config.WAKE_WORD_MODEL or "").strip()
+        phrase = _PRETRAINED_PHRASES.get(model)
+        if phrase:
+            lines.append(f'  SAY "{phrase.upper()}" to wake her — not "Hey Plasma".')
+            lines.append(f"     (that is the pre-trained '{model}' model; a real")
+            lines.append("      'Hey Plasma' needs: python scripts/train_hey_plasma.py)")
+        else:
+            # A custom model actually loaded — its name is the phrase.
+            lines.append(f"  Wake word: '{model}'")
+    if clap_ok:
+        lines.append("  Or clap twice.")
+
+    print("\n" + "\n".join(lines) + "\n")
+
+
 def _hands_free_suppressed() -> bool:
     """True while a meeting recording is running.
 
@@ -83,6 +128,7 @@ class WakeMonitor:
             "Wake monitor started: wake_word=%s model=%s clap=%s",
             wake_ok, config.WAKE_WORD_MODEL, clap_ok,
         )
+        _announce_the_wake_phrase(wake_ok, clap_ok)
 
     async def stop(self) -> None:
         self._stop_event.set()

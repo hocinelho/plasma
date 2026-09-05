@@ -163,10 +163,8 @@ def check_data() -> None:
               "empty — she starts knowing nothing (copy .plasma/memory.sqlite "
               "from your old machine to keep it)")
 
-    wake = ROOT / ".plasma" / "models" / "hey_plasma.onnx"
-    check(OK if wake.exists() else WARN, "wake word model",
-          "present" if wake.exists() else
-          "missing — 'hey Plasma' won't work (push-to-talk still does)")
+    # (The wake word is reported by check_wake_word, which names the phrase
+    # she actually answers to rather than only the file that is missing.)
 
     voices_dir = ROOT / "voices"
     if voices_dir.exists() and not voices_dir.is_dir():
@@ -204,6 +202,34 @@ def check_avatar() -> None:
     vendor = ROOT / "frontend" / "vendor" / "talkinghead" / "talkinghead.mjs"
     check(OK if vendor.exists() else FAIL, "avatar renderer",
           "present" if vendor.exists() else "frontend/vendor is missing")
+
+
+def check_wake_word() -> None:
+    """Which phrase she is actually listening for.
+
+    "Hey Plasma" is the obvious guess and, until the custom model is trained,
+    the wrong one — she answers to whichever pre-trained model is configured.
+    Nothing errors when you say the wrong phrase; she simply does not wake,
+    which is indistinguishable from a broken microphone.
+    """
+    if os.getenv("WAKE_WORD_ENABLED", "true").lower() != "true":
+        check(WARN, "wake word", "disabled — tap her to talk")
+        return
+
+    custom = (os.getenv("WAKE_WORD_MODEL_PATH", "") or "").strip()
+    if custom and (ROOT / custom).exists():
+        check(OK, "wake word", f"custom model {custom}")
+        return
+
+    model = (os.getenv("WAKE_WORD_MODEL", "hey_jarvis") or "").strip()
+    phrases = {"hey_jarvis": "Hey Jarvis", "alexa": "Alexa",
+               "hey_mycroft": "Hey Mycroft", "hey_rhasspy": "Hey Rhasspy"}
+    said = phrases.get(model, model)
+    detail = f'say "{said}" — NOT "Hey Plasma"'
+    if custom:
+        detail += f" (WAKE_WORD_MODEL_PATH={custom} does not exist yet)"
+    detail += "; for the real one: python scripts/train_hey_plasma.py"
+    check(WARN, "wake word", detail)
 
 
 # ── Services ─────────────────────────────────────────────────────────────
@@ -245,7 +271,8 @@ def check_ollama() -> None:
 
 def main() -> int:
     print(f"\nPlasma doctor — {ROOT}\n" + "=" * 62)
-    for fn in (check_python, check_packages, check_speech, check_data, check_avatar, check_ollama):
+    for fn in (check_python, check_packages, check_speech, check_data,
+               check_avatar, check_wake_word, check_ollama):
         try:
             fn()
         except Exception as e:                       # never die mid-report
