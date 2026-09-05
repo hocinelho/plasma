@@ -21,6 +21,7 @@ from backend.modules.avatar_state import (
     pop_gesture,
     request_animation,
     request_gesture,
+    request_routine,
 )
 
 META = {
@@ -40,6 +41,12 @@ META = {
         "dance", "tanz", "samba", "gangnam", "backflip", "salto",
         "run", "rennen", "sprint", "turn left", "turn right", "walk back",
         "dreh dich", "rückwärts",
+        # "Can you turn?" used to reach the LLM, so she discussed turning
+        # instead of turning. The trigger list is what decides that, before
+        # any of the mapping below is consulted.
+        "turn", "spin", "turn around", "show me your back", "your back",
+        "other way", "face away",
+        "dreh dich um", "umdrehen", "drehen", "deinen rücken", "von hinten",
         # Whisper commonly hears "walk" as "work" — catch the imperative forms.
         "work for me", "work walk", "work. work",
         # German
@@ -132,9 +139,27 @@ ANIMATION_KEYWORDS = {
     "walk-back": ["walk back", "go back", "backwards", "rückwärts", "geh zurück"],
     "walk-left": ["step left", "move left", "nach links", "geh links"],
     "walk-right": ["step right", "move right", "nach rechts", "geh rechts"],
-    "turn-left": ["turn left", "dreh dich nach links", "dreh links"],
+    # A bare "turn" had no entry anywhere, so "can you turn?" reached the LLM
+    # and she talked about turning instead of turning. It hangs off turn-left
+    # because that is a clip that exists on disk — request_animation refuses
+    # names it cannot find, so inventing a "turn" clip would have failed
+    # silently in exactly the same way. "turn right" is the longer phrase, so
+    # it still wins.
+    "turn-left": ["turn left", "dreh dich nach links", "dreh links",
+                  "turn", "spin", "drehen"],
     "turn-right": ["turn right", "dreh dich nach rechts", "dreh rechts"],
 }
+
+# Turning to face away needs two clips, not one — there is no 180° turn on
+# disk, and turn-left is a quarter turn. This is the sequence mechanism
+# show_abilities already uses for "show me everything you can do".
+TURN_AROUND = ["turn-left", "turn-left"]
+TURN_AROUND_KEYWORDS = [
+    "turn around", "turn round", "spin around", "other way", "face away",
+    "your back", "see your back", "show me your back", "back side",
+    "dreh dich um", "umdrehen", "dreh um", "andere seite",
+    "deinen rücken", "zeig mir deinen rücken", "von hinten",
+]
 
 # Motions we still have no clip for — decline honestly rather than faking it.
 UNSUPPORTED = [
@@ -212,6 +237,15 @@ def run(args: dict | None = None) -> str:
     utterance = args.get("utterance", "")
     german_wanted = args.get("language") == "de"
     text = utterance.lower()
+
+    # "Turn around" / "I need to see your back" — before the single-clip
+    # match, because it is not a single clip. There is no 180° turn on disk,
+    # so it is two quarter-turns played in sequence, using the same routine
+    # mechanism as "show me everything you can do".
+    if any(phrase in text for phrase in TURN_AROUND_KEYWORDS):
+        if request_routine(list(TURN_AROUND)):
+            return ("Ich drehe mich um." if german_wanted
+                    else "Turning around.")
 
     # One rule for both kinds of movement: the longest matching phrase wins.
     # Without this a full-body clip would always pre-empt a hand gesture, so

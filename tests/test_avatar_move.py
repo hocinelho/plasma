@@ -235,3 +235,52 @@ def test_every_reply_maps_to_a_known_gesture():
         assert name in avatar_move.GESTURES
     for name in avatar_move._SURPRISE:
         assert name in avatar_move.GESTURES
+
+
+class TestTurning:
+    """"Plasma, can you turn?" reached the LLM and she talked about turning
+    instead of turning. Neither the trigger list nor the keyword table had a
+    bare "turn" in it — only "turn left" and "turn right"."""
+
+    def test_a_bare_turn_moves_her(self):
+        avatar_move.run({"utterance": "Plasma. Can you turn? Turn.", "language": "en"})
+        assert avatar_state.pop_animation() == "turn-left"
+
+    def test_turn_is_a_trigger_so_it_reaches_the_skill_at_all(self):
+        """The keyword table is only consulted once the router has picked
+        this skill, and the trigger list is what decides that."""
+        triggers = [t.lower() for t in avatar_move.META["triggers"]]
+        assert "turn" in triggers
+
+    def test_left_and_right_still_win_over_the_bare_word(self):
+        """Longest matching phrase wins — "turn left" is longer than "turn"."""
+        avatar_move.run({"utterance": "turn right", "language": "en"})
+        assert avatar_state.pop_animation() == "turn-right"
+        avatar_state.clear()
+        avatar_move.run({"utterance": "turn left", "language": "en"})
+        assert avatar_state.pop_animation() == "turn-left"
+
+    def test_turning_around_plays_two_quarter_turns(self):
+        """There is no 180° clip on disk, so facing away is a sequence —
+        the same routine mechanism "show me everything you can do" uses."""
+        avatar_move.run({"utterance": "turn around", "language": "en"})
+        assert avatar_state.pop_routine() == ["turn-left", "turn-left"]
+        assert avatar_state.pop_animation() is None
+
+    def test_asking_to_see_her_back_is_the_same_request(self):
+        """How it was actually said out loud, word for word."""
+        avatar_move.run({"utterance": "I need to see your back.", "language": "en"})
+        assert avatar_state.pop_routine() == ["turn-left", "turn-left"]
+
+    def test_it_works_in_german(self):
+        avatar_move.run({"utterance": "dreh dich um", "language": "de"})
+        assert avatar_state.pop_routine() == ["turn-left", "turn-left"]
+
+    def test_every_clip_it_names_exists_on_disk(self):
+        """request_animation and request_routine both silently drop names
+        they cannot find, so a typo here is a move that never happens and
+        never complains."""
+        known = avatar_state.known_animations()
+        assert set(avatar_move.TURN_AROUND) <= known
+        for clip in avatar_move.ANIMATION_KEYWORDS:
+            assert clip in known, clip

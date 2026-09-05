@@ -86,6 +86,31 @@ def count_fingers(landmarks, handedness: str) -> int:
     return sum(_finger_states(landmarks, handedness))
 
 
+# How far above the wrist the middle knuckle must sit, in frame heights, for
+# the hand to count as held up. Small, because the distance from wrist to
+# knuckle is only ~0.1 of the frame at a normal sitting distance — but not
+# zero, or a hand resting palm-down on the desk would qualify.
+_RAISED_MARGIN = 0.04
+
+
+def is_raised(landmarks) -> bool:
+    """True if the hand is held up — the gesture you make to say hello.
+
+    Judged by the hand's ORIENTATION, not its position in the frame. The
+    first version asked whether the wrist was in the upper half of the
+    picture, which sounds equivalent and is not: sitting at a laptop, the
+    camera fills the upper half with your face, so waving next to your head
+    puts the wrist at roughly 0.6 and the greeting never fired. You had to
+    hold your hand up by the ceiling for it to count.
+
+    Fingers up, wrist below them — that is a raised hand wherever it happens
+    to be in the frame, whether you are sitting close, far, high or low.
+    """
+    _, wrist_y = _xy(landmarks[0])
+    _, knuckle_y = _xy(landmarks[9])       # middle-finger MCP, the palm's top
+    return (wrist_y - knuckle_y) > _RAISED_MARGIN
+
+
 def classify_gesture(landmarks, handedness: str) -> str | None:
     """Name the hand gesture, or None if it doesn't match a known one."""
     thumb, index, middle, ring, pinky = _finger_states(landmarks, handedness)
@@ -275,13 +300,12 @@ class Perceiver:
         for i, lms in enumerate(hand_lms):
             label = handed[i][0].category_name if i < len(handed) and handed[i] else "Right"
             states = _finger_states(lms, label)
-            _, wrist_y = _xy(lms[0])
             hands.append({
                 "handedness": label,
                 "finger_count": sum(states),
                 "fingers": states,
                 "gesture": classify_gesture(lms, label),
-                "raised": wrist_y < 0.5,  # wrist in upper half of frame
+                "raised": is_raised(lms),
             })
 
         return {"faces": faces, "hands": hands}

@@ -119,6 +119,11 @@ about half a second — one stray frame doesn't count — and won't fire again
 for 15 seconds after, so keeping your hand up doesn't make her wave on a
 loop.
 
+"Held up" means fingers above wrist, wherever your hand is in the picture —
+so waving beside your head at a laptop works. (It used to mean "wrist in the
+upper half of the frame", which sounds the same and isn't: sitting at a
+laptop the upper half is your face, so a normal wave never registered.)
+
 It only reacts between conversations. If you're already talking with her,
 a hand in frame is ignored rather than interrupting her.
 
