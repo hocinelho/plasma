@@ -111,22 +111,28 @@ WINDOW_TITLE = "Plasma Overlay"
 # with black hair and a navy outfit is invisible where a magenta one would
 # not be. Nothing in the render is likely to land on exactly #010101.
 DEFAULT_CHROMA = "#010101"
-# Shape mode: how opaque a pixel must be to be counted as part of her. 128 is
-# the neutral place to cut — half coverage — now that the outline is sampled
-# at the window's real pixel resolution rather than upscaled from a miniature.
-# Raise it to cut further inside her (kills any rim of window background at
-# the cost of shaving her edge); lower it to keep more of her soft edge.
-DEFAULT_SHAPE_ALPHA = 128
+# Shape mode: how opaque a pixel must be to be counted as part of her.
+# Deliberately past halfway. A pixel at 50% coverage is half her and half
+# window background, and a region cannot show only its half of her — so
+# including it puts a rim of background colour around her, which is the
+# outline you can see. Cutting at 190 keeps only pixels that are mostly her:
+# it shaves a sub-pixel sliver off her silhouette, which nobody notices, and
+# removes the halo, which everybody does.
+DEFAULT_SHAPE_ALPHA = 190
 # Ceiling on the sampling grid's width in device pixels. A 220px-wide overlay
 # on a 125% display samples at 275 and never reaches this; it only stops a
 # very large overlay from making each frame expensive.
 SHAPE_MAX_WIDTH = 480
 DEFAULT_TRANSPARENCY = "shape"
 TRANSPARENCY_MODES = ("shape", "alpha", "colorkey", "none", "auto")
-# How often the page re-reports her outline. She breathes and gestures, so the
-# shape has to follow her; ~9 times a second is smooth to the eye and costs
-# one downscaled 100px readback per update.
-SHAPE_PERIOD_MS = 110
+# How often the page re-reports her outline.
+#
+# This is the region's lag behind the render, and lag is visible: she animates
+# at 60fps, so anything the outline has not caught up with yet is a piece of
+# window background sitting where her hand used to be. At 110ms a moving hand
+# smeared. 45ms keeps it under a couple of pixels, and costs nothing while
+# she is still because an unchanged outline is never re-sent.
+SHAPE_PERIOD_MS = 45
 
 
 def colorref_from_hex(hex_color: str) -> int:
@@ -419,6 +425,69 @@ def _apply_shape(title: str, runs, canvas_w: int, canvas_h: int) -> bool:
     if not rects:
         return False
     return _set_window_region(hwnd, rects)
+
+
+def _set_form_background(window, hex_color: str) -> bool:
+    """Repaint the WinForms window's own background.
+
+    This is the THIRD background in the stack, and the one left over after
+    the other two were dealt with. pywebview 6.2.1's winforms.py:
+
+        if window.transparent and self.browser:
+            self.SetStyle(SupportsTransparentBackColor, True)
+            self.browser.DefaultBackgroundColor = Color.Transparent
+        else:
+            self.BackColor = ColorTranslator.FromHtml(window.background_color)
+
+    BackColor is set only in the `else`. Turning transparency on — which is
+    what stops WebView2 painting its own opaque rectangle — therefore leaves
+    the form at the WinForms default, SystemColors.Control: #F0F0F0, which is
+    near-white. Two symptoms, one cause:
+
+      * her anti-aliased edge blends into it, so she gets a white outline;
+      * the window region trails the render by up to one update, so a hand
+        that moves uncovers it for a moment — "when she moves her hand it
+        turns white".
+
+    Painting it the key colour instead makes both of those the key colour,
+    which _apply_color_key can then punch out. Unlike WebView2's content this
+    background IS painted through GDI into the window's own surface, which is
+    exactly where LWA_COLORKEY can see it — the reason the colour key was
+    useless before is that an opaque WebView2 was covering it up.
+
+    Reaches into pywebview's platform internals, so it is written to fail
+    quietly: a wrong-coloured fringe is a far better outcome than a crash.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        # Available because pywebview has already loaded the CLR by now.
+        from System import Action
+        from System.Drawing import Color
+        from webview.platforms.winforms import BrowserView
+    except Exception:
+        return False
+
+    form = BrowserView.instances.get(getattr(window, "uid", None))
+    if form is None:
+        return False
+
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    colour = Color.FromArgb(255, r, g, b)
+
+    def apply() -> None:
+        form.BackColor = colour
+
+    try:
+        # BackColor invalidates the control, which is not safe from the
+        # thread this runs on.
+        if form.InvokeRequired:
+            form.BeginInvoke(Action(apply))
+        else:
+            apply()
+        return True
+    except Exception:
+        return False
 
 
 def _keep_out_of_the_taskbar(title: str) -> None:
@@ -810,6 +879,16 @@ def main() -> int:
             # side has to do here is keep her out of the taskbar.
             if mode == "shape":
                 _keep_out_of_the_taskbar(WINDOW_TITLE)
+                # The region cuts away the bulk of the window; these two deal
+                # with what is left INSIDE the cut — the form's own background,
+                # which shows as a rim around her and as a smear behind a
+                # moving hand for as long as the outline takes to catch up.
+                painted = _set_form_background(window, chroma)
+                keyed = _apply_color_key(WINDOW_TITLE, chroma)
+                print(f"  Window background: "
+                      + ("painted " + chroma if painted else
+                         "LEFT AT THE WINFORMS DEFAULT (near-white)")
+                      + (", punched out" if keyed else ", not keyed"))
                 print("  Shape mode: waiting for the page to report her outline.")
                 print(_diagnose(WINDOW_TITLE))
                 return

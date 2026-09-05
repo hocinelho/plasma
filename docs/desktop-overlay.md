@@ -75,7 +75,7 @@ python scripts\desktop_overlay.py --shape
 mode, the default, does — and it gets there by not trying to make the browser
 transparent at all.
 
-### Two separate boxes, and they are not the same problem
+### Three backgrounds, not one
 
 **The browser paints one.** pywebview 6.2.1's `edgechromium.py`:
 
@@ -91,7 +91,28 @@ page content, so no amount of Win32 work on the window can remove it — the
 window is doing what it was told. The overlay now passes `transparent=True`
 in every mode for exactly this reason.
 
-**The window paints the other**, and this is the one that is genuinely hard.
+**The form paints the second**, and it is the one that survives fixing the
+first. Same file, a few lines further down:
+
+```python
+if window.transparent and self.browser:
+    self.SetStyle(SupportsTransparentBackColor, True)
+    self.browser.DefaultBackgroundColor = Color.Transparent
+else:
+    self.BackColor = ColorTranslator.FromHtml(window.background_color)
+```
+
+`BackColor` is set only in the `else`. Turning transparency on therefore
+leaves the form at the WinForms default, `SystemColors.Control` — #F0F0F0,
+near-white. Two symptoms, one cause: her anti-aliased edge blends into it, so
+she gets a white outline; and the window region trails the render by one
+update, so a moving hand uncovers it for a moment. The overlay repaints it the
+key colour and then punches that colour out. Unlike WebView2's content this
+background *is* painted through GDI into the window's own surface, which is
+where `LWA_COLORKEY` can reach — an opaque WebView2 covering it up is the
+reason the colour key looked useless on its own.
+
+**The window paints the third**, and this is the one that is genuinely hard.
 pywebview never gives the WinForms window any transparency — no
 `TransparencyKey`, no `AllowsTransparency`, no layered style (checked against
 its `winforms.py`) — and helping it from Win32 does not work either, because
@@ -140,17 +161,32 @@ Two things follow from it, both good:
 - **Dragging her means grabbing her body**, since that is the only part of
   the window that exists.
 
-And one trade-off, stated plainly: a region has **hard edges**. She looks
-like a sticker cut-out rather than having softly blended anti-aliased edges.
-That is how every desktop pet on Windows has ever looked, and it is the price
-of not needing a full per-pixel-alpha compositor (what Electron ships) to get
-her out of the box.
+And two trade-offs, stated plainly.
 
-`PLASMA_OVERLAY_SHAPE_ALPHA` (default 128) is where the cut falls. Sampled at
-native resolution the alpha value *is* the pixel's coverage, so 128 — half
-covered — is the neutral place to put it. Raise it to cut further inside her
-(kills any rim of background at the cost of shaving her edge); lower it to
-keep more of her soft edge.
+**Hard edges.** A region is a cut, not a blend — she looks like a sticker
+cut-out rather than having softly anti-aliased edges. That is how every
+desktop pet on Windows has ever looked, and it is the price of not needing a
+full per-pixel-alpha compositor to get her out of the box.
+
+**The outline lags the render.** She animates at 60fps and the outline is
+re-cut at ~22Hz, so a fast gesture can briefly show a pixel or two of window
+background where her hand used to be. Keying that background out is what
+keeps it from being *visible* lag. Fixing it properly means owning her pixels
+rather than clipping around them — `UpdateLayeredWindow`, which is what a
+native floating avatar (a Messenger chat head, a Siri orb) gets from its
+platform's compositor for free. That means rendering her offscreen, shipping
+every frame out of the browser, painting it into a bare layered window, and
+re-implementing click and drag by hand, since there would no longer be a
+browser under the cursor to receive them. Worth it if the cut-out ever stops
+being good enough; not before.
+
+`PLASMA_OVERLAY_SHAPE_ALPHA` (default 190) is where the cut falls. Sampled at
+native resolution the alpha value *is* the pixel's coverage, and the default
+sits well past halfway on purpose: a pixel at 50% coverage is half her and
+half window background, and a region cannot show only its half of her — so
+including it draws a rim of background colour around her. Cutting at 190
+shaves a sub-pixel sliver off her silhouette, which nobody notices, and
+removes the halo, which everybody does. Lower it if she looks eaten into.
 
 ### The other modes
 

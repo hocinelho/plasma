@@ -357,6 +357,51 @@ class TestShapeGeometry:
         assert all(r[2] > r[0] and r[3] > r[1] for r in rects)
 
 
+class TestTheThirdBackground:
+    """The white outline, and the white flash behind a moving hand.
+
+    There are three backgrounds stacked behind her, and each was found the
+    hard way. The page's is transparent (CSS). WebView2's is transparent
+    (transparent=True). The WinForms form's is the one left, and pywebview
+    sets its BackColor only in the branch that runs when transparency is OFF
+    — so turning transparency on leaves it at SystemColors.Control, #F0F0F0,
+    near-white. Her anti-aliased edge blends into it (the outline) and the
+    region uncovers it wherever it has not caught up with her yet (the flash).
+    """
+
+    def test_pywebviews_own_source_still_says_so(self):
+        """Pinned against the vendored evidence, not memory: if a future
+        pywebview sets BackColor unconditionally, this workaround becomes a
+        thing to delete rather than a thing to keep."""
+        src = SCRIPT.read_text(encoding="utf-8")
+        assert "SystemColors.Control" in src or "#F0F0F0" in src
+        assert "_set_form_background" in src
+
+    def test_it_is_a_no_op_off_windows(self):
+        """This container is Linux, and pywebview is not installed — reaching
+        into platform internals must decline, not explode."""
+        class _Win:
+            uid = "master"
+        assert overlay._set_form_background(_Win(), "#010101") is False
+
+    def test_shape_mode_paints_and_keys_the_form_background(self):
+        """Both halves matter. Painting it the key colour turns a white rim
+        into a dark one; keying that colour out removes it altogether — and
+        unlike WebView2's content, this background IS painted through GDI
+        into the window's own surface, which is exactly where LWA_COLORKEY
+        can see it. An opaque WebView2 covering it up is why the colour key
+        looked useless on its own."""
+        src = SCRIPT.read_text(encoding="utf-8")
+        block = src.split('if mode == "shape":', 1)[1].split("return", 1)[0]
+        assert "_set_form_background(window, chroma)" in block
+        assert "_apply_color_key(WINDOW_TITLE, chroma)" in block
+
+    def test_it_says_which_half_worked(self):
+        src = SCRIPT.read_text(encoding="utf-8")
+        block = src.split('if mode == "shape":', 1)[1].split("return", 1)[0]
+        assert "LEFT AT THE WINFORMS DEFAULT" in block
+
+
 class TestOutlineDiagnostic:
     """"She is still in a box" reads identically whether the region never
     applied or applied perfectly to an outline that covers the whole window.
@@ -426,11 +471,19 @@ class TestShapeReporter:
         assert "drawImage" in overlay.SHAPE_JS
         assert "willReadFrequently" in overlay.SHAPE_JS
 
-    def test_the_default_cut_is_at_half_coverage(self):
-        """Sampled at native resolution the alpha value IS the coverage, so
-        128 is the neutral place to cut. It was biased high only to hide the
-        blur the old downscale introduced."""
-        assert overlay.DEFAULT_SHAPE_ALPHA == 128
+    def test_the_default_cut_is_past_halfway(self):
+        """A pixel at 50% coverage is half her and half window background,
+        and a region cannot show only its half of her — so including it puts
+        a rim of background colour around her. That rim is the white outline
+        that was reported. Cutting past halfway keeps only pixels that are
+        mostly her."""
+        assert overlay.DEFAULT_SHAPE_ALPHA > 128
+
+    def test_the_outline_keeps_up_with_a_moving_hand(self):
+        """The update period IS the region's lag behind a 60fps render, and
+        the lag is visible: window background sits where her hand used to be
+        until the outline catches up. 110ms smeared."""
+        assert overlay.SHAPE_PERIOD_MS <= 50
 
     def test_it_does_not_pile_calls_up_on_the_bridge(self):
         """setInterval would queue a new call whether or not the last one
@@ -467,7 +520,8 @@ class TestShapeReporter:
         """It is applied with `%`, so a stray unescaped percent sign in the
         JavaScript is a TypeError at runtime and no transparency at all."""
         rendered = overlay.render_shape_js(96)
-        assert "96" in rendered and "110" in rendered
+        assert "ALPHA = 96" in rendered
+        assert f"PERIOD = {overlay.SHAPE_PERIOD_MS}" in rendered
 
     def test_the_scanline_walker_finds_the_right_runs(self, tmp_path):
         """Actually run the reporter, against a scripted alpha channel.
