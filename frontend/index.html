@@ -1125,11 +1125,17 @@ function startRecording() {
     startWaveform();
     chunks = [];
     mediaRecorder.start();
+    // Hands-free only. Hold-to-talk and tap-to-stop already have a person
+    // deciding when the sentence ended, and cutting them off on a pause
+    // would take that decision away.
+    if (inConversation()) watchForSilence();
 }
 
 function stopRecording() {
     if (!isRecording || !mediaRecorder) return;
     isRecording = false;
+    stopWatchingForSilence();
+    clearTimeout(wakeStopTimer);
     btn.classList.remove('recording');
     btn.textContent = isTouchPrimary ? 'Tap to talk' : 'Hold to talk';
     stopWaveform();
@@ -1175,8 +1181,57 @@ window.addEventListener('keyup', e => {
 initMic();
 
 // ── PA-34: wake word WebSocket ────────────────────────────
-const WAKE_AUTO_STOP_MS = 6000;
+// ── How long she listens for ────────────────────────────────────────────
+// This was a flat 6-second stopwatch, and every recording in a real session
+// came back as exactly `duration 00:06.000`. Anything that took longer than
+// six seconds to say was cut in half — "she doesn't take all my talk" was
+// this, precisely. A sentence is not a fixed length, so a fixed timer is the
+// wrong instrument.
+//
+// She now stops when you stop: the microphone's own analyser (already there
+// for the waveform) watches the level, and the recording ends a moment after
+// you go quiet. The long cap survives only as a backstop for a room that is
+// never quiet, and it is now long enough to say something real in.
+const WAKE_AUTO_STOP_MS = 30000;        // hard backstop, not the usual path
+const SILENCE_HOLD_MS   = 1600;         // quiet for this long = you have finished
+const SPEECH_LEVEL      = 0.02;         // RMS above the noise floor
+const MIN_SPEECH_MS     = 700;          // ignore silence before you have started
 let wakeStopTimer = null;
+let silenceRAF = null;
+
+function watchForSilence() {
+    if (!analyser) return;              // no meter — the backstop still applies
+    const data = new Uint8Array(analyser.fftSize);
+    const started = performance.now();
+    let lastLoud = started;
+
+    (function tick() {
+        if (!isRecording) { silenceRAF = null; return; }
+        analyser.getByteTimeDomainData(data);
+        // RMS around the 128 mid-point of 8-bit PCM.
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+            const v = (data[i] - 128) / 128;
+            sum += v * v;
+        }
+        const now = performance.now();
+        if (Math.sqrt(sum / data.length) > SPEECH_LEVEL) lastLoud = now;
+
+        // The grace period matters: without it, the pause between the wake
+        // word and the first word of the sentence ends the recording before
+        // it has begun.
+        if (now - started > MIN_SPEECH_MS && now - lastLoud > SILENCE_HOLD_MS) {
+            silenceRAF = null;
+            stopRecording();
+            return;
+        }
+        silenceRAF = requestAnimationFrame(tick);
+    })();
+}
+
+function stopWatchingForSilence() {
+    if (silenceRAF) { cancelAnimationFrame(silenceRAF); silenceRAF = null; }
+}
 
 // ── Staying in the conversation ─────────────────────────────────────────
 // Waking her used to buy exactly one sentence: she answered, went back to

@@ -195,6 +195,88 @@ separate causes, none of them the model's size:
 
 ---
 
+## 📋 REQUESTED 2026-09-05 — the working list (Hocine, verbatim, broken up)
+
+Asked for explicitly: *"break this to tasks, save it to the memory, we need to
+make it all working."* Ordered by what he called most important. Each has the
+evidence from the session log that produced it, so the next agent does not
+start by guessing.
+
+| # | Task | State |
+|---|---|---|
+| 1 | **Turning — he still cannot see her back.** Called "the most important". | 🔴 backend is correct, browser half unverified |
+| 2 | **She doesn't take all my talk** — recordings cut off mid-sentence. | ✅ fixed below |
+| 3 | **Open Gmail** | ✅ fixed below |
+| 4 | **She can't see** | 🟡 works; the answer is thin |
+| 5 | **No reaction to a raised hand** | 🟡 fixed in code, never confirmed working |
+| 6 | **Doesn't hear well** — "OTT" → "OTDN", "back" → "bug"/"buck"/"ass" | 🔴 open |
+| 7 | **Can't move freely as told** | 🔴 open |
+| 8 | **Change her clothes** | 🔴 not built |
+| 9 | **Search the internet** | 🔴 not built |
+| 10 | **Jumping makes her shake and vanish** | 🔴 open |
+| 11 | **How do I change the avatar** | ✅ answered — see below |
+
+**1 — Turning.** The backend is provably right: the log shows
+`animation=turn-left` queued and `GET /animations/turn-left.fbx 200 OK`. So
+the failure is in the browser half of the fix (`window.avatarTurn`, rotating
+`head.armature.rotation.y`), which has never been run anywhere with a display.
+**Next step is one line in a browser console**, not more code: open
+`http://127.0.0.1:8000/?overlay=1` in Chrome, F12, type `window.avatarTurn(90)`.
+If she turns, the wiring from `playClip` is what is broken; if she does not,
+`head.armature` is not the object that needs rotating.
+Note also that Whisper heard "see your **back**" as "bug", "buck" and "ass" in
+one session — so some of "she won't turn" is really task 6.
+
+**2 — "She doesn't take all my talk."** Every recording in the log is exactly
+`duration 00:06.000`, because the mic closed on a fixed 6-second timer
+regardless of whether anyone was still speaking. A sentence longer than six
+seconds was cut in half, every time. Fixed: the timer is now a *silence*
+timeout — it stops ~1.6s after you stop talking, up to 30s.
+
+**3 — Gmail.** `open_app` had no entry for it, so "Open G-Mail" declined and
+the LLM explained it couldn't. Fixed: gmail, drive, calendar, maps, whatsapp,
+teams, linkedin, and hyphen/space normalising ("g-mail" → "gmail").
+
+**4 — "She can't see."** She does: the log shows
+`Snapshot from the browser's camera (0.1s old)`. What she gives back is a
+one-line MediaPipe read (expression, hands, fingers) — no scene description,
+because the vision model that would describe it is a separate, slow path.
+Open question for Hocine: is "can you see me" meant to answer *"yes, you look
+tired"* or *"you're at a desk with a coffee mug"*? They are different features.
+
+**6 — Hearing.** `base.en` Whisper on a CPU that is also running Ollama,
+MediaPipe and a WebGL render; the log is full of `input overflow`, which is
+dropped audio. Cheapest real fix is `WHISPER_MODEL=small.en`, then an
+initial_prompt seeding domain words (OTT, OTDR, optical fibre) so acronyms
+stop becoming animals.
+
+**7 — Move freely.** Today: one clip per request, from a fixed list. "Freely"
+means chaining ("walk over there, then turn, then wave") and continuous
+control. Needs a movement *grammar*, not more clips.
+
+**8 — Clothes.** A `.glb` carries its outfit baked in, so "change clothes"
+means loading a different model. Real options: several outfits exported as
+separate `.glb`s and swapped with the existing picker; or a rig with separate
+outfit meshes to toggle. Nothing exists yet — `frontend/avatars/` has exactly
+one file.
+**Not building:** removing her clothes. Say so plainly if asked again.
+
+**9 — Internet search.** She is local-only by design. A `web_search` skill
+over a public API is the small version; the honest caveat is that a locked-down
+work laptop may block it.
+
+**10 — Jumping.** `jump.fbx` has root motion, so she leaves the 220×420 window
+— and in `shape` mode a body outside the window is clipped to nothing, which
+is the "disappearing". Likely fix: strip root translation from clips, or grow
+the window while a clip with travel is playing.
+
+**11 — Changing the avatar.** Answered: only `brunette.glb` exists, so there
+is nothing to change to. Drop more `.glb` files in `frontend/avatars/` and the
+picker appears on its own; the overlay takes `PLASMA_OVERLAY_MODEL=<file.glb>`.
+Sources in the avatar section above (Avaturn, Avatar SDK, VRoid, MakeHuman).
+
+---
+
 ## ⏸ PARKED — waiting on the company server (agreed 2026-08-27)
 
 Hocine will get access to a **company server: strong compute, ~20 TB storage**.

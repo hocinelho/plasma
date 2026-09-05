@@ -52,6 +52,33 @@ APPS: dict[str, tuple[str, str]] = {
     "github":     ("url",   "https://github.com"),
     "chatgpt":    ("url",   "https://chatgpt.com"),
     "claude":     ("url",   "https://claude.ai"),
+    # "Open Gmail" was the single most-asked-for one and simply was not here,
+    # so it declined and the model explained it could not. The rest are the
+    # ones asked for in the same breath.
+    "gmail":      ("url",   "https://mail.google.com"),
+    "mail":       ("url",   "https://mail.google.com"),
+    "inbox":      ("url",   "https://mail.google.com"),
+    "drive":      ("url",   "https://drive.google.com"),
+    "calendar":   ("url",   "https://calendar.google.com"),
+    "maps":       ("url",   "https://maps.google.com"),
+    "whatsapp":   ("url",   "https://web.whatsapp.com"),
+    "teams":      ("url",   "https://teams.microsoft.com"),
+    "linkedin":   ("url",   "https://www.linkedin.com"),
+    "wikipedia":  ("url",   "https://www.wikipedia.org"),
+}
+
+# Whisper writes acronyms and brand names the way they are said, so "Gmail"
+# comes back as "G-Mail" or "G Mail" and matched nothing. Normalising here
+# rather than adding every spelling to the table keeps one entry per app.
+_ALIASES = {
+    "g mail": "gmail", "g-mail": "gmail", "gemail": "gmail", "g male": "gmail",
+    "you tube": "youtube", "chat gpt": "chatgpt", "git hub": "github",
+    "whats app": "whatsapp", "linked in": "linkedin",
+    "e mail": "mail", "email": "mail",
+    "google drive": "drive", "google calendar": "calendar",
+    "google maps": "maps", "google mail": "gmail",
+    "ms teams": "teams", "microsoft teams": "teams",
+    "file explorer": "explorer", "command prompt": "terminal",
 }
 
 
@@ -92,7 +119,11 @@ def run(args: dict | None = None) -> str:
 
     # Pull the app name after "open"/"launch"/"start"
     m = re.search(
-        r"(?:open|launch|start)\s+([a-z][a-z ]*?)(?:\s+(?:for me|please|now))?\s*[.!?]?\s*$",
+        # Hyphens are allowed in the name because a transcriber writes what
+        # was said: "Open G-Mail." Without them the whole pattern failed to
+        # match and the skill declined, so "open Gmail" reached the LLM,
+        # which explained that it could not open applications.
+        r"(?:open|launch|start)\s+([a-z][a-z -]*?)(?:\s+(?:for me|please|now))?\s*[.!?]?\s*$",
         utterance,
     )
     if not m:
@@ -102,6 +133,10 @@ def run(args: dict | None = None) -> str:
 
     # Strip leading "a " / "the "
     name = re.sub(r"^(?:a|the)\s+", "", name)
+
+    # "G-Mail" / "G Mail" / "you tube" — how a transcriber writes what was
+    # said out loud. Hyphens first, so both spellings reach one alias.
+    name = _ALIASES.get(name, _ALIASES.get(name.replace("-", " "), name))
 
     # "start over", "start again", "open up to me" — the verb is there but the
     # word after it is not an application, it is the rest of an ordinary
