@@ -78,6 +78,56 @@ def _capture():
     return snapshot(config.CAMERA_DEVICE)
 
 
+# Things the detector reports that are not worth saying out loud when the
+# question was "can you see me". "I see a person" is not news to the person
+# asking, and furniture is scenery.
+_NOT_WORTH_MENTIONING = frozenset({
+    "person", "chair", "couch", "bed", "dining table", "tv", "potted plant",
+})
+# How sure the detector must be. Its low-confidence guesses are wild, and one
+# invented object undoes the credibility of a whole correct sentence.
+_OBJECT_CONFIDENCE = 0.45
+_MAX_OBJECTS = 4
+
+
+def _objects_in_frame(frame, de: bool) -> str:
+    """", and a cup and a laptop" — or "" if there is nothing worth saying.
+
+    The detector has been in the project all along, powering "find my keys"
+    and the tracking overlay, and this skill never called it: "can you see
+    me?" reported an expression and stopped. That was not a missing
+    capability, it was an unused one.
+
+    Appended rather than replacing the expression read, because both are
+    true and they answer different halves of the question.
+    """
+    try:
+        from backend.modules.vision.detector import get_detector
+        found = get_detector().detect(frame)
+    except Exception as e:                    # detector optional, never fatal
+        log.debug("vision_query: object detection unavailable: %s", e)
+        return ""
+
+    labels: list[str] = []
+    for d in found:
+        label = (d.get("label") or "").lower()
+        if (d.get("score", 0) < _OBJECT_CONFIDENCE
+                or label in _NOT_WORTH_MENTIONING
+                or label in labels):
+            continue
+        labels.append(label)
+        if len(labels) >= _MAX_OBJECTS:
+            break
+
+    if not labels:
+        return ""
+    if de:
+        joined = ", ".join(labels[:-1]) + (" und " if len(labels) > 1 else "") + labels[-1]
+        return f". Ich sehe auch {joined}"
+    joined = ", ".join(labels[:-1]) + (" and " if len(labels) > 1 else "") + labels[-1]
+    return f". I can also see {joined}"
+
+
 def run(args: dict | None = None) -> str:
     utterance = ((args or {}).get("utterance") or "").strip()
     language = (args or {}).get("language", "en")
@@ -155,27 +205,38 @@ def run(args: dict | None = None) -> str:
 
     summary = summarize(perception, de)
 
-    # ── Add face identity when the user asks "who/recognize" ─────────────────
+    # ── Say WHO, not just what expression ────────────────────────────────────
+    # Recognition used to be gated on the utterance containing "who" or
+    # "recognise". So "can you see me?" — the most obvious way to ask — got a
+    # bare expression read from a system that had already been taught the
+    # face and could name it. She knew and did not say.
     lower = utterance.lower()
-    wants_identity = any(
-        w in lower for w in ("recogn", "who", "erkennst", "wer")
-    )
-    if wants_identity and perception.get("faces"):
+    asked_outright = any(w in lower for w in ("recogn", "who", "erkennst", "wer"))
+    name = None
+    if perception.get("faces") and face_id.is_available():
         try:
             name, _dist = face_id.identify(frame)
         except Exception:
             name = None
-        if name:
-            prefix = f"Du bist {name}. " if de else f"You're {name}. "
-            return prefix + summary
-        if face_id.is_available():
-            return (
-                "Ich erkenne dein Gesicht noch nicht. Sag: merke dir mein Gesicht als, und deinen Namen. "
-                if de
-                else "I don't recognize your face yet. Say 'remember my face as' and your name. "
-            ) + summary
 
-    return summary
+    if name:
+        summary = (f"Du bist {name}. " if de else f"You're {name}. ") + summary
+    elif asked_outright and perception.get("faces") and face_id.is_available():
+        # Only when they asked outright: volunteering "I don't know you" at
+        # every glance would be pestering, and she asks for a name on her own
+        # when she sees a stranger anyway (vision/introductions.py).
+        summary = (
+            "Ich erkenne dein Gesicht noch nicht. Sag: merke dir mein Gesicht als, und deinen Namen. "
+            if de
+            else "I don't recognize your face yet. Say 'remember my face as' and your name. "
+        ) + summary
+
+    # ── ...and WHAT ELSE is in frame ─────────────────────────────────────────
+    # The object detector has been here all along, used by "find my keys" and
+    # by the tracking overlay, and this skill never called it. That is why
+    # "can you see me" answered with an expression and nothing else: not a
+    # missing capability, an unused one.
+    return summary + _objects_in_frame(frame, de)
 
 
 def self_test() -> bool:

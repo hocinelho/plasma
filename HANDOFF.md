@@ -207,7 +207,7 @@ start by guessing.
 | 1 | **Turning — he still cannot see her back.** Called "the most important". | 🔴 backend is correct, browser half unverified |
 | 2 | **She doesn't take all my talk** — recordings cut off mid-sentence. | ✅ fixed below |
 | 3 | **Open Gmail** | ✅ fixed below |
-| 4 | **She can't see** | 🟡 works; the answer is thin |
+| 4 | **She can't see** | ✅ fixed — she now says who and what |
 | 5 | **No reaction to a raised hand** | 🟡 fixed in code, never confirmed working |
 | 6 | **Doesn't hear well** — "OTT" → "OTDN", "back" → "bug"/"buck"/"ass" | 🔴 open |
 | 7 | **Can't move freely as told** | 🔴 open |
@@ -237,12 +237,27 @@ timeout — it stops ~1.6s after you stop talking, up to 30s.
 the LLM explained it couldn't. Fixed: gmail, drive, calendar, maps, whatsapp,
 teams, linkedin, and hyphen/space normalising ("g-mail" → "gmail").
 
-**4 — "She can't see."** She does: the log shows
-`Snapshot from the browser's camera (0.1s old)`. What she gives back is a
-one-line MediaPipe read (expression, hands, fingers) — no scene description,
-because the vision model that would describe it is a separate, slow path.
-Open question for Hocine: is "can you see me" meant to answer *"yes, you look
-tired"* or *"you're at a desk with a coffee mug"*? They are different features.
+**4 — "She can't see."** *"We already have a tracking system and recognising
+previously, she should be able to do that."* Correct — and both were already
+built. `vision_query`, the skill that answers "can you see me?", called
+neither of them. It ran MediaPipe, reported an expression, and stopped. Not a
+missing capability: an unused one.
+
+- **Recognition** ran only when the utterance contained "who" or "recognise",
+  so "can you see me?" — the most obvious way to ask — got a bare expression
+  read from a system that already knew the name. She knew and did not say.
+  Now she leads with it whenever the face is one she has been taught.
+- **The object detector** has been in the project all along, powering "find my
+  keys" and the tracking overlay, and this skill never touched it. Now
+  appended: *"You're Hocine. You look neutral. I can also see a cup and a
+  laptop."*
+
+Filtered on purpose: "person" and furniture are dropped (telling the person
+asking that you can see a person is not news), low-confidence guesses are
+dropped (one invented object undoes a whole correct sentence), and it stops
+at four so a spoken answer stays a sentence rather than an inventory.
+**Names still need `pip install deepface`** — without it `identify()` returns
+None for everybody and she reports what she sees but never who.
 
 **6 — Hearing.** `base.en` Whisper on a CPU that is also running Ollama,
 MediaPipe and a WebGL render; the log is full of `input overflow`, which is
