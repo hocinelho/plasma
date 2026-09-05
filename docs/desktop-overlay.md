@@ -53,6 +53,22 @@ $env:PLASMA_OVERLAY_WATCH = "0"
 python scripts\desktop_overlay.py
 ```
 
+**PowerShell remembers `$env:` for the life of the window.** Something you
+set an hour ago while debugging still wins over the defaults, and the script
+just quietly does the old thing. It says so now — if the mode line reads
+`<-- from PLASMA_OVERLAY_TRANSPARENCY in this shell`, that is what happened:
+
+```powershell
+Remove-Item Env:PLASMA_OVERLAY_TRANSPARENCY, Env:PLASMA_OVERLAY_CHROMA, Env:PLASMA_OVERLAY_SOFTWARE -ErrorAction SilentlyContinue
+```
+
+The mode can also be passed as an argument, which beats the environment — so
+there is always one command that does what it says:
+
+```powershell
+python scripts\desktop_overlay.py --shape
+```
+
 ## Transparency — the window *is* her outline
 
 **Only her body shows. There is no window around her.** That is what `shape`
@@ -133,8 +149,11 @@ window beats an invisible one you cannot debug.
 ### If she is still in a box
 
 The script prints the mode, then a diagnostic block, then one line saying
-whether the shape actually applied. Read that line first:
+whether the shape actually applied. Read the **mode** line first:
 
+- *"Transparency mode: colorkey"* (or `alpha`, or `none`) — shape mode never
+  ran. A `$env:PLASMA_OVERLAY_TRANSPARENCY` left over in this PowerShell
+  window is overriding it; see above.
 - *"Shape clipping: on"* — the region applied. If you still see a box, it is
   not this window.
 - *"the page reported an outline but the window region would not apply"* —

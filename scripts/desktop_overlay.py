@@ -116,6 +116,8 @@ DEFAULT_CHROMA = "#010101"
 # a hair *inside* her anti-aliased outline than to leave a rim of window
 # background around her.
 DEFAULT_SHAPE_ALPHA = 96
+DEFAULT_TRANSPARENCY = "shape"
+TRANSPARENCY_MODES = ("shape", "alpha", "colorkey", "none", "auto")
 # How often the page re-reports her outline. She breathes and gestures, so the
 # shape has to follow her; ~9 times a second is smooth to the eye and costs
 # one downscaled 100px readback per update.
@@ -463,11 +465,20 @@ SHAPE_JS = r"""
 
     // Chained rather than setInterval: if a frame takes longer than PERIOD we
     // wait for it instead of piling calls up on the bridge.
+    //
+    // An unchanged outline is not sent at all. She stands still and breathes,
+    // so most frames are identical to the last one, and every call crosses a
+    // JSON bridge and rebuilds a GDI region at the other end. Comparing the
+    // runs first turns "always working" into "working only when she moves".
+    var last = '';
     function tick() {
         var runs = null;
         try { runs = scan(); } catch (e) { runs = null; }
-        var done = runs ? window.pywebview.api.set_shape(runs, W, H)
-                        : Promise.resolve();
+        var key = runs ? runs.join(',') : '';
+        var done = (runs && key !== last)
+            ? window.pywebview.api.set_shape(runs, W, H)
+            : Promise.resolve();
+        last = key;
         done.catch(function () {}).then(function () {
             setTimeout(tick, PERIOD);
         });
@@ -563,12 +574,27 @@ def main() -> int:
               f"using {DEFAULT_CHROMA}.")
         chroma = DEFAULT_CHROMA
 
-    mode = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "shape").strip().lower()
+    # Where the mode came from matters as much as what it is. Debugging this
+    # feature means setting PLASMA_OVERLAY_TRANSPARENCY in a shell, and a
+    # PowerShell session keeps it for as long as the window is open — so a
+    # setting from an hour ago silently beats the new default, the script
+    # runs a mechanism nobody asked for any more, and it looks like the fix
+    # did nothing. That happened. Say out loud when the environment is
+    # steering, and say what it is overriding.
+    forced = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "").strip().lower()
+    # ...and an argument beats the environment, so there is always one command
+    # that does what it says regardless of what the shell is remembering.
+    for arg in sys.argv[1:]:
+        if arg.startswith("--") and arg[2:].lower() in TRANSPARENCY_MODES:
+            forced = arg[2:].lower()
+    mode = forced or DEFAULT_TRANSPARENCY
     if mode == "auto":
         mode = "shape"          # what 'auto' used to mean, now that shape wins
-    if mode not in ("shape", "alpha", "colorkey", "none"):
-        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — using 'shape'.")
-        mode = "shape"
+    if mode not in TRANSPARENCY_MODES:
+        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — "
+              f"using {DEFAULT_TRANSPARENCY!r}.")
+        mode = DEFAULT_TRANSPARENCY
+        forced = ""
     shape_alpha = _env_int("PLASMA_OVERLAY_SHAPE_ALPHA", DEFAULT_SHAPE_ALPHA)
     shape_alpha = max(1, min(254, shape_alpha))
 
@@ -614,7 +640,13 @@ def main() -> int:
     print(f"\n{bar}")
     print(f"  Plasma desktop overlay — {url}")
     print(f"  {width}x{height} in the {corner} corner ({screen_w}x{screen_h} screen)")
-    print(f"  Transparency mode: {mode}")
+    if forced and mode != DEFAULT_TRANSPARENCY:
+        print(f"  Transparency mode: {mode}  <-- from PLASMA_OVERLAY_TRANSPARENCY "
+              f"in this shell,\n     NOT the default ({DEFAULT_TRANSPARENCY}). "
+              f"To go back to the default:")
+        print("       Remove-Item Env:PLASMA_OVERLAY_TRANSPARENCY")
+    else:
+        print(f"  Transparency mode: {mode}")
     print("  Drag her to move her. Press Escape (with the window focused) to close.")
     print("  Plasma itself must already be running — python run_plasma.py")
     print(f"{bar}\n")

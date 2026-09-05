@@ -221,6 +221,37 @@ class TestTransparencyMode:
         assert "--disable-gpu-compositing" in \
             os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"]
 
+    def test_a_stale_env_var_says_so_loudly(self, monkeypatch, capsys):
+        """This cost a whole round trip. Debugging transparency means setting
+        PLASMA_OVERLAY_TRANSPARENCY in a shell, and PowerShell keeps it for
+        the life of the window — so an hour later the old setting silently
+        beat the new default, a mechanism nobody wanted any more ran, and it
+        looked like the fix had done nothing at all."""
+        self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="colorkey")
+        out = capsys.readouterr().out
+        assert "PLASMA_OVERLAY_TRANSPARENCY" in out
+        assert "NOT the default" in out
+        assert "Remove-Item" in out            # the actual way out, not advice
+
+    def test_the_default_does_not_nag(self, monkeypatch, capsys):
+        monkeypatch.delenv("PLASMA_OVERLAY_TRANSPARENCY", raising=False)
+        self._create_kwargs(monkeypatch)
+        assert "NOT the default" not in capsys.readouterr().out
+
+    def test_an_argument_beats_the_environment(self, monkeypatch):
+        """So there is always one command that does what it says, whatever
+        the shell is remembering."""
+        monkeypatch.setattr(sys, "argv", ["desktop_overlay.py", "--shape"])
+        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
+        assert kwargs["transparent"] is False   # alpha would have been True
+
+    def test_an_unrecognised_argument_is_ignored(self, monkeypatch):
+        """It takes no other flags; a stray one must not change the mode or
+        stop it starting."""
+        monkeypatch.setattr(sys, "argv", ["desktop_overlay.py", "--verbose", "x"])
+        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
+        assert kwargs["transparent"] is True
+
     def test_none_disables_it_entirely(self, monkeypatch):
         """An escape hatch for when both mechanisms misbehave — a visible
         window beats an invisible one you cannot debug."""
@@ -338,6 +369,31 @@ class TestShapeReporter:
         came back. The reporter chains instead."""
         assert "setInterval(" not in overlay.SHAPE_JS
         assert "setTimeout(tick" in overlay.SHAPE_JS
+
+    def test_an_unchanged_outline_is_not_resent(self):
+        """She stands still and breathes, so most frames are identical. Every
+        call crosses a JSON bridge and rebuilds a GDI region at the far end —
+        worth skipping when there is nothing new to say."""
+        assert "key !== last" in overlay.SHAPE_JS
+
+    def test_it_survives_pywebviews_evaluate_js_escaping(self):
+        """evaluate_js does not run the script — it embeds it in a
+        double-quoted JS string and eval()s that (pywebview 6.2.1
+        window.py + util.escape_string). Backslashes, double quotes and
+        newlines are escaped; anything the escaper does not handle silently
+        breaks the whole injection."""
+        def escape_string(s):          # copied verbatim from util.py
+            return (s.replace('\\', '\\\\').replace('"', r'\"')
+                     .replace('\n', r'\n').replace('\r', r'\r')
+                     .replace("'", r'\''))
+
+        rendered = overlay.SHAPE_JS % {"alpha": 96, "period": 110}
+        escaped = escape_string(rendered)
+        # A real newline surviving into the string literal would end it.
+        assert "\n" not in escaped and "\r" not in escaped
+        # A backtick or a ${...} would be fine here but not everywhere the
+        # script travels; and a stray quote must already be escaped.
+        assert '"' not in escaped.replace(r'\"', "")
 
     def test_the_substitutions_it_declares_are_the_ones_main_supplies(self):
         """It is applied with `%`, so a stray unescaped percent sign in the
