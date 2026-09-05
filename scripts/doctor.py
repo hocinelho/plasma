@@ -79,6 +79,11 @@ OPTIONAL = {
     "docx": ("meeting minutes as Word files", "pip install python-docx"),
     "openwakeword": ("the 'hey Plasma' wake word", "pip install openwakeword"),
     "cv2": ("camera vision", "pip install opencv-python"),
+    # Without it identify() returns None for every face, so she never greets
+    # anyone by name and never notices a stranger to ask about. Nothing
+    # errors — the feature is simply not there, which is precisely the kind
+    # of silence this script exists to break.
+    "deepface": ("remembering faces by name", "pip install deepface"),
     # Only serve_phone.py needs this, so it is not fatal for a desktop run —
     # but it IS fatal for the phone, and finding that out from a traceback
     # instead of from here is the exact failure this script exists to prevent.

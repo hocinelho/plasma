@@ -83,9 +83,33 @@ def run(args: dict | None = None) -> str:
     language = (args or {}).get("language", "en")
     de = language == "de"
 
-    # ── Face enrollment: "remember my face as <name>" ────────────────────────
     from backend.modules.vision import face_id
 
+    # ── Answering "what's your name?" ────────────────────────────────────────
+    # She saw a face she did not know and asked. The reply is routed straight
+    # back here (chat_service's pending-intent path), and it is just a name —
+    # there is nothing in "Hocine" to route on, which is exactly why the
+    # pending state has to say what question it is an answer to.
+    from backend.modules.vision.introductions import AWAITING_NAME
+
+    if (args or {}).get("pending") == AWAITING_NAME:
+        offered = face_id.parse_offered_name(utterance)
+        if not offered:
+            # Not a name — a refusal, or she misheard. Say nothing more about
+            # it: pressing a stranger twice for their name is worse than not
+            # learning it. The pending state is already consumed, so the next
+            # thing they say is an ordinary conversation again.
+            return ("Kein Problem." if de else "No problem.")
+        try:
+            frame = _capture()
+        except Exception as e:
+            return f"Kamera nicht verfügbar: {e}" if de else f"Camera not available: {e}"
+        face_id.enroll(offered, frame)
+        return (f"Freut mich, {offered}! Ich merke mir dein Gesicht."
+                if de else
+                f"Nice to meet you, {offered}! I'll remember your face.")
+
+    # ── Face enrollment: "remember my face as <name>" ────────────────────────
     enroll_name = face_id.parse_enroll_command(utterance)
     # "memorize my face" with no name → use the identified speaker, else ask.
     if not enroll_name and face_id.is_enroll_intent(utterance):

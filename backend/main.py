@@ -1153,6 +1153,15 @@ async def websocket_perception_input(ws: WebSocket):
     _WAVE_COOLDOWN_S  = 15.0
     wave_trigger = DebouncedTrigger(frames=_WAVE_FRAMES, cooldown_s=_WAVE_COOLDOWN_S)
 
+    # A face she does not recognise → she introduces herself and asks who it
+    # is. Same mechanism again: sustained over several frames so somebody
+    # walking past does not trigger it, and cooled down hard because being
+    # asked your name twice is worse than not being asked. See
+    # vision/introductions.py for what happens to the answer.
+    from backend.modules.vision import introductions
+    stranger_trigger = DebouncedTrigger(frames=introductions.STRANGER_FRAMES,
+                                        cooldown_s=introductions.ASK_COOLDOWN_S)
+
     # DeepFace (TF) takes ~30-60 s to load on the first call.
     # Running identify() as a fire-and-forget task keeps frames flowing
     # while TF initialises; we collect the result on the next iteration.
@@ -1222,6 +1231,25 @@ async def websocket_perception_input(ws: WebSocket):
                         proactive_tts.fire(greeting, lang)
                         last_greeted = cached_identity
                         last_greeting_t = now
+
+                # ── proactive: ask a stranger who they are ─────────────────
+                # Only when face recognition is actually working. Without
+                # DeepFace installed, identify() returns None for everybody,
+                # so this would ask the same person their name every five
+                # minutes forever. `identify` also has to be on: reading a
+                # face is something to opt into, and asking about one even
+                # more so.
+                stranger = bool(
+                    data.get("identify")
+                    and perception.get("faces")
+                    and not cached_identity
+                    and face_id.is_available()
+                )
+                if stranger_trigger.observe(stranger, now):
+                    lang = "de" if de else "en"
+                    proactive_tts.fire(introductions.question(de), lang)
+                    introductions.arm(data.get("session_id"))
+                    log.info("Unknown face — asked for a name")
 
                 # ── proactive: sleepy alert after sustained drowsiness ─────
                 faces = perception.get("faces", [])

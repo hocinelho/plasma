@@ -58,6 +58,47 @@ def is_enroll_intent(text: str) -> bool:
     return bool(_ENROLL_INTENT_RE.search((text or "").strip()))
 
 
+# The answer to "what's your name?" — a whole sentence, or just the name.
+# Deliberately separate from _ENROLL_RE: that one has to be sure, because it
+# fires unprompted out of ordinary conversation. This one only ever runs on
+# the turn straight after she asked, where "Hocine" is a complete answer and
+# demanding "remember my face as Hocine" would be absurd.
+_OFFERED_NAME_RE = re.compile(
+    r"^(?:my\s+name\s+is|i\s*(?:'m|\s+am)|it\s*(?:'s|\s+is)|this\s+is|call\s+me|"
+    r"ich\s+(?:heiße|heisse|bin)|mein\s+name\s+ist|nenn\s+mich)?"
+    r"\s*([a-zA-ZÀ-ÿ][a-zA-ZÀ-ÿ'-]{1,30})\s*[.!]?$",
+    re.IGNORECASE,
+)
+
+# Words that pass the shape test above but are answers to a different
+# question — mostly refusals. Enrolling a face as "No" would be permanent and
+# would need finding and deleting by hand.
+_NOT_A_NAME = frozenset({
+    "no", "nope", "nothing", "none", "never", "nein", "nichts", "niemand",
+    "yes", "yeah", "yep", "ja", "ok", "okay", "sure", "stop", "cancel",
+    "later", "nevermind", "später", "abbrechen", "who", "what", "why",
+    "wer", "was", "warum", "hello", "hi", "hallo", "hey", "thanks", "danke",
+})
+
+
+def parse_offered_name(text: str) -> Optional[str]:
+    """The name in an answer to "what's your name?", or None.
+
+    Accepts a bare "Hocine" as readily as "my name is Hocine", because that
+    is how people actually answer. Returns None for anything that is not a
+    plausible single name — a refusal, a question back, or a whole sentence —
+    so declining to answer leaves nothing enrolled rather than saving a face
+    under the word "no".
+    """
+    m = _OFFERED_NAME_RE.match((text or "").strip())
+    if not m:
+        return None
+    name = m.group(1).strip()
+    if name.lower() in _NOT_A_NAME:
+        return None
+    return name.capitalize()
+
+
 def is_available() -> bool:
     """True if DeepFace can be imported (optional heavy dependency)."""
     if not config.FACE_ID_ENABLED:

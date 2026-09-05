@@ -195,6 +195,12 @@ def handle_chat(
                     "session_id": session_id,
                     "language": language,
                     "speaker": speaker,
+                    # The whole fact, not just the skill name. A skill with one
+                    # pending state can ignore it; one with several — or one
+                    # that must tell "I am answering her question" from "I am
+                    # starting fresh" — cannot work it out from the utterance,
+                    # because the answer to "what's your name?" is just a name.
+                    "pending": fact["content"],
                 })
                 memory.add_message(session_id, "assistant", reply)
                 memory.mark_skill_used(skill.name, success=True)

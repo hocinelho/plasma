@@ -148,9 +148,21 @@ it was that neither reached the conversation.
      corner placement, and the run→region scaling (plus the page-side
      scanline walker, run under node). See `docs/desktop-overlay.md`.
 
-6. **Face memory with a name, from one sighting.** Still open.
-   `face_id.enroll()` exists; the gap is doing it conversationally ("this is
-   Anna") and recalling it unprompted on the next sighting.
+6. **Face memory with a name, from one sighting.** ✅ Done.
+   She sees a face `identify()` does not know, holds it for ~9 frames (~1.5s,
+   so a passer-by does not count), and asks: *"Hello! I don't think we've
+   met. What's your name?"* The answer is routed straight back to
+   `vision_query` through the pending-intent mechanism the alarm skill
+   already used — necessary because "Hocine" is a complete answer that
+   matches no trigger and would otherwise go to the LLM as small talk. It is
+   enrolled from the frame the browser is already streaming, and she greets
+   them by name from then on (that half already existed).
+   `backend/modules/vision/introductions.py` holds the marker and the pacing;
+   `face_id.parse_offered_name()` reads the answer and refuses refusals, so
+   declining leaves nothing saved rather than a face enrolled as "No".
+   **Needs `pip install deepface`** — it is optional and not in
+   requirements.txt, and without it `identify()` returns None for everybody,
+   so none of this fires. `scripts/doctor.py` now says so.
 
 ---
 
