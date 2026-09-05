@@ -123,15 +123,30 @@ it was that neither reached the conversation.
    - **Browser / phone:** she no longer paces on her own in stage/overlay
      mode (the autonomous `wander()` timer — side-to-side drift plus
      walk-left/right clips — is removed entirely; "she is moving alone, she
-     must stand" was this). She only moves for a request or a reaction.
+     must stand" was this). Ambient motion is now `idle-breathing` and
+     nothing else — it used to be a random pick from every `idle-*` clip,
+     which still read as fidgeting. She only moves for a request or a
+     reaction.
    - **Windows desktop:** ✅ `scripts/desktop_overlay.py` — pywebview,
-     transparent + frameless + always-on-top, loads the same `/?overlay=1`
-     page the Android app uses, sits in a screen corner (configurable),
-     drag to move. **NOT tested on a real Windows machine** — no display
-     available here; the corner-placement math is unit tested
-     (`tests/test_desktop_overlay.py`), the GUI half is not. See
-     `docs/desktop-overlay.md` for the same category of caveat the Android
-     README carries (no true click-through, no system tray icon yet).
+     frameless + always-on-top, loads the same `/?overlay=1` page the
+     Android app uses, sits in a screen corner (configurable), drag to move.
+   - **Only her body, no window** (four failed attempts before this one).
+     Making WebView2 composite transparently does not work: Chromium renders
+     through DirectComposition, so neither `LWA_COLORKEY` nor
+     `SetWindowCompositionAttribute` can reach its pixels — you get a box
+     that changes colour, not a box that goes away. The fix is to stop
+     trying: **clip the window to her silhouette with `SetWindowRgn`**
+     (`PLASMA_OVERLAY_TRANSPARENCY=shape`, the default). The page reads her
+     alpha off the WebGL canvas, downscaled to ~100px, and reports scanline
+     runs ~9×/s; Python scales them and applies one `ExtCreateRegion`. The
+     OS clips *around* the content, so the renderer is irrelevant, and
+     regions clip mouse input too — click-through comes free. Hard edges are
+     the trade-off (a sticker cut-out, like every Windows desktop pet).
+     No new dependency. `alpha`/`colorkey` are kept as alternatives.
+   - **NOT tested on a real Windows machine** — no display available here.
+     The two pieces of arithmetic that can be silently wrong *are* tested:
+     corner placement, and the run→region scaling (plus the page-side
+     scanline walker, run under node). See `docs/desktop-overlay.md`.
 
 6. **Face memory with a name, from one sighting.** Still open.
    `face_id.enroll()` exists; the gap is doing it conversationally ("this is

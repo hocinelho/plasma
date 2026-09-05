@@ -7,9 +7,14 @@ that run before a window is ever created.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "desktop_overlay.py"
@@ -24,6 +29,73 @@ _spec = importlib.util.spec_from_file_location("desktop_overlay", SCRIPT)
 overlay = importlib.util.module_from_spec(_spec)
 sys.modules["desktop_overlay"] = overlay
 _spec.loader.exec_module(overlay)
+
+
+# Just enough browser for the outline reporter to run under node: a window
+# and document with the two measurements it takes, a 2D context whose
+# getImageData returns a scripted alpha channel, and a stand-in for the
+# pywebview bridge that records what it was handed. Everything it does NOT
+# use is deliberately absent, so a future version of the reporter reaching
+# for something else fails loudly here instead of silently on Windows.
+HARNESS_JS = r"""
+var BLANK = false;
+var W = 100, H = 8;
+var captured = null;
+
+function pixels() {
+    var d = new Uint8ClampedArray(W * H * 4);
+    if (BLANK) return d;
+    for (var y = 0; y < H; y++) {
+        for (var x = 20; x < 30; x++) d[(y * W + x) * 4 + 3] = 255;
+        if (y === 3) for (var x2 = 60; x2 < 65; x2++) d[(y * W + x2) * 4 + 3] = 255;
+    }
+    return d;
+}
+
+var probe = {
+    width: 0, height: 0,
+    getContext: function () {
+        return {
+            clearRect: function () {},
+            drawImage: function () {},
+            getImageData: function () { return { data: pixels() }; },
+        };
+    },
+};
+var avatarCanvas = {
+    width: 300, height: 600,
+    getBoundingClientRect: function () {
+        return { left: 0, top: 0, width: 100, height: 8 };
+    },
+};
+
+global.window = {
+    innerWidth: 100,
+    innerHeight: 8,
+    pywebview: { api: { set_shape: function (runs, w, h) {
+        captured = { runs: runs, w: w, h: h };
+        return Promise.resolve(true);
+    } } },
+};
+global.document = {
+    documentElement: { clientWidth: 100, clientHeight: 8 },
+    createElement: function () { return probe; },
+    getElementById: function (id) {
+        return id === 'avatar-human'
+            ? { querySelector: function () { return avatarCanvas; } } : null;
+    },
+};
+// The reporter reschedules itself; one pass is all this needs.
+global.setTimeout = function () {};
+
+function report() {
+    // set_shape resolves on a microtask, and the reporter's own .then runs
+    // after it — drain both before reading the result.
+    Promise.resolve().then(function () {}).then(function () {
+        process.stdout.write(JSON.stringify(captured));
+    });
+}
+"""
 
 
 class TestComputePosition:
@@ -101,16 +173,24 @@ class TestTransparencyMode:
         assert overlay.main() == 0
         return fake.last_kwargs
 
-    def test_auto_is_the_default_and_builds_a_keyable_window(self, monkeypatch):
-        """The two mechanisms need opposite window setups, so a run can only
-        be built for one of them. 'auto' builds for the colour key — opaque,
-        painting `chroma` — because that is the one that can still be tried
-        again afterwards; the DWM route cannot show through an opaque
-        WebView2 no matter when it is applied."""
+    def test_shape_is_the_default(self, monkeypatch):
+        """Both browser-side mechanisms lose to the same thing — Chromium
+        composites through DirectComposition, where neither a colour key nor
+        a DWM accent can reach its pixels. Clipping the window to her
+        outline sidesteps the renderer entirely, so it is what runs by
+        default now."""
         monkeypatch.delenv("PLASMA_OVERLAY_TRANSPARENCY", raising=False)
         kwargs = self._create_kwargs(monkeypatch)
         assert kwargs["transparent"] is False
         assert kwargs["background_color"] == overlay.DEFAULT_CHROMA
+
+    def test_auto_still_works_and_now_means_shape(self, monkeypatch, capsys):
+        """'auto' was the documented default for the old two-mechanism
+        version — it must not start printing "unknown" at people who still
+        have it set."""
+        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="auto")
+        assert kwargs["transparent"] is False
+        assert "unknown" not in capsys.readouterr().out
 
     def test_alpha_asks_pywebview_for_a_transparent_window(self, monkeypatch):
         kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
@@ -121,7 +201,7 @@ class TestTransparencyMode:
             monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="colorkey")
         assert kwargs["transparent"] is False
 
-    def test_an_unknown_mode_falls_back_to_auto(self, monkeypatch, capsys):
+    def test_an_unknown_mode_falls_back_to_the_default(self, monkeypatch, capsys):
         kwargs = self._create_kwargs(
             monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="magic")
         assert kwargs["transparent"] is False
@@ -146,6 +226,180 @@ class TestTransparencyMode:
         window beats an invisible one you cannot debug."""
         kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="none")
         assert kwargs["transparent"] is False
+
+
+class TestShapeGeometry:
+    """The run→rectangle arithmetic behind shape mode.
+
+    This is the one part of the mechanism that can be wrong without saying
+    so. Off by a scale factor and the window is clipped to a sliver of her;
+    off by the client offset and it is clipped to the wrong place; return
+    nothing and the window disappears entirely. None of that raises, and
+    none of it can be checked from here on a machine with no Windows and no
+    display — so it is a pure function, and this is where it is pinned.
+    """
+
+    def test_a_full_row_covers_the_full_width(self):
+        # One run: row 0, columns 0..10 of a 10-wide grid — all of it.
+        rects = overlay.runs_to_rects([0, 0, 10], 10, 10, 100, 200)
+        assert rects == [(0, 0, 100, 20)]
+
+    def test_runs_are_scaled_from_the_grid_to_the_client_area(self):
+        """The page samples on its own small grid; the window is whatever
+        size Windows says. A run halfway across the grid must land halfway
+        across the window."""
+        rects = overlay.runs_to_rects([0, 5, 10], 10, 10, 200, 400)
+        assert rects == [(100, 0, 200, 40)]
+
+    def test_neighbouring_rows_share_an_edge_with_no_gap(self):
+        """Scaled up, each grid row becomes several window rows. If the two
+        edges round differently there is a transparent hairline between every
+        band and she comes out looking like a venetian blind."""
+        rects = overlay.runs_to_rects([0, 0, 4, 1, 0, 4, 2, 0, 4], 4, 3, 40, 100)
+        for above, below in zip(rects, rects[1:]):
+            assert above[3] == below[1]
+        assert rects[0][1] == 0 and rects[-1][3] == 100
+
+    def test_the_client_offset_shifts_into_window_coordinates(self):
+        """SetWindowRgn measures from the window's top-left, not the
+        client's. On a frameless window the two coincide; anywhere they do
+        not, forgetting this clips her to a rectangle sliding off her body."""
+        rects = overlay.runs_to_rects([0, 0, 10], 10, 10, 100, 100, off_x=8, off_y=30)
+        assert rects == [(8, 30, 108, 40)]
+
+    def test_several_runs_on_one_row_stay_separate(self):
+        """Her arms away from her body make two runs on the same scanline —
+        the gap between them is exactly the transparency we are here for."""
+        rects = overlay.runs_to_rects([0, 0, 2, 0, 8, 10], 10, 10, 100, 100)
+        assert rects == [(0, 0, 20, 10), (80, 0, 100, 10)]
+
+    def test_empty_input_gives_no_rectangles(self):
+        assert overlay.runs_to_rects([], 10, 10, 100, 100) == []
+
+    def test_a_truncated_run_is_ignored_rather_than_crashing(self):
+        """The runs arrive over the JS bridge as a flat list. A partial
+        triple must not raise inside a per-frame callback."""
+        assert overlay.runs_to_rects([0, 0, 10, 1, 5], 10, 10, 100, 100) == \
+            [(0, 0, 100, 10)]
+
+    def test_a_zero_sized_window_gives_no_rectangles(self):
+        """Minimised, or asked before the window has been laid out. Better to
+        report nothing (the caller keeps the last shape) than to divide by
+        zero."""
+        assert overlay.runs_to_rects([0, 0, 10], 10, 10, 0, 0) == []
+        assert overlay.runs_to_rects([0, 0, 10], 0, 0, 100, 100) == []
+
+    def test_runs_are_clamped_to_the_window(self):
+        """A stale grid size — the window was resized between the page's scan
+        and this call — must not produce rectangles outside the window."""
+        rects = overlay.runs_to_rects([9, 0, 10], 10, 10, 50, 50)
+        for left, top, right, bottom in rects:
+            assert 0 <= left < right <= 50
+            assert 0 <= top < bottom <= 50
+
+    def test_no_degenerate_rectangles(self):
+        """A zero-width or zero-height rectangle in the region data is at best
+        wasted and at worst rejected by ExtCreateRegion, taking the whole
+        outline with it."""
+        rects = overlay.runs_to_rects(
+            [0, 0, 1, 0, 3, 3, 1, 2, 4], 200, 200, 10, 10)
+        assert all(r[2] > r[0] and r[3] > r[1] for r in rects)
+
+
+class TestShapeReporter:
+    """The page half. It is injected as a string, so nothing type-checks it."""
+
+    JS = property(lambda self: overlay.SHAPE_JS)
+
+    def test_it_is_inert_outside_the_overlay_window(self):
+        """The same page is served to a normal browser and to the phone —
+        neither has window.pywebview, and neither may be broken by this."""
+        assert "window.pywebview" in overlay.SHAPE_JS
+        assert "api.set_shape" in overlay.SHAPE_JS
+
+    def test_it_reads_the_avatar_canvas(self):
+        assert "avatar-human" in overlay.SHAPE_JS
+
+    def test_it_measures_against_the_viewport_not_the_canvas(self):
+        """Her canvas need not fill the window, and the Python side only
+        knows the window. Reporting canvas-relative runs would clip her to a
+        stretched copy of herself."""
+        assert "getBoundingClientRect" in overlay.SHAPE_JS
+        assert "clientWidth" in overlay.SHAPE_JS
+
+    def test_it_downscales_before_reading_pixels(self):
+        """Reading the full canvas every frame is the "heavy" this is meant
+        to avoid — drawImage does the resize on the GPU."""
+        assert "drawImage" in overlay.SHAPE_JS
+        assert "willReadFrequently" in overlay.SHAPE_JS
+
+    def test_it_does_not_pile_calls_up_on_the_bridge(self):
+        """setInterval would queue a new call whether or not the last one
+        came back. The reporter chains instead."""
+        assert "setInterval(" not in overlay.SHAPE_JS
+        assert "setTimeout(tick" in overlay.SHAPE_JS
+
+    def test_the_substitutions_it_declares_are_the_ones_main_supplies(self):
+        """It is applied with `%`, so a stray unescaped percent sign in the
+        JavaScript is a TypeError at runtime and no transparency at all."""
+        rendered = overlay.SHAPE_JS % {"alpha": 96, "period": 110}
+        assert "96" in rendered and "110" in rendered
+
+    def test_the_scanline_walker_finds_the_right_runs(self, tmp_path):
+        """Actually run the reporter, against a scripted alpha channel.
+
+        The other half of the geometry lives in this string, and an off-by-one
+        in the run loop is exactly as invisible as one in runs_to_rects — it
+        just shaves a column off her, or reports a run that ends one pixel
+        early. Node is not a project dependency, so this is skipped where it
+        is missing rather than being a reason to add one.
+        """
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node is not installed")
+
+        harness = tmp_path / "harness.js"
+        harness.write_text(HARNESS_JS + "\n" + (
+            overlay.SHAPE_JS % {"alpha": 96, "period": 110}) + "\nreport();\n",
+            encoding="utf-8")
+        out = subprocess.run([node, str(harness)], capture_output=True,
+                             text=True, timeout=60)
+        assert out.returncode == 0, out.stderr
+        result = json.loads(out.stdout)
+
+        # The stub paints columns 20..30 on every row, plus 60..65 on row 3.
+        assert result["w"] == 100 and result["h"] == 8
+        runs = result["runs"]
+        assert runs[0:3] == [0, 20, 30]
+        # Row 3 has two runs, in left-to-right order — ExtCreateRegion wants
+        # them sorted, and that ordering falls out of the scan rather than
+        # being imposed later.
+        row3 = [runs[i:i + 3] for i in range(0, len(runs), 3) if runs[i] == 3]
+        assert row3 == [[3, 20, 30], [3, 60, 65]]
+        assert len(runs) == (8 + 1) * 3          # one run per row, two on row 3
+
+    def test_it_reports_nothing_rather_than_an_empty_outline(self, tmp_path):
+        """A blank frame — she has not rendered yet, or the model is being
+        swapped — must not be reported as "she is nowhere". An empty region
+        makes the window vanish with no way to tell that from a crash."""
+        node = shutil.which("node")
+        if not node:
+            pytest.skip("node is not installed")
+        harness = tmp_path / "harness.js"
+        harness.write_text(HARNESS_JS.replace("var BLANK = false;", "var BLANK = true;")
+                           + "\n" + (overlay.SHAPE_JS % {"alpha": 96, "period": 110})
+                           + "\nreport();\n", encoding="utf-8")
+        out = subprocess.run([node, str(harness)], capture_output=True,
+                             text=True, timeout=60)
+        assert out.returncode == 0, out.stderr
+        assert json.loads(out.stdout) is None      # set_shape was never called
+
+    def test_reading_alpha_at_all_depends_on_the_talkinghead_patch(self):
+        """A WebGL canvas is cleared after compositing unless the renderer
+        keeps the drawing buffer — without this patch every read comes back
+        blank and she is clipped to nothing."""
+        th = ROOT / "frontend" / "vendor" / "talkinghead" / "talkinghead.mjs"
+        assert "preserveDrawingBuffer: true" in th.read_text(encoding="utf-8")
 
 
 class TestScreenSizeFallback:

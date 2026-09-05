@@ -854,16 +854,30 @@
                 })
                 .catch(() => { /* offline / no backend — gestures still work */ });
 
-            // Occasional ambient motion so she doesn't stand frozen between
-            // conversations. Only ever while genuinely idle, never mid-reply.
+            // Ambient motion so she doesn't stand frozen between conversations
+            // — and nothing more than that. She stands where she is put; the
+            // only thing she does unprompted is breathe. Everything else waits
+            // for you to say or do something.
+            //
+            // So this deliberately does NOT pick at random from the idle
+            // clips: 'idle-breathing' is the one that keeps her still, and a
+            // random choice made her shift and fidget on her own, which reads
+            // as her wandering off rather than as her waiting.
+            const AMBIENT = 'idle-breathing';
+
+            function ambientClip() {
+                if (!clips.idle || !clips.idle.length) return null;
+                return clips.idle.includes(AMBIENT) ? AMBIENT : clips.idle[0];
+            }
+
             function scheduleIdle() {
                 clearTimeout(idleTimer);
                 const wait = IDLE_MIN_GAP_MS + Math.random() * 45000;
                 idleTimer = setTimeout(() => {
                     const quiet = window.avatarState === 'idle'
                                && performance.now() > lastIdle + IDLE_MIN_GAP_MS;
-                    if (quiet && clips.idle.length) {
-                        const pick = clips.idle[Math.floor(Math.random() * clips.idle.length)];
+                    const pick = quiet ? ambientClip() : null;
+                    if (pick) {
                         playClip(pick, 6, { ambient: true });
                         lastIdle = performance.now();
                     }

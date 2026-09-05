@@ -47,6 +47,15 @@ class TestOverlayPage:
         assert "holder.style.transform = `translateX" not in js
         assert "function wander(" not in js
 
+    def test_the_only_thing_she_does_unprompted_is_breathe(self):
+        """Ambient motion used to be a random pick from every idle-* clip, so
+        she shifted and fidgeted between conversations. Standing and waiting
+        is the whole behaviour asked for: one calm clip, chosen, not rolled."""
+        js = (ROOT / "frontend" / "avatar.js").read_text(encoding="utf-8")
+        assert "const AMBIENT = 'idle-breathing';" in js
+        body = js.split("function ambientClip(", 1)[1].split("}", 1)[0]
+        assert "Math.random" not in body
+
 
 class TestAndroidManifest:
     def test_requests_the_overlay_permission(self):

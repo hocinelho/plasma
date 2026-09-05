@@ -10,7 +10,9 @@ pip install pywebview
 python scripts\desktop_overlay.py
 ```
 
-She appears bottom-right, ~220×420px, on top of everything, watching the
+Only her body appears — the window is clipped to her outline, so there is no
+box and clicks outside her land on whatever is behind. She appears
+bottom-right, ~220×420px, on top of everything, watching the
 camera for a raised hand by default (see
 [Camera reactions](phone-setup.md#camera-reactions--raise-a-hand-she-waves-back)).
 Drag her to move her. Press **Escape** with the window focused to close her.
@@ -40,7 +42,8 @@ Environment variables, all optional:
 | `PLASMA_OVERLAY_CORNER` | `bottom-right` | or `bottom-left`, `top-right`, `top-left` |
 | `PLASMA_OVERLAY_MARGIN` | `24` | pixels from the screen edge |
 | `PLASMA_OVERLAY_WATCH` | `1` (on) | set `0` to skip the camera prompt entirely |
-| `PLASMA_OVERLAY_TRANSPARENCY` | `auto` | or `alpha`, `colorkey`, `none` — see below |
+| `PLASMA_OVERLAY_TRANSPARENCY` | `shape` | or `alpha`, `colorkey`, `none` — see below |
+| `PLASMA_OVERLAY_SHAPE_ALPHA` | `96` | 1-254 — how opaque a pixel must be to count as her, `shape` mode only |
 | `PLASMA_OVERLAY_SOFTWARE` | off | `1` forces software compositing so a colour key can reach her pixels |
 | `PLASMA_OVERLAY_CHROMA` | `#010101` | the colour punched out in `colorkey` mode only |
 
@@ -50,73 +53,100 @@ $env:PLASMA_OVERLAY_WATCH = "0"
 python scripts\desktop_overlay.py
 ```
 
-## Transparency — two mechanisms, and what to do if the box is still there
+## Transparency — the window *is* her outline
+
+**Only her body shows. There is no window around her.** That is what `shape`
+mode, the default, does — and it gets there by not trying to make the browser
+transparent at all.
+
+### Why the obvious approach does not work
 
 pywebview's `transparent=True` alone is **not enough on Windows**. It makes
 the WebView2 *control* transparent but never gives the WinForms *window* any
 transparency — no `TransparencyKey`, no `AllowsTransparency`, no layered
 style (checked against pywebview 6.2.1's `winforms.py`). The page's
 transparent pixels then reveal the form's own opaque background: the white
-box. So the window needs help from Win32 directly, and there are two ways to
-give it.
+box.
 
-**`alpha`.** Asks DWM for real per-pixel transparency
-(`SetWindowCompositionAttribute` with a transparent accent gradient) and lets
-WebView2 supply genuine alpha. No colour key, so no fringing on her edges.
-This is what most transparent-window toolkits use.
+Helping it from Win32 does not fix it either, and both ways of doing so fail
+for the *same* reason. Chromium renders through **DirectComposition** — its
+pixels never pass through the window's own surface — so neither a colour key
+(`WS_EX_LAYERED` + `LWA_COLORKEY`) nor a DWM accent
+(`SetWindowCompositionAttribute`) can reach them. You get a box that changes
+colour instead of a box that goes away. Forcing `--disable-gpu-compositing`
+puts the pixels back where a key can see them, at the cost of the GPU on a
+live WebGL render, and still does not work everywhere.
 
-**`colorkey`.** The older, blunter route: the window paints one exact colour
-(`PLASMA_OVERLAY_CHROMA`) and Windows drops every pixel of it via
-`WS_EX_LAYERED` + `LWA_COLORKEY`. Those regions also become **click-through**.
-Its weakness is that Chromium renders through DirectComposition, which the
-colour key cannot always see — when that happens the window just changes
-colour instead of disappearing.
+### What `shape` does instead
 
-`auto` (the default) builds the window for `colorkey` and falls back to
-trying `alpha` if the key does not take. It cannot try both properly in one
-run: the two need **opposite** window setups — `alpha` needs a transparent
-WebView2, `colorkey` needs an opaque one painting the key colour — and that
-is fixed when the window is created.
+Stop fighting the renderer. Cut the window down to her outline with a
+**window region** (`SetWindowRgn`) — the same technique behind Shimeji-style
+desktop pets, Rainmeter skins and Windows' own splash screens. A region tells
+the OS "this window only exists inside this outline". Everything else is not
+drawn, not composited, and not clickable. It is applied by USER32/DWM
+*around* the content, so what renders inside is irrelevant: WebView2 cannot
+composite past a hole that is not there.
 
-The script prints which one took, followed by a diagnostic block. **If she is
-still in a box**, the most likely cause is Chromium compositing past the
-colour key; force it back into the window's own surface:
+It works like this, ~9 times a second:
 
-```powershell
-$env:PLASMA_OVERLAY_SOFTWARE = "1"
-python scripts\desktop_overlay.py
-```
+1. The page downscales her live WebGL canvas into a ~100px-wide 2D canvas
+   (the GPU does the resize inside `drawImage`, so this is cheap).
+2. It walks the alpha channel and emits one run per horizontal stretch of
+   "this is her" — a few hundred integers.
+3. `scripts/desktop_overlay.py` scales those runs into window coordinates and
+   hands them to `ExtCreateRegion` + `SetWindowRgn` in **one** GDI call.
 
-That trades GPU acceleration for keyable pixels — she is a live WebGL render,
-so expect her to be less smooth. If that works, it confirms the diagnosis.
-The other mechanism is worth a try too:
+No new dependency — `ctypes` and a little JavaScript. Reading her alpha at all
+is possible because of the `preserveDrawingBuffer` patch in
+`frontend/vendor/talkinghead/` (added for the wallpaper studio).
 
-```powershell
-$env:PLASMA_OVERLAY_TRANSPARENCY = "alpha"
-python scripts\desktop_overlay.py
-```
+Two things follow from it, both good:
 
-**In `colorkey` mode, if parts of *her* go transparent**, a pixel in the
-render matched the key exactly — pick a colour that does not occur in her:
+- **Clicks outside her go straight through** to whatever is behind. A region
+  clips mouse input as well as pixels, so this comes for free.
+- **Dragging her means grabbing her body**, since that is the only part of
+  the window that exists.
 
-```powershell
-$env:PLASMA_OVERLAY_CHROMA = "#010203"
-```
+And one trade-off, stated plainly: a region has **hard edges**. She looks
+like a sticker cut-out rather than having softly blended anti-aliased edges.
+That is how every desktop pet on Windows has ever looked, and it is the price
+of not needing a full per-pixel-alpha compositor (what Electron ships) to get
+her out of the box.
 
-The default key is near-black rather than the classic magenta because
-anti-aliased pixels along her silhouette blend with it. A faint dark fringe
-on a character with black hair and a navy outfit is invisible; magenta would
-not be.
+`PLASMA_OVERLAY_SHAPE_ALPHA` (default 96) is where the cut falls. It is
+biased high on purpose — better a hair *inside* her outline than a rim of
+window background around her. Lower it if she looks eaten into; raise it if
+you see a dark halo.
+
+### The other modes
+
+`alpha` and `colorkey` are the two browser-side attempts described above,
+kept because they need no per-frame work and do produce soft edges on the
+machines where they happen to work. `colorkey` pairs with
+`PLASMA_OVERLAY_CHROMA` (near-black rather than the classic magenta, so that
+edge blending is invisible on a character with dark hair) and with
+`PLASMA_OVERLAY_SOFTWARE=1`. `auto` is accepted and means `shape`.
 
 `PLASMA_OVERLAY_TRANSPARENCY=none` turns the whole thing off — a visible
 window beats an invisible one you cannot debug.
 
+### If she is still in a box
+
+The script prints the mode, then a diagnostic block, then one line saying
+whether the shape actually applied. Read that line first:
+
+- *"Shape clipping: on"* — the region applied. If you still see a box, it is
+  not this window.
+- *"the page reported an outline but the window region would not apply"* —
+  Win32 refused; paste the diagnostic block.
+- **Nothing at all about shape clipping** — the page never reported an
+  outline. That means the 3D renderer fell back to the flat mascot (check the
+  browser console at `http://127.0.0.1:8000/?overlay=1`), since only the
+  full-body avatar has a silhouette to read.
+
 ## Known limits
 
-- **Anti-aliased edges pick up a faint fringe** of the key colour. That is
-  inherent to colour-key transparency; only a full per-pixel-alpha compositor
-  (what Electron does) avoids it, which is a much larger dependency than this
-  warrants.
+- **Hard edges.** See the trade-off above.
 - **She is a window, not a wallpaper.** She floats above your apps; she cannot
   be painted *between* your desktop icons and the wallpaper. For that, use the
   wallpaper studio at `/wallpaper`.
@@ -124,7 +154,8 @@ window beats an invisible one you cannot debug.
   and "tap her to talk" share the same click. A plain click still reaches
   the page as a click; only an actual drag moves the window. There is no
   touch-slop tuning available here the way the Android app has, so this is
-  a coarser approximation of the same idea.
+  a coarser approximation of the same idea. In `shape` mode both only work
+  on her body — the rest of the window is not there to click.
 - **No system tray icon.** Closing her is Escape (window focused) or closing
   the terminal that launched the script. pywebview does not give a frameless
   window a built-in close affordance, and building a tray icon was more

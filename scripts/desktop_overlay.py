@@ -28,6 +28,11 @@ Environment variables (all optional):
     PLASMA_OVERLAY_MARGIN   pixels from the screen edge, default 24
     PLASMA_OVERLAY_WATCH    "1" (default) or "0" — camera reactions on/off,
                              see docs/phone-setup.md "Camera reactions"
+    PLASMA_OVERLAY_TRANSPARENCY
+                            shape (default) | alpha | colorkey | none
+    PLASMA_OVERLAY_SHAPE_ALPHA
+                            1-254, default 96 — how opaque a pixel must be to
+                             count as part of her in shape mode
 
 Plasma itself must already be running (`python run_plasma.py`) — this window
 is only the display, exactly like the Android app; the thinking still
@@ -106,6 +111,15 @@ WINDOW_TITLE = "Plasma Overlay"
 # with black hair and a navy outfit is invisible where a magenta one would
 # not be. Nothing in the render is likely to land on exactly #010101.
 DEFAULT_CHROMA = "#010101"
+# Shape mode: how opaque a pixel must be to be counted as part of her. Biased
+# high on purpose — the region has hard edges, so it is better for it to cut
+# a hair *inside* her anti-aliased outline than to leave a rim of window
+# background around her.
+DEFAULT_SHAPE_ALPHA = 96
+# How often the page re-reports her outline. She breathes and gestures, so the
+# shape has to follow her; ~9 times a second is smooth to the eye and costs
+# one downscaled 100px readback per update.
+SHAPE_PERIOD_MS = 110
 
 
 def colorref_from_hex(hex_color: str) -> int:
@@ -214,6 +228,261 @@ def _diagnose(title: str) -> str:
     return "\n".join(lines)
 
 
+#  ══════════════════════════════════════════════════════════════════════
+#  SHAPE — cut the window down to her silhouette
+#  ══════════════════════════════════════════════════════════════════════
+#  The two mechanisms above both try to make a *browser engine* composite
+#  transparently, and both lose to the same thing: Chromium renders through
+#  DirectComposition, so neither a colour key nor a DWM accent can reach its
+#  pixels. That is the hard path, and it is not the one desktop mascots take.
+#
+#  Shimeji, Rainmeter skins, Windows' own splash screens: they all use a
+#  *window region*. SetWindowRgn tells the OS "this window only exists inside
+#  this outline" — everything else is not drawn, not composited and not even
+#  clickable. It is applied by USER32/DWM around the content, so what renders
+#  inside is irrelevant: WebView2 cannot composite past a hole that is not
+#  there. No new dependency, no GPU trickery, a few hundred rectangles.
+#
+#  The trade-off is honest: a region has hard edges, so she looks like a
+#  sticker cut-out rather than having softly-blended anti-aliased edges. That
+#  is exactly how every desktop pet on Windows has ever looked.
+#
+#  The page reports her outline; this side turns it into the region. Reading
+#  her alpha from the browser is possible at all because of the
+#  preserveDrawingBuffer patch in vendor/talkinghead (added for /wallpaper).
+
+
+def runs_to_rects(
+    runs, canvas_w: int, canvas_h: int, client_w: int, client_h: int,
+    off_x: int = 0, off_y: int = 0,
+) -> list[tuple[int, int, int, int]]:
+    """Scanline runs from the page → rectangles in window coordinates.
+
+    `runs` is flat — [y, x0, x1, y, x0, x1, ...] — because it crosses the
+    JS↔Python bridge on every frame and a flat list of ints is a third the
+    JSON of a list of triples. Each triple means "on row y, columns x0 up to
+    (not including) x1 are her".
+
+    The page samples on its own small grid (canvas_w × canvas_h) covering the
+    whole viewport; the window's client area is whatever Windows says it is.
+    Scaling between the two here rather than in the page is deliberate: this
+    is the arithmetic that can be silently wrong — off by a scale factor and
+    she is clipped to a sliver, off by an offset and she is clipped to
+    nothing — so it lives in a pure function with tests.
+
+    `off_x`/`off_y` shift client coordinates into window coordinates, since
+    SetWindowRgn measures from the window's top-left, not the client's.
+    """
+    if canvas_w <= 0 or canvas_h <= 0 or client_w <= 0 or client_h <= 0:
+        return []
+    sx = client_w / canvas_w
+    sy = client_h / canvas_h
+    rects: list[tuple[int, int, int, int]] = []
+    for i in range(0, len(runs) - 2, 3):
+        y, x0, x1 = int(runs[i]), int(runs[i + 1]), int(runs[i + 2])
+        if x1 <= x0:
+            continue
+        # Rounding both edges of a cell the same way makes neighbouring rows
+        # and columns share an edge exactly, so the silhouette tiles with no
+        # hairline gaps between the rectangles.
+        left, right = round(x0 * sx), round(x1 * sx)
+        top, bottom = round(y * sy), round((y + 1) * sy)
+        left = max(0, min(left, client_w))
+        right = max(0, min(right, client_w))
+        top = max(0, min(top, client_h))
+        bottom = max(0, min(bottom, client_h))
+        if right <= left or bottom <= top:
+            continue
+        rects.append((left + off_x, top + off_y, right + off_x, bottom + off_y))
+    return rects
+
+
+def _set_window_region(hwnd: int, rects) -> bool:
+    """Apply `rects` as the window's region, in one call.
+
+    ExtCreateRegion takes the whole rectangle list at once. The obvious
+    alternative — CreateRectRgn + CombineRgn per rectangle — is hundreds of
+    GDI round trips several times a second, which is exactly the "heavy"
+    this is supposed to avoid.
+
+    On success Windows takes ownership of the region handle and it must not
+    be deleted; on failure it is ours to free.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    gdi32, user32 = ctypes.windll.gdi32, ctypes.windll.user32
+
+    class RGNDATAHEADER(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("iType", wintypes.DWORD),
+            ("nCount", wintypes.DWORD),
+            ("nRgnSize", wintypes.DWORD),
+            ("rcBound", wintypes.RECT),
+        ]
+
+    RDH_RECTANGLES = 1
+    n = len(rects)
+    head_size = ctypes.sizeof(RGNDATAHEADER)
+    rect_size = ctypes.sizeof(wintypes.RECT)
+    buf = ctypes.create_string_buffer(head_size + n * rect_size)
+
+    header = RGNDATAHEADER(
+        head_size, RDH_RECTANGLES, n, n * rect_size,
+        wintypes.RECT(min(r[0] for r in rects), min(r[1] for r in rects),
+                      max(r[2] for r in rects), max(r[3] for r in rects)),
+    )
+    ctypes.memmove(buf, ctypes.byref(header), head_size)
+    arr = (wintypes.RECT * n).from_buffer(buf, head_size)
+    for i, (left, top, right, bottom) in enumerate(rects):
+        arr[i].left, arr[i].top = left, top
+        arr[i].right, arr[i].bottom = right, bottom
+
+    gdi32.ExtCreateRegion.argtypes = [ctypes.c_void_p, wintypes.DWORD, ctypes.c_void_p]
+    gdi32.ExtCreateRegion.restype = wintypes.HANDLE
+    rgn = gdi32.ExtCreateRegion(None, len(buf), buf)
+    if not rgn:
+        return False
+
+    user32.SetWindowRgn.argtypes = [wintypes.HWND, wintypes.HANDLE, wintypes.BOOL]
+    if not user32.SetWindowRgn(hwnd, rgn, True):
+        gdi32.DeleteObject(rgn)
+        return False
+    return True
+
+
+def _apply_shape(title: str, runs, canvas_w: int, canvas_h: int) -> bool:
+    """Clip the window to the outline the page just reported."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except Exception:
+        return False
+
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW(None, title)
+    if not hwnd:
+        return False
+
+    win, client, origin = wintypes.RECT(), wintypes.RECT(), wintypes.POINT(0, 0)
+    user32.GetWindowRect(hwnd, ctypes.byref(win))
+    user32.GetClientRect(hwnd, ctypes.byref(client))
+    user32.ClientToScreen(hwnd, ctypes.byref(origin))
+
+    rects = runs_to_rects(
+        runs, canvas_w, canvas_h,
+        client.right - client.left, client.bottom - client.top,
+        origin.x - win.left, origin.y - win.top,
+    )
+    # An empty region would make the window vanish completely, with no way to
+    # tell that from a crash. One bad frame — a paused render, a model swap
+    # mid-load — must not be able to do that, so we simply keep the last shape.
+    if not rects:
+        return False
+    return _set_window_region(hwnd, rects)
+
+
+def _keep_out_of_the_taskbar(title: str) -> None:
+    """WS_EX_TOOLWINDOW — she is scenery, not an app you Alt-Tab to."""
+    if os.name != "nt":
+        return
+    import ctypes
+    user32 = ctypes.windll.user32
+    hwnd = user32.FindWindowW(None, title)
+    if not hwnd:
+        return
+    GWL_EXSTYLE, WS_EX_TOOLWINDOW = -20, 0x00000080
+    set_long = getattr(user32, "SetWindowLongPtrW", user32.SetWindowLongW)
+    get_long = getattr(user32, "GetWindowLongPtrW", user32.GetWindowLongW)
+    get_long.restype = set_long.restype = ctypes.c_ssize_t
+    set_long(hwnd, GWL_EXSTYLE, get_long(hwnd, GWL_EXSTYLE) | WS_EX_TOOLWINDOW)
+
+
+# The page half of shape mode. Injected only into the overlay window (it is
+# guarded on window.pywebview existing, so it is inert in a normal browser).
+#
+# It downscales her live WebGL canvas into a ~100px-wide 2D canvas and walks
+# the alpha channel. Downscaling first is what keeps this cheap: ~18k pixels
+# read per frame instead of ~90k, the GPU does the resize inside drawImage,
+# and the result is one flat array of a few hundred integers.
+SHAPE_JS = r"""
+(function () {
+    if (window.__plasmaShape) return;
+    window.__plasmaShape = true;
+
+    var ALPHA = %(alpha)d;          // opacity above which a pixel counts as her
+    var PERIOD = %(period)d;        // ms between outline updates
+    var W = 100;                    // sampling grid width; height follows the window
+    var H = Math.max(8, Math.round(W * window.innerHeight / window.innerWidth));
+
+    var probe = document.createElement('canvas');
+    probe.width = W; probe.height = H;
+    var pctx = probe.getContext('2d', { willReadFrequently: true });
+
+    function source() {
+        var holder = document.getElementById('avatar-human');
+        var c = holder && holder.querySelector('canvas');
+        return (c && c.width && c.height) ? c : null;
+    }
+
+    // Runs are reported in VIEWPORT space, not canvas space: her canvas need
+    // not fill the window, and the Python side only knows about the window.
+    // Drawing her into her real sub-rectangle of the probe makes the grid a
+    // faithful miniature of what is on screen, whatever the layout does.
+    function scan() {
+        var src = source();
+        if (!src) return null;
+        var vw = document.documentElement.clientWidth  || window.innerWidth;
+        var vh = document.documentElement.clientHeight || window.innerHeight;
+        if (!vw || !vh) return null;
+        var r = src.getBoundingClientRect();
+        pctx.clearRect(0, 0, W, H);
+        try {
+            pctx.drawImage(src, r.left / vw * W, r.top / vh * H,
+                                r.width / vw * W, r.height / vh * H);
+        } catch (e) { return null; }
+        var data;
+        try { data = pctx.getImageData(0, 0, W, H).data; } catch (e) { return null; }
+
+        var runs = [];
+        for (var y = 0; y < H; y++) {
+            var row = y * W * 4, x = 0;
+            while (x < W) {
+                while (x < W && data[row + x * 4 + 3] <= ALPHA) x++;
+                if (x >= W) break;
+                var x0 = x;
+                while (x < W && data[row + x * 4 + 3] > ALPHA) x++;
+                runs.push(y, x0, x);
+            }
+        }
+        return runs.length ? runs : null;
+    }
+
+    // Chained rather than setInterval: if a frame takes longer than PERIOD we
+    // wait for it instead of piling calls up on the bridge.
+    function tick() {
+        var runs = null;
+        try { runs = scan(); } catch (e) { runs = null; }
+        var done = runs ? window.pywebview.api.set_shape(runs, W, H)
+                        : Promise.resolve();
+        done.catch(function () {}).then(function () {
+            setTimeout(tick, PERIOD);
+        });
+    }
+
+    (function ready() {
+        if (window.pywebview && window.pywebview.api && window.pywebview.api.set_shape) {
+            return tick();
+        }
+        setTimeout(ready, 200);
+    })();
+})();
+"""
+
+
 def _apply_composition_transparency(title: str) -> bool:
     """True per-pixel alpha, via the DWM composition attribute.
 
@@ -294,10 +563,14 @@ def main() -> int:
               f"using {DEFAULT_CHROMA}.")
         chroma = DEFAULT_CHROMA
 
-    mode = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "auto").strip().lower()
-    if mode not in ("auto", "alpha", "colorkey", "none"):
-        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — using 'auto'.")
-        mode = "auto"
+    mode = os.getenv("PLASMA_OVERLAY_TRANSPARENCY", "shape").strip().lower()
+    if mode == "auto":
+        mode = "shape"          # what 'auto' used to mean, now that shape wins
+    if mode not in ("shape", "alpha", "colorkey", "none"):
+        print(f"  PLASMA_OVERLAY_TRANSPARENCY={mode!r} unknown — using 'shape'.")
+        mode = "shape"
+    shape_alpha = _env_int("PLASMA_OVERLAY_SHAPE_ALPHA", DEFAULT_SHAPE_ALPHA)
+    shape_alpha = max(1, min(254, shape_alpha))
 
     # Chromium normally composites through DirectComposition, which a colour
     # key cannot see — the window changes colour instead of disappearing.
@@ -341,17 +614,39 @@ def main() -> int:
     print(f"\n{bar}")
     print(f"  Plasma desktop overlay — {url}")
     print(f"  {width}x{height} in the {corner} corner ({screen_w}x{screen_h} screen)")
+    print(f"  Transparency mode: {mode}")
     print("  Drag her to move her. Press Escape (with the window focused) to close.")
     print("  Plasma itself must already be running — python run_plasma.py")
     print(f"{bar}\n")
 
     class _Api:
-        """Exposed to the page as window.pywebview.api — see the Escape
-        handler injected below. A window has no title bar in frameless mode,
-        so there is otherwise no obvious way to close it."""
+        """Exposed to the page as window.pywebview.api.
+
+        `close` backs the Escape handler injected below — a frameless window
+        has no title bar, so there is otherwise no obvious way to close it.
+        `set_shape` is the page reporting her outline; see SHAPE_JS.
+        """
+
+        # Said once, not nine times a second: a failing shape update is
+        # already visible (she is in a box), and a per-frame log would bury
+        # everything else the script prints.
+        _shape_reported = False
 
         def close(self) -> None:
             window.destroy()
+
+        def set_shape(self, runs, canvas_w: int, canvas_h: int) -> bool:
+            ok = _apply_shape(WINDOW_TITLE, runs, canvas_w, canvas_h)
+            if not _Api._shape_reported:
+                _Api._shape_reported = True
+                rows = len(runs) // 3
+                print("  Shape clipping: "
+                      + ("on — the window is now her outline."
+                         if ok else
+                         "the page reported an outline but the window "
+                         "region would not apply."))
+                print(f"    outline: {rows} runs on a {canvas_w}x{canvas_h} grid")
+            return ok
 
     window = webview.create_window(
         WINDOW_TITLE,
@@ -373,7 +668,7 @@ def main() -> int:
         js_api=_Api(),
     )
 
-    def _wire_escape_to_close() -> None:
+    def _wire_the_page() -> None:
         try:
             window.evaluate_js(
                 "document.addEventListener('keydown', function(e) {"
@@ -382,6 +677,13 @@ def main() -> int:
             )
         except Exception:
             pass   # cosmetic — closing the terminal still works
+        if mode != "shape":
+            return
+        try:
+            window.evaluate_js(
+                SHAPE_JS % {"alpha": shape_alpha, "period": SHAPE_PERIOD_MS})
+        except Exception as e:
+            print(f"  Could not start the outline reporter: {e}")
 
     def _punch_out_the_background() -> None:
         """Make the window background disappear, once it actually exists.
@@ -406,15 +708,20 @@ def main() -> int:
                     break
                 time.sleep(0.1)
 
-            # Both mechanisms, in order, unless one was demanded explicitly.
-            # Neither is reliable across every Windows build and GPU driver,
-            # and asking the user to switch by hand costs a round trip each
-            # time — so try, then report what actually took.
-            # Order matters and follows how the window was actually built.
-            # In 'auto'/'colorkey' the window is opaque and painting `chroma`,
-            # so the colour key is the mechanism that can possibly work; the
-            # DWM accent is applied afterwards only as a long shot, since it
-            # cannot show through an opaque WebView2 on its own.
+            # Shape mode does its work from the page, once she has actually
+            # rendered — there is no outline to cut to before then. All this
+            # side has to do here is keep her out of the taskbar.
+            if mode == "shape":
+                _keep_out_of_the_taskbar(WINDOW_TITLE)
+                print("  Shape mode: waiting for the page to report her outline.")
+                print(_diagnose(WINDOW_TITLE))
+                return
+
+            # The two older mechanisms. Order follows how the window was
+            # actually built: in 'colorkey' the window is opaque and painting
+            # `chroma`, so the colour key is the one that can possibly work;
+            # the DWM accent is a long shot afterwards, since it cannot show
+            # through an opaque WebView2 on its own.
             applied = []
             if mode == "alpha":
                 if _apply_composition_transparency(WINDOW_TITLE):
@@ -430,15 +737,15 @@ def main() -> int:
             else:
                 print("  Could not apply any transparency — she stays in a box.")
             print(_diagnose(WINDOW_TITLE))
-            if not applied or mode == "auto":
-                print("  If she is still boxed, paste the block above and try:")
-                print('    $env:PLASMA_OVERLAY_SOFTWARE = "1"   '
-                      '# software compositing, slower but keyable')
+            if not applied:
+                print("  If she is still boxed, the mode that does not depend "
+                      "on the browser at all is:")
+                print('    $env:PLASMA_OVERLAY_TRANSPARENCY = "shape"')
 
         threading.Thread(target=attempt, daemon=True).start()
 
     window.events.shown += _punch_out_the_background
-    window.events.loaded += _wire_escape_to_close
+    window.events.loaded += _wire_the_page
     webview.start()
     return 0
 
