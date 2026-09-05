@@ -97,7 +97,10 @@ def run(args: dict | None = None) -> str:
     # General unit conversion
     m = _CONVERT_PATTERN.search(utterance)
     if not m:
-        return "I didn't catch the units. Try: 'convert 5 miles to kilometers'."
+        # No number-and-unit pair, so this is not a conversion. "how many "
+        # has to be a trigger to catch "how many km in 5 miles", and it also
+        # begins "how many hours should I sleep" — a question for the LLM.
+        return None
 
     value, src_str, dst_str = float(m.group(1)), m.group(2).lower(), m.group(3).lower()
 

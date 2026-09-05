@@ -148,6 +148,35 @@ it was that neither reached the conversation.
      corner placement, and the run→region scaling (plus the page-side
      scanline walker, run under node). See `docs/desktop-overlay.md`.
 
+### She felt stupid, and none of it was the model
+
+Reported as "not close to ChatGPT… doesn't respond to why or what do you
+think… if I say something outside the question he can't respond". Three
+separate causes, none of them the model's size:
+
+1. **The reply budget was spent thinking.** `OLLAMA_NUM_PREDICT=160`, and
+   qwen3 is a hybrid-reasoning model: its `<think>` block comes out of the
+   same allowance. The thinking used it up, `strip_reasoning` removed the
+   thinking, and the user got the stub of an answer that was never written —
+   real replies of 31, 50 and 20 characters. The questions that make a model
+   think longest ("why…", "what do you think…") came back emptiest, which is
+   exactly backwards. Fixed by turning thinking off for reasoning models
+   (`/no_think`, auto-detected, `OLLAMA_THINK=true` keeps it) — she is now
+   both fuller and faster — and widening the budget to 280.
+2. **Skill triggers ate ordinary conversation.** Substring matching, 49
+   skills, and prefixes as broad as `"what is "`, `"say "`, `"play"`,
+   `"start "`. Nine of twenty natural sentences never reached the LLM: "I
+   want to play chess" → Spotify, "start over" → a list of applications,
+   "what is your opinion on this" → the calculator. Fixed by matching
+   triggers on word boundaries **and** letting a skill return `None` to mean
+   "not mine", which falls through to the LLM — a command really can start
+   "what is", so only the skill can tell. Down to 1 of 20, with every command
+   still routing. `tests/test_conversation_reaches_the_llm.py` pins both
+   halves.
+3. **The system prompt was written for a lookup tool.** Concise, no preamble,
+   answer and stop. It now says she is being talked *with*: give a real
+   opinion when asked, follow the thread, ask something back.
+
 6. **Face memory with a name, from one sighting.** ✅ Done.
    She sees a face `identify()` does not know, holds it for ~9 frames (~1.5s,
    so a passer-by does not count), and asks: *"Hello! I don't think we've

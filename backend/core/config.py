@@ -110,7 +110,12 @@ class Config:
     # Cap on reply length, in tokens. A spoken answer costs time twice — once
     # to generate, once to speak — so a rambling model is slow at both ends.
     # ~160 tokens is a comfortable few sentences. 0 disables the cap.
-    OLLAMA_NUM_PREDICT: int = int(os.getenv("OLLAMA_NUM_PREDICT", "160"))
+    # 160 was set when this budget was all answer. On a hybrid-reasoning
+    # model the <think> block is spent from the same allowance, so 160 left
+    # almost nothing for the reply — see ollama_client._REASONING_MODELS.
+    # Thinking is now off by default for those, and this is a little wider so
+    # a real explanation fits: ~200 words, still a few seconds on a laptop.
+    OLLAMA_NUM_PREDICT: int = int(os.getenv("OLLAMA_NUM_PREDICT", "280"))
     # Context window. 0 leaves it to the model's own default; raise it only if
     # long conversations start losing the thread, since a bigger window costs
     # memory and slows every token.

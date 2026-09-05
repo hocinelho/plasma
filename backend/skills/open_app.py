@@ -11,6 +11,18 @@ log = logging.getLogger("plasma.skill.open_app")
 #   "uri"     -> os.startfile(uri)                 — protocol handler (ms-settings:, etc.)
 #   "start"   -> start "" "<name>"                 — looks up Start Menu / default handler
 #   "url"     -> open a website in default browser
+# Words that follow "open"/"launch"/"start" in ordinary speech rather than
+# naming a program. The triggers have to be this broad — "open " really is
+# how people ask — so the way out is recognising when the object is not an
+# application at all.
+_NOT_AN_APP = frozenset({
+    "over", "again", "now", "here", "there", "up", "out", "off", "on",
+    "working", "talking", "listening", "recording", "moving", "walking",
+    "it", "that", "this", "one", "them", "with", "from", "to", "for",
+    "your", "my", "his", "her", "our", "their", "yourself", "myself",
+    "the day", "a conversation", "the conversation", "a new one",
+})
+
 APPS: dict[str, tuple[str, str]] = {
     # System apps
     "notepad":    ("shell", "notepad.exe"),
@@ -84,12 +96,19 @@ def run(args: dict | None = None) -> str:
         utterance,
     )
     if not m:
-        return "Sorry, I didn't catch which app to open."
+        return None                # not "open <something>" — let the LLM have it
 
     name = m.group(1).strip()
 
     # Strip leading "a " / "the "
     name = re.sub(r"^(?:a|the)\s+", "", name)
+
+    # "start over", "start again", "open up to me" — the verb is there but the
+    # word after it is not an application, it is the rest of an ordinary
+    # sentence. Listing the apps she knows in reply to "start over" is the
+    # kind of answer that makes her feel like a phrasebook.
+    if name in _NOT_AN_APP:
+        return None
 
     if name not in APPS:
         known = ", ".join(sorted(APPS.keys()))

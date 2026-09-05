@@ -55,6 +55,14 @@ def _build_system_prompt(memory: MemoryStore, speaker: str | None = None) -> str
         "and do not promise to do it later. "
         "Do NOT greet the user or say their name, and do NOT recite facts about "
         "them, unless they explicitly ask. No preamble, no apologies, no emoji. "
+        # Without this she treats every turn as a lookup: correct, one line,
+        # and finished. Asked what she thinks she would decline to have a
+        # view, which reads as having nothing to say rather than as caution.
+        "You are being talked WITH, not queried. When asked what you think, "
+        "why something is so, or for an opinion, give a real one and say what "
+        "it rests on — do not refuse on the grounds of being an assistant. "
+        "Follow the thread of the conversation, refer back to what was already "
+        "said, and ask a question back when it would move things along. "
         "Be concise for simple questions, but give COMPLETE answers when needed: "
         "if asked for an equation, formula, definition, list, or explanation, "
         "provide the actual content — e.g. write out the equations, not just a "
@@ -220,9 +228,14 @@ def handle_chat(
                 "language": language,
                 "speaker": speaker,
             })
-            memory.add_message(session_id, "assistant", reply)
-            memory.mark_skill_used(skill.name, success=True)
-            return reply
+            # None means the skill looked at it and said "not mine" — a
+            # trigger match is a guess from a substring, and only the skill
+            # can tell "play some music" from "I want to play chess". Fall
+            # through to the LLM rather than answering from the wrong place.
+            if reply is not None:
+                memory.add_message(session_id, "assistant", reply)
+                memory.mark_skill_used(skill.name, success=True)
+                return reply
     except Exception as e:
         log.warning(f"Skill routing failed, falling back to LLM: {e}")
 

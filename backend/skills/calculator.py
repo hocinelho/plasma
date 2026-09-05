@@ -56,7 +56,12 @@ def run(args: dict | None = None) -> str:
     expr = _to_expr(utterance)
 
     if not expr or not _SAFE.match(expr):
-        return "I can only do basic math: addition, subtraction, multiplication, and division."
+        # Not arithmetic — decline, so the LLM answers instead. The trigger
+        # list has to contain "what is " to catch "what is 12 times 4", and
+        # that same prefix starts a huge share of ordinary questions:
+        # "what is your opinion on this" used to be answered by a calculator
+        # explaining it only does addition.
+        return None
 
     try:
         result = eval(expr, {"__builtins__": {}})  # noqa: S307 — safe: _SAFE validated

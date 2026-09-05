@@ -26,6 +26,47 @@ DEFAULT_TIMEOUT = httpx.Timeout(
 
 _SENTENCE_END = re.compile(r'[.!?](?:\s|$)')
 
+# Hybrid-reasoning models: they emit a <think> block before the answer, and
+# it is spent from the SAME num_predict budget. At the shipped cap of 160
+# tokens that is the whole allowance — the thinking uses it up, strip_reasoning
+# removes the thinking, and what reaches the user is the tail end of an answer
+# that never got written. Measured on a real session: replies of 31, 50 and 20
+# characters, and "why…" or "what do you think…" questions — the ones that
+# make a model think longest — came back emptiest of all. It reads exactly
+# like a model that has nothing to say.
+#
+# For a voice assistant the answer is not a bigger budget: on a laptop CPU,
+# tripling the tokens triples the wait. The answer is to not think out loud at
+# all. qwen3 takes "/no_think" as a soft switch that skips the block, so the
+# whole budget goes to the reply and she is faster as well as fuller.
+_REASONING_MODELS = ("qwen3", "deepseek-r1", "magistral", "phi4-reasoning",
+                     "qwq", "exaone-deep")
+NO_THINK = "/no_think"
+
+
+def is_reasoning_model(name: str) -> bool:
+    """True if this model emits a chain of thought unless told not to."""
+    n = (name or "").lower()
+    return any(tag in n for tag in _REASONING_MODELS)
+
+
+def thinking_disabled(model: str) -> bool:
+    """Whether to ask this model to skip its visible reasoning.
+
+    Reads the existing OLLAMA_THINK knob rather than adding a second one.
+    Unset (the default) means "decide from the model", and for a voice
+    assistant that means off wherever it exists: the deliberation is never
+    shown and never spoken, so it buys nothing and costs both the token
+    budget and the wait. Set OLLAMA_THINK=true to keep it — worth it on a
+    fast machine, where the extra quality on hard questions is free.
+    """
+    mode = (getattr(config, "OLLAMA_THINK", "") or "").strip().lower()
+    if mode in ("true", "1", "yes", "on"):
+        return False
+    if mode in ("false", "0", "no", "off"):
+        return True
+    return is_reasoning_model(model)
+
 
 def _runtime_options() -> dict:
     """The per-request knobs that decide how fast she feels.
@@ -72,9 +113,16 @@ def _build_messages(
     system_prompt: str | None,
     history: list[dict] | None,
     user_message: str,
+    model: str | None = None,
 ) -> list[dict]:
     messages: list[dict] = []
-    if system_prompt:
+    if system_prompt or thinking_disabled(model or config.OLLAMA_MODEL):
+        system_prompt = system_prompt or ""
+        if thinking_disabled(model or config.OLLAMA_MODEL):
+            # Inert text to any model that does not know it, so this needs no
+            # version check — unlike Ollama's think:false, which is rejected
+            # outright by models without a thinking mode.
+            system_prompt = f"{system_prompt}\n\n{NO_THINK}".strip()
         messages.append({"role": "system", "content": system_prompt})
     for m in (history or []):
         if m.get("role") in ("user", "assistant", "system"):
@@ -92,7 +140,7 @@ def chat(
     """Full blocking call — waits for the complete reply."""
     model = model or config.OLLAMA_MODEL
     url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
-    messages = _build_messages(system_prompt, history, user_message)
+    messages = _build_messages(system_prompt, history, user_message, model)
     payload = _payload(model, messages, stream=False)
     log.info(f"Ollama call (full): model={model} history_len={len(history or [])}")
 
@@ -123,7 +171,7 @@ def chat_first_sentence(
     """
     model = model or config.OLLAMA_MODEL
     url = f"{config.OLLAMA_BASE_URL.rstrip('/')}/api/chat"
-    messages = _build_messages(system_prompt, history, user_message)
+    messages = _build_messages(system_prompt, history, user_message, model)
     payload = _payload(model, messages, stream=True)
     log.info(f"Ollama call (streaming): model={model} history_len={len(history or [])}")
 

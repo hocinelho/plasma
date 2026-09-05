@@ -19,6 +19,7 @@ We mitigate by running self_test at load time.
 from __future__ import annotations
 import importlib.util
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -40,12 +41,57 @@ class Skill:
     run: Callable[[dict], str]
     file_path: str
 
-    def invoke(self, args: Optional[dict] = None) -> str:
+    def invoke(self, args: Optional[dict] = None) -> Optional[str]:
+        """Run the skill. None means "this was not for me".
+
+        A trigger match is a guess made from a substring, and some of them
+        have to be broad — "open ", "what is ", "play" — to catch the
+        commands people actually say. The skill itself is the only place that
+        can tell "open Chrome" from "open up to me", so it can decline by
+        returning None and the router sends the utterance on to the LLM.
+
+        The alternative, which is what happened before, is a confidently
+        wrong answer from a skill that could not possibly help: "I want to
+        play chess" answered by Spotify.
+        """
         try:
-            return self.run(args or {})
+            reply = self.run(args or {})
         except Exception as e:
             log.exception(f"Skill '{self.name}' raised: {e}")
             return f"(Skill {self.name} failed: {e})"
+        if reply is None or (isinstance(reply, str) and not reply.strip()):
+            log.info(f"Skill '{self.name}' declined — passing to the LLM")
+            return None
+        return reply
+
+
+# Words that can precede a command without changing that it is one: her name,
+# and the polite wrappers people put in front of a request out loud. Stripped
+# before deciding whether a trigger STARTS the utterance, so "Plasma, can you
+# open Chrome" is still an "open " command.
+_ADDRESS = re.compile(
+    r"^(?:\s*(?:hey|hi|hallo|ok|okay|yo)?\s*plasma\s*[,.!]?\s*"
+    r"|\s*(?:please|bitte|could you|can you|would you|kannst du|könntest du)\s+)+",
+    re.IGNORECASE,
+)
+
+
+def _matches_as_words(trigger: str, utterance: str) -> bool:
+    """Does `trigger` appear in `utterance` as whole words?
+
+    The point is to stop a trigger matching inside a longer word or midway
+    through an unrelated sentence — "say " inside "why do you say that",
+    "play" inside "I want to play chess". Both ends are anchored on a word
+    boundary, so "start " still matches "start Chrome" and no longer matches
+    "restart".
+
+    A trailing space in a trigger is meaningful — "find a " wants a word
+    after it — so it is kept as a required boundary rather than stripped.
+    """
+    pattern = r"\b" + r"\s+".join(re.escape(w) for w in trigger.split()) + r"\b"
+    if trigger.endswith(" "):
+        pattern += r"\s"          # the trigger demands something after it
+    return re.search(pattern, utterance) is not None
 
 
 class SkillRegistry:
@@ -141,15 +187,38 @@ class SkillRegistry:
         return self._skills.get(name)
 
     def find_by_trigger(self, utterance: str) -> Optional[Skill]:
-        """Naive keyword match: longest-trigger-wins."""
+        """Longest-trigger-wins, but only where the trigger is a real word.
+
+        This used to be a plain substring test, and with 49 skills carrying
+        prefixes as broad as "what is ", "say ", "play" and "start " it took
+        most of ordinary conversation away from the LLM before it ever saw
+        it. Measured against twenty natural sentences, eight were captured:
+
+            "why do you say that"        -> translator
+            "I want to play chess"       -> spotify_control
+            "start over"                 -> open_app
+            "how many hours should I sleep" -> unit_converter
+
+        None of those is a command, and each got a confidently wrong answer
+        from a skill that could not possibly help. That is what "if I say
+        something outside the question he can't respond" is.
+
+        A word-boundary test fixes the ones where the trigger landed inside
+        or midway through a sentence. It cannot fix "what is your opinion"
+        (calculator) — a command really can start that way — so a skill may
+        also decline by returning None from run(), which sends the utterance
+        on to the LLM; see chat_service.
+        """
         lowered = utterance.lower()
         best: Optional[Skill] = None
         best_len = 0
         for skill in self._skills.values():
             for trig in skill.triggers:
-                if trig.lower() in lowered and len(trig) > best_len:
-                    best = skill
-                    best_len = len(trig)
+                t = trig.lower().strip()
+                if not t or len(t) <= best_len:
+                    continue
+                if _matches_as_words(t, lowered):
+                    best, best_len = skill, len(t)
         return best
 
 
