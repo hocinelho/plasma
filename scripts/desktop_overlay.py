@@ -111,11 +111,16 @@ WINDOW_TITLE = "Plasma Overlay"
 # with black hair and a navy outfit is invisible where a magenta one would
 # not be. Nothing in the render is likely to land on exactly #010101.
 DEFAULT_CHROMA = "#010101"
-# Shape mode: how opaque a pixel must be to be counted as part of her. Biased
-# high on purpose — the region has hard edges, so it is better for it to cut
-# a hair *inside* her anti-aliased outline than to leave a rim of window
-# background around her.
-DEFAULT_SHAPE_ALPHA = 96
+# Shape mode: how opaque a pixel must be to be counted as part of her. 128 is
+# the neutral place to cut — half coverage — now that the outline is sampled
+# at the window's real pixel resolution rather than upscaled from a miniature.
+# Raise it to cut further inside her (kills any rim of window background at
+# the cost of shaving her edge); lower it to keep more of her soft edge.
+DEFAULT_SHAPE_ALPHA = 128
+# Ceiling on the sampling grid's width in device pixels. A 220px-wide overlay
+# on a 125% display samples at 275 and never reaches this; it only stops a
+# very large overlay from making each frame expensive.
+SHAPE_MAX_WIDTH = 480
 DEFAULT_TRANSPARENCY = "shape"
 TRANSPARENCY_MODES = ("shape", "alpha", "colorkey", "none", "auto")
 # How often the page re-reports her outline. She breathes and gestures, so the
@@ -252,6 +257,35 @@ def _diagnose(title: str) -> str:
 #  The page reports her outline; this side turns it into the region. Reading
 #  her alpha from the browser is possible at all because of the
 #  preserveDrawingBuffer patch in vendor/talkinghead (added for /wallpaper).
+
+
+def describe_outline(runs, canvas_w: int, canvas_h: int) -> str:
+    """One line saying what the page actually reported.
+
+    "She is still in a box" is the same sentence whether the region never
+    applied, or applied perfectly to an outline that covers the whole window
+    because the alpha channel came back opaque. Those need opposite fixes, so
+    the console has to tell them apart without another round trip.
+
+    A standing person fills roughly a fifth to a third of her own bounding
+    box; anything near 100% means the alpha read is wrong, not that she is
+    fat.
+    """
+    if not runs or canvas_w <= 0 or canvas_h <= 0:
+        return "  outline: nothing reported"
+    xs0 = [runs[i + 1] for i in range(0, len(runs) - 2, 3)]
+    xs1 = [runs[i + 2] for i in range(0, len(runs) - 2, 3)]
+    ys = [runs[i] for i in range(0, len(runs) - 2, 3)]
+    covered = sum(b - a for a, b in zip(xs0, xs1))
+    pct = 100.0 * covered / (canvas_w * canvas_h)
+    line = (f"  outline: {len(ys)} runs, "
+            f"x {min(xs0)}-{max(xs1)} y {min(ys)}-{max(ys) + 1} "
+            f"of {canvas_w}x{canvas_h}, {pct:.0f}% of the window")
+    if pct > 90:
+        line += ("\n    ^ that is nearly the whole window, so the cut cannot "
+                 "help: her canvas\n      is coming back opaque instead of "
+                 "with an alpha channel.")
+    return line
 
 
 def runs_to_rects(
@@ -406,10 +440,14 @@ def _keep_out_of_the_taskbar(title: str) -> None:
 # The page half of shape mode. Injected only into the overlay window (it is
 # guarded on window.pywebview existing, so it is inert in a normal browser).
 #
-# It downscales her live WebGL canvas into a ~100px-wide 2D canvas and walks
-# the alpha channel. Downscaling first is what keeps this cheap: ~18k pixels
-# read per frame instead of ~90k, the GPU does the resize inside drawImage,
-# and the result is one flat array of a few hundred integers.
+# It samples her live WebGL canvas at the window's REAL pixel resolution and
+# walks the alpha channel. The first version sampled a 100px-wide miniature to
+# save work; scaled back up to a 220px window that is a 2.2x upscale, and the
+# cut came out in visible 3px stair-steps — "the cutting of the border of the
+# body is wrong, not professional", which it was. At native resolution the cut
+# lands on the pixel the renderer actually drew, which is as clean as a region
+# can be. It costs ~90k pixels read per frame instead of ~18k; that is about a
+# millisecond, and it only runs when her outline has actually changed.
 SHAPE_JS = r"""
 (function () {
     if (window.__plasmaShape) return;
@@ -417,7 +455,12 @@ SHAPE_JS = r"""
 
     var ALPHA = %(alpha)d;          // opacity above which a pixel counts as her
     var PERIOD = %(period)d;        // ms between outline updates
-    var W = 100;                    // sampling grid width; height follows the window
+    // Device pixels, not CSS pixels: at 125%% scaling the window is physically
+    // bigger than innerWidth says, and sampling in CSS pixels would put the
+    // stair-steps straight back. Capped so a huge overlay cannot make each
+    // frame expensive.
+    var DPR = window.devicePixelRatio || 1;
+    var W = Math.min(%(maxw)d, Math.max(32, Math.round(window.innerWidth * DPR)));
     var H = Math.max(8, Math.round(W * window.innerHeight / window.innerWidth));
 
     var probe = document.createElement('canvas');
@@ -492,6 +535,21 @@ SHAPE_JS = r"""
     })();
 })();
 """
+
+
+def render_shape_js(alpha: int = DEFAULT_SHAPE_ALPHA) -> str:
+    """SHAPE_JS with its placeholders filled in.
+
+    One function rather than a dict at each call site: it is applied with `%`,
+    so a placeholder added to the template and missed at a call site is a
+    KeyError at runtime — inside the `loaded` handler, where it means no
+    transparency and no obvious reason why.
+    """
+    return SHAPE_JS % {
+        "alpha": alpha,
+        "period": SHAPE_PERIOD_MS,
+        "maxw": SHAPE_MAX_WIDTH,
+    }
 
 
 def _apply_composition_transparency(title: str) -> bool:
@@ -671,13 +729,12 @@ def main() -> int:
             ok = _apply_shape(WINDOW_TITLE, runs, canvas_w, canvas_h)
             if not _Api._shape_reported:
                 _Api._shape_reported = True
-                rows = len(runs) // 3
                 print("  Shape clipping: "
                       + ("on — the window is now her outline."
                          if ok else
                          "the page reported an outline but the window "
                          "region would not apply."))
-                print(f"    outline: {rows} runs on a {canvas_w}x{canvas_h} grid")
+                print(describe_outline(runs, canvas_w, canvas_h))
             return ok
 
     window = webview.create_window(
@@ -690,12 +747,21 @@ def main() -> int:
         frameless=True,
         easy_drag=True,
         on_top=True,
-        # "alpha" needs WebView2 to hand the window real per-pixel alpha,
-        # which is exactly what pywebview's transparent=True switches on.
-        # "colorkey" needs the opposite: an opaque window painting one exact
-        # colour for _apply_color_key to punch out. background_color must be
-        # plain 6-digit hex — pywebview validates ^#(?:[0-9a-fA-F]{3}){1,2}$.
-        transparent=(mode == "alpha"),
+        # transparent=True is the ONLY thing that stops WebView2 painting an
+        # opaque background of its own. pywebview 6.2.1's edgechromium.py:
+        #
+        #     DefaultBackgroundColor = Color.FromArgb(255, r, g, b)   # opaque!
+        #     if window.transparent: DefaultBackgroundColor = Transparent
+        #
+        # So without it the page's transparent pixels reveal a solid rectangle
+        # of `background_color` — that filled box around her is not the window
+        # frame, it is the browser itself. Every mode wants it gone: `alpha`
+        # needs the real per-pixel alpha it switches on, `colorkey` needs the
+        # form's key colour to actually be visible before it can be punched
+        # out, and `shape` needs nothing painted inside the cut-out.
+        # background_color must be plain 6-digit hex — pywebview validates
+        # ^#(?:[0-9a-fA-F]{3}){1,2}$.
+        transparent=(mode != "none"),
         background_color=chroma,
         js_api=_Api(),
     )
@@ -712,8 +778,7 @@ def main() -> int:
         if mode != "shape":
             return
         try:
-            window.evaluate_js(
-                SHAPE_JS % {"alpha": shape_alpha, "period": SHAPE_PERIOD_MS})
+            window.evaluate_js(render_shape_js(shape_alpha))
         except Exception as e:
             print(f"  Could not start the outline reporter: {e}")
 

@@ -75,19 +75,29 @@ python scripts\desktop_overlay.py --shape
 mode, the default, does — and it gets there by not trying to make the browser
 transparent at all.
 
-### Why the obvious approach does not work
+### Two separate boxes, and they are not the same problem
 
-pywebview's `transparent=True` alone is **not enough on Windows**. It makes
-the WebView2 *control* transparent but never gives the WinForms *window* any
-transparency — no `TransparencyKey`, no `AllowsTransparency`, no layered
-style (checked against pywebview 6.2.1's `winforms.py`). The page's
-transparent pixels then reveal the form's own opaque background: the white
-box.
+**The browser paints one.** pywebview 6.2.1's `edgechromium.py`:
 
-Helping it from Win32 does not fix it either, and both ways of doing so fail
-for the *same* reason. Chromium renders through **DirectComposition** — its
-pixels never pass through the window's own surface — so neither a colour key
-(`WS_EX_LAYERED` + `LWA_COLORKEY`) nor a DWM accent
+```python
+self.webview.DefaultBackgroundColor = Color.FromArgb(255, r, g, b)  # opaque!
+if window.transparent:
+    self.webview.DefaultBackgroundColor = Color.Transparent
+```
+
+Without `transparent=True` the WebView2 control fills itself with an **opaque**
+`background_color`, and the page's transparent pixels reveal that. It is real
+page content, so no amount of Win32 work on the window can remove it — the
+window is doing what it was told. The overlay now passes `transparent=True`
+in every mode for exactly this reason.
+
+**The window paints the other**, and this is the one that is genuinely hard.
+pywebview never gives the WinForms window any transparency — no
+`TransparencyKey`, no `AllowsTransparency`, no layered style (checked against
+its `winforms.py`) — and helping it from Win32 does not work either, because
+both ways fail for the *same* reason. Chromium renders through
+**DirectComposition**; its pixels never pass through the window's own surface,
+so neither a colour key (`WS_EX_LAYERED` + `LWA_COLORKEY`) nor a DWM accent
 (`SetWindowCompositionAttribute`) can reach them. You get a box that changes
 colour instead of a box that goes away. Forcing `--disable-gpu-compositing`
 puts the pixels back where a key can see them, at the cost of the GPU on a
@@ -103,14 +113,21 @@ drawn, not composited, and not clickable. It is applied by USER32/DWM
 *around* the content, so what renders inside is irrelevant: WebView2 cannot
 composite past a hole that is not there.
 
-It works like this, ~9 times a second:
+It works like this, up to ~9 times a second (and not at all while she holds
+still, since an unchanged outline is not re-sent):
 
-1. The page downscales her live WebGL canvas into a ~100px-wide 2D canvas
-   (the GPU does the resize inside `drawImage`, so this is cheap).
+1. The page draws her live WebGL canvas into a 2D canvas at the window's
+   **device-pixel** resolution — `innerWidth × devicePixelRatio`, so a 125%
+   display samples at 275px, not 220.
 2. It walks the alpha channel and emits one run per horizontal stretch of
    "this is her" — a few hundred integers.
 3. `scripts/desktop_overlay.py` scales those runs into window coordinates and
    hands them to `ExtCreateRegion` + `SetWindowRgn` in **one** GDI call.
+
+Sampling at native resolution is the difference between a clean cut and a
+ragged one. The first version sampled a 100px-wide miniature to save work;
+scaled back up to a 220px window that is a 2.2× upscale, and the outline came
+out in visible three-pixel stair-steps.
 
 No new dependency — `ctypes` and a little JavaScript. Reading her alpha at all
 is possible because of the `preserveDrawingBuffer` patch in
@@ -129,10 +146,11 @@ That is how every desktop pet on Windows has ever looked, and it is the price
 of not needing a full per-pixel-alpha compositor (what Electron ships) to get
 her out of the box.
 
-`PLASMA_OVERLAY_SHAPE_ALPHA` (default 96) is where the cut falls. It is
-biased high on purpose — better a hair *inside* her outline than a rim of
-window background around her. Lower it if she looks eaten into; raise it if
-you see a dark halo.
+`PLASMA_OVERLAY_SHAPE_ALPHA` (default 128) is where the cut falls. Sampled at
+native resolution the alpha value *is* the pixel's coverage, so 128 — half
+covered — is the neutral place to put it. Raise it to cut further inside her
+(kills any rim of background at the cost of shaving her edge); lower it to
+keep more of her soft edge.
 
 ### The other modes
 
@@ -154,8 +172,12 @@ whether the shape actually applied. Read the **mode** line first:
 - *"Transparency mode: colorkey"* (or `alpha`, or `none`) — shape mode never
   ran. A `$env:PLASMA_OVERLAY_TRANSPARENCY` left over in this PowerShell
   window is overriding it; see above.
-- *"Shape clipping: on"* — the region applied. If you still see a box, it is
-  not this window.
+- *"Shape clipping: on"* — the region applied. The `outline:` line under it
+  says what was cut: how many runs, the bounding box, and what fraction of
+  the window she covers. A standing person covers roughly a fifth to a third;
+  if it says 90-100%, the cut is working and cannot help, because her canvas
+  is coming back opaque rather than with an alpha channel. The script says so
+  in as many words.
 - *"the page reported an outline but the window region would not apply"* —
   Win32 refused; paste the diagnostic block.
 - **Nothing at all about shape clipping** — the page never reported an

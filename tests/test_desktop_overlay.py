@@ -160,10 +160,15 @@ class TestColorKey:
 
 
 class TestTransparencyMode:
-    """Two mechanisms, and they need OPPOSITE things from pywebview: alpha
-    needs transparent=True (WebView2 hands over real per-pixel alpha), while
-    colorkey needs an opaque window painting one exact colour to punch out.
-    Wiring either to the wrong flag produces a solid box and no error."""
+    """transparent=True is not optional, whichever mechanism is in use.
+
+    pywebview 6.2.1's edgechromium.py sets the WebView2 control's
+    DefaultBackgroundColor to an OPAQUE background_color and only replaces it
+    with Color.Transparent when window.transparent is set. Without it the
+    page's transparent pixels reveal a solid rectangle painted by the browser
+    itself — a filled box around her that no amount of Win32 work on the
+    window can remove, because it is real content.
+    """
 
     def _create_kwargs(self, monkeypatch, **env):
         for k, v in env.items():
@@ -181,31 +186,44 @@ class TestTransparencyMode:
         default now."""
         monkeypatch.delenv("PLASMA_OVERLAY_TRANSPARENCY", raising=False)
         kwargs = self._create_kwargs(monkeypatch)
-        assert kwargs["transparent"] is False
+        assert kwargs["transparent"] is True
         assert kwargs["background_color"] == overlay.DEFAULT_CHROMA
 
     def test_auto_still_works_and_now_means_shape(self, monkeypatch, capsys):
         """'auto' was the documented default for the old two-mechanism
         version — it must not start printing "unknown" at people who still
         have it set."""
-        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="auto")
-        assert kwargs["transparent"] is False
+        self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="auto")
         assert "unknown" not in capsys.readouterr().out
 
-    def test_alpha_asks_pywebview_for_a_transparent_window(self, monkeypatch):
-        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
-        assert kwargs["transparent"] is True
+    def test_every_working_mode_stops_the_browser_painting_a_background(
+            self, monkeypatch):
+        """The regression this exists for: shape mode shipped with
+        transparent=False, so WebView2 filled the window with an opaque
+        background_color and the cut-out framed a solid rectangle. The mode
+        does not matter — a browser-painted background defeats all of them."""
+        for mode in ("shape", "alpha", "colorkey"):
+            kwargs = self._create_kwargs(
+                monkeypatch, PLASMA_OVERLAY_TRANSPARENCY=mode)
+            assert kwargs["transparent"] is True, mode
 
-    def test_colorkey_needs_an_opaque_window(self, monkeypatch):
-        kwargs = self._create_kwargs(
-            monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="colorkey")
-        assert kwargs["transparent"] is False
+    def _mode_used(self, monkeypatch, capsys, **env):
+        """The mode the run actually settled on, read off the banner.
+
+        Every mode now builds the same window (transparent=True), so the
+        create_window kwargs no longer distinguish them — the printed line is
+        the observable, and it is also the one the user is asked to read.
+        """
+        self._create_kwargs(monkeypatch, **env)
+        out = capsys.readouterr().out
+        line = [ln for ln in out.splitlines() if "Transparency mode:" in ln][0]
+        return line.split("Transparency mode:", 1)[1].strip().split()[0], out
 
     def test_an_unknown_mode_falls_back_to_the_default(self, monkeypatch, capsys):
-        kwargs = self._create_kwargs(
-            monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="magic")
-        assert kwargs["transparent"] is False
-        assert "unknown" in capsys.readouterr().out
+        mode, out = self._mode_used(
+            monkeypatch, capsys, PLASMA_OVERLAY_TRANSPARENCY="magic")
+        assert mode == overlay.DEFAULT_TRANSPARENCY
+        assert "unknown" in out
 
     def test_software_compositing_is_opt_in(self, monkeypatch):
         """It costs GPU acceleration on a live WebGL render, so it must never
@@ -238,19 +256,21 @@ class TestTransparencyMode:
         self._create_kwargs(monkeypatch)
         assert "NOT the default" not in capsys.readouterr().out
 
-    def test_an_argument_beats_the_environment(self, monkeypatch):
+    def test_an_argument_beats_the_environment(self, monkeypatch, capsys):
         """So there is always one command that does what it says, whatever
         the shell is remembering."""
         monkeypatch.setattr(sys, "argv", ["desktop_overlay.py", "--shape"])
-        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
-        assert kwargs["transparent"] is False   # alpha would have been True
+        mode, _ = self._mode_used(
+            monkeypatch, capsys, PLASMA_OVERLAY_TRANSPARENCY="alpha")
+        assert mode == "shape"
 
-    def test_an_unrecognised_argument_is_ignored(self, monkeypatch):
+    def test_an_unrecognised_argument_is_ignored(self, monkeypatch, capsys):
         """It takes no other flags; a stray one must not change the mode or
         stop it starting."""
         monkeypatch.setattr(sys, "argv", ["desktop_overlay.py", "--verbose", "x"])
-        kwargs = self._create_kwargs(monkeypatch, PLASMA_OVERLAY_TRANSPARENCY="alpha")
-        assert kwargs["transparent"] is True
+        mode, _ = self._mode_used(
+            monkeypatch, capsys, PLASMA_OVERLAY_TRANSPARENCY="alpha")
+        assert mode == "alpha"
 
     def test_none_disables_it_entirely(self, monkeypatch):
         """An escape hatch for when both mechanisms misbehave — a visible
@@ -337,6 +357,36 @@ class TestShapeGeometry:
         assert all(r[2] > r[0] and r[3] > r[1] for r in rects)
 
 
+class TestOutlineDiagnostic:
+    """"She is still in a box" reads identically whether the region never
+    applied or applied perfectly to an outline that covers the whole window.
+    Those need opposite fixes, so the console has to tell them apart."""
+
+    def test_it_reports_the_bounding_box_and_coverage(self):
+        # A 4-wide stripe down a 10x10 grid: 40% of it.
+        runs = [y for pair in ((y, 3, 7) for y in range(10)) for y in pair]
+        line = overlay.describe_outline(runs, 10, 10)
+        assert "10 runs" in line and "x 3-7" in line and "40%" in line
+
+    def test_a_near_full_window_outline_is_called_out(self):
+        """A standing person fills a fraction of her own bounding box. Near
+        100% means the alpha channel came back opaque — the cut is working
+        and cannot help, which is the opposite diagnosis to "it did not
+        apply" and the one that looks identical on screen."""
+        runs = [v for y in range(10) for v in (y, 0, 10)]
+        line = overlay.describe_outline(runs, 10, 10)
+        assert "100%" in line
+        assert "opaque" in line
+
+    def test_a_normal_silhouette_is_not_called_out(self):
+        runs = [v for y in range(10) for v in (y, 4, 6)]
+        assert "opaque" not in overlay.describe_outline(runs, 10, 10)
+
+    def test_nothing_reported_says_so_rather_than_dividing_by_zero(self):
+        assert "nothing" in overlay.describe_outline([], 10, 10)
+        assert "nothing" in overlay.describe_outline([0, 0, 5], 0, 0)
+
+
 class TestShapeReporter:
     """The page half. It is injected as a string, so nothing type-checks it."""
 
@@ -358,11 +408,29 @@ class TestShapeReporter:
         assert "getBoundingClientRect" in overlay.SHAPE_JS
         assert "clientWidth" in overlay.SHAPE_JS
 
-    def test_it_downscales_before_reading_pixels(self):
-        """Reading the full canvas every frame is the "heavy" this is meant
-        to avoid — drawImage does the resize on the GPU."""
+    def test_it_samples_at_the_windows_real_pixel_resolution(self):
+        """The first version sampled a 100px-wide miniature. Upscaled back to
+        a 220px window that is 2.2x, and the cut came out in visible 3px
+        stair-steps — the edge looked hacked out rather than cut. The grid
+        has to be device pixels, which is innerWidth TIMES devicePixelRatio:
+        at 125% scaling the window is physically bigger than CSS says, and
+        sampling in CSS pixels puts the steps straight back."""
+        assert "devicePixelRatio" in overlay.SHAPE_JS
+        assert "window.innerWidth * DPR" in overlay.SHAPE_JS
+
+    def test_the_grid_is_capped_so_a_big_overlay_stays_cheap(self):
+        rendered = overlay.render_shape_js()
+        assert str(overlay.SHAPE_MAX_WIDTH) in rendered
+
+    def test_it_still_reads_pixels_the_cheap_way(self):
         assert "drawImage" in overlay.SHAPE_JS
         assert "willReadFrequently" in overlay.SHAPE_JS
+
+    def test_the_default_cut_is_at_half_coverage(self):
+        """Sampled at native resolution the alpha value IS the coverage, so
+        128 is the neutral place to cut. It was biased high only to hide the
+        blur the old downscale introduced."""
+        assert overlay.DEFAULT_SHAPE_ALPHA == 128
 
     def test_it_does_not_pile_calls_up_on_the_bridge(self):
         """setInterval would queue a new call whether or not the last one
@@ -387,7 +455,7 @@ class TestShapeReporter:
                      .replace('\n', r'\n').replace('\r', r'\r')
                      .replace("'", r'\''))
 
-        rendered = overlay.SHAPE_JS % {"alpha": 96, "period": 110}
+        rendered = overlay.render_shape_js(96)
         escaped = escape_string(rendered)
         # A real newline surviving into the string literal would end it.
         assert "\n" not in escaped and "\r" not in escaped
@@ -398,7 +466,7 @@ class TestShapeReporter:
     def test_the_substitutions_it_declares_are_the_ones_main_supplies(self):
         """It is applied with `%`, so a stray unescaped percent sign in the
         JavaScript is a TypeError at runtime and no transparency at all."""
-        rendered = overlay.SHAPE_JS % {"alpha": 96, "period": 110}
+        rendered = overlay.render_shape_js(96)
         assert "96" in rendered and "110" in rendered
 
     def test_the_scanline_walker_finds_the_right_runs(self, tmp_path):
@@ -416,7 +484,7 @@ class TestShapeReporter:
 
         harness = tmp_path / "harness.js"
         harness.write_text(HARNESS_JS + "\n" + (
-            overlay.SHAPE_JS % {"alpha": 96, "period": 110}) + "\nreport();\n",
+            overlay.render_shape_js(96)) + "\nreport();\n",
             encoding="utf-8")
         out = subprocess.run([node, str(harness)], capture_output=True,
                              text=True, timeout=60)
@@ -443,7 +511,7 @@ class TestShapeReporter:
             pytest.skip("node is not installed")
         harness = tmp_path / "harness.js"
         harness.write_text(HARNESS_JS.replace("var BLANK = false;", "var BLANK = true;")
-                           + "\n" + (overlay.SHAPE_JS % {"alpha": 96, "period": 110})
+                           + "\n" + (overlay.render_shape_js(96))
                            + "\nreport();\n", encoding="utf-8")
         out = subprocess.run([node, str(harness)], capture_output=True,
                              text=True, timeout=60)
